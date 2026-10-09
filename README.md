@@ -247,13 +247,61 @@ A few days of real use side by side, then remove OpenWhispr from login items.
 - **GitHub:** repos live on the Bigsy account; `gh` defaults to the work account, and git
   authenticates through `gh`'s active account. Switch before pushing.
 
+## Tuned configuration
+
+What the two servers run today, as LaunchAgents. Phase 0 turns these into files in this
+repo.
+
+### Cleanup LLM (`com.hedworth.llama-cleanup`)
+
+```sh
+GGML_METAL_RESIDENCY_KEEP_ALIVE_S=86400 \
+/opt/homebrew/bin/llama-server \
+  -m ~/models/gemma4-e2b-cleanup/unsloth-gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf \
+  --spec-type draft-mtp \
+  -md ~/models/gemma4-e2b-cleanup/unsloth-mtp-gemma-4-E2B-it.gguf \
+  --spec-draft-n-max 6 \
+  --swa-full -c 4096 -np 1 -fa on \
+  --load-mode mmap+mlock \
+  --reasoning off --temp 0 \
+  --alias gemma4-e2b-cleanup:latest \
+  --host 127.0.0.1 --port 11434 --no-webui
+```
+
+| Setting | Why | Measured |
+|---|---|---|
+| `--spec-type draft-mtp` + unsloth's QAT drafter | Gemma 4's multi-token-prediction head drafts tokens the main model verifies in one pass; output is unchanged | Median 372 → ~255 ms vs Ollama at draft length 3; 84% acceptance vs ggml-org's 82% |
+| `--spec-draft-n-max 6` | Longer drafts pay off once `--swa-full` is on | Mean 259 ms at 3, 237 at 5, **226 at 6**, 263 at 8 |
+| `--swa-full` | Full sliding-window cache, so prompts aren't processed in two passes around a checkpoint | Prompt processing 79 → 64 ms |
+| `-c 4096 -np 1` | One user; the cleanup prompt plus a dictation is ~700-1000 tokens | |
+| `--load-mode mmap+mlock` | Pin weights so macOS can't page them out between dictations | Targets the 1.5-1.7 s first request after a long idle; unverified under real memory pressure |
+| `GGML_METAL_RESIDENCY_KEEP_ALIVE_S=86400` | Keep Metal buffers resident for 24 h (default 180 s) | Residency alone was worth only ~30 ms |
+| `--reasoning off --temp 0` | No thinking and deterministic output, even if a client forgets to ask | |
+| `--alias`, port 11434 | Same model name and port as the Ollama setup it replaced, so OpenWhispr needed no changes | |
+
+Left at defaults after testing: `-ub 512` (128 was within noise), f16 KV cache, no n-gram
+drafting (267-297 ms alone or combined with MTP).
+
+Memory: identical allocations to the pre-tuning config. 2,484 MiB model + 41 MiB drafter
+(memory-mapped), 72 MiB KV cache, ~220 MiB compute buffers.
+
+### Speech-to-text (`com.hedworth.parakeet-ane`)
+
+```sh
+~/.local/bin/parakeet-ane-server --model unified --port 11435 --ffmpeg /opt/homebrew/bin/ffmpeg
+```
+
+Built and installed with `make install` from
+[parakeet-ane-server](https://github.com/Bigsy/parakeet-ane-server); its README covers
+its tuning (in-process WebM/Opus decode, sample-exact trims, single-pass resampling).
+
 ## Machine state (9 Oct 2026)
 
 | | |
 |---|---|
 | Speech-to-text | `com.hedworth.parakeet-ane` on 127.0.0.1:11435, binary in `~/.local/bin` |
 | Cleanup LLM | `com.hedworth.llama-cleanup` on 127.0.0.1:11434, `/opt/homebrew/bin/llama-server`, unsloth QAT model + drafter, `--spec-draft-n-max 6` |
-| Models | `~/models/gemma4-e2b-cleanup/` (`unsloth-*` files in use; the older Ollama hard link and ggml-org drafter are kept for rollback); Parakeet CoreML in `~/Library/Application Support/FluidAudio/Models` |
+| Models | `~/models/gemma4-e2b-cleanup/unsloth-*` (model + drafter); Parakeet CoreML in `~/Library/Application Support/FluidAudio/Models` |
 | OpenWhispr | Transcription: Self-hosted, OpenAI-compatible, `http://127.0.0.1:11435/v1`. Cleanup: `http://127.0.0.1:11434/v1`. Debug logging on. |
 | Ollama | Installed, login agent disabled (`launchctl disable gui/<uid>/com.ollama.ollama`) |
 | Hardware | MacBook Pro, M4 Pro (8P + 4E), 24 GB, macOS 26.7 |
