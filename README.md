@@ -61,7 +61,7 @@ FluidAudio, with in-process WebM/Opus decoding. ~70 ms for 8 s of audio, ~175 ms
 Its README documents its tuning in detail.
 
 **Cleanup LLM** (exists, not yet in a repo). Homebrew `llama-server` (llama.cpp 0.6.0)
-serving Gemma 4 E2B QAT Q4_0 with Gemma's MTP drafter. ~237 ms median vs 372 ms under
+serving Gemma 4 E2B QAT Q4_0 with Gemma's MTP drafter. ~227 ms median vs 372 ms under
 Ollama, with byte-identical output.
 
 **whispr-lite client** (to build). Native Swift menu-bar app: hotkey, mic, paste. No
@@ -84,27 +84,33 @@ cleanup prompt and custom dictionary, thinking disabled), warm:
 | Ollama + the same drafter (`DRAFT` in a Modelfile) | 392 ms | 558 ms |
 | mlx-lm, text-only 4-bit | 331 ms | 524 ms |
 | mlx-vlm QAT 4-bit + MTP | 423 ms | 534 ms |
-| **Installed service** | **237 ms** | **357 ms** |
+| Installed service (morning) | 237 ms | 357 ms |
+| + unsloth's QAT MTP drafter, drafts up to 6 tokens | 233 ms | 328 ms |
+| **Installed service (evening)** | **227 ms** | **332 ms** |
 
 - Ollama already runs llama.cpp's server internally, so it adds almost nothing. The win
   is the MTP drafter: generation went from ~112 to ~185 tok/s at 82% acceptance, and the
   output matched Ollama's 48/48.
 - Ollama loads the drafter but its bundled llama.cpp gets no speedup from it (confirmed by
   running each binary with the other's flags). A future Ollama release may fix that.
-- Draft lengths 3-6 all perform alike; 8 is worse. `--swa-full` cuts prompt processing
-  from 79 to 64 ms by skipping sliding-window checkpoints.
+- `--swa-full` cuts prompt processing from 79 to 64 ms by skipping sliding-window
+  checkpoints. With it on, longer drafts pay off: interleaved runs gave a mean of 259 ms
+  at the default draft length of 3, 237 ms at 5, 226 ms at 6 and 263 ms at 8. (A morning
+  sweep without `--swa-full` showed 3-6 alike.)
 - MLX was rejected: its 4-bit builds changed outputs in about half the cases, and the MLX
   path with MTP re-processes the system prompt every request and loads the vision and
   audio towers.
 - Benchmarked model: unsloth's Gemma 4 E2B QAT "smart Q4_0" from August (2,620,370,976
   bytes, sha256 `a48ad414...4ebc`), text only, with ggml-org's generic
   `mtp-gemma-4-E2B-it-Q4_0.gguf` drafter (59 MB, sha256 `718d3a44...45ef4`).
-- **Decision: standardise on unsloth's current files** from
+- **Now on unsloth's current files** from
   [unsloth/gemma-4-E2B-it-qat-GGUF](https://huggingface.co/unsloth/gemma-4-E2B-it-qat-GGUF):
-  `gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf` (same size as the August file but re-uploaded,
-  sha256 `e5310072...16889`) and `mtp-gemma-4-E2B-it.gguf`, a drafter trained for the QAT
-  model (sha256 `586f2460...4aae0`). Re-run the benchmark when switching: expect the same
-  outputs, and hopefully better than the generic drafter's 82% acceptance.
+  `gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf` (sha256 `e5310072...16889`) and
+  `mtp-gemma-4-E2B-it.gguf` (sha256 `586f2460...4aae0`). Despite the new name and hash,
+  the model is tensor-for-tensor identical to the August file; only the order of the
+  header fields changed. The drafter has different weights: it's accepted more often
+  than ggml-org's (84% vs 82% at length 3, 74% vs 68% at 6) with a better p90, though
+  the same mean. Output stayed byte-identical in every configuration.
 
 Ollama's logs showed the first dictation after 5+ minutes idle taking 1.5-1.7 s. llama.cpp's
 Metal residency timeout (180 s) accounts for only ~30 ms of that. The rest is most likely
@@ -187,8 +193,7 @@ Bring the existing setup into this repo so it can be rebuilt from scratch:
 
 - LaunchAgents for both servers (`com.hedworth.parakeet-ane`, `com.hedworth.llama-cleanup`)
 - `make install`: Homebrew llama.cpp, unsloth's QAT GGUF and QAT MTP drafter (downloaded
-  and checksum-verified, replacing the hard link into Ollama's blob store),
-  parakeet-ane-server build and install
+  and checksum-verified), parakeet-ane-server build and install
 - `make status`: health of both servers, ports, memory
 - `make bench`: the latency harness (24 synthetic dictations in OpenWhispr's request
   format, plus `say`-generated audio clips) to re-measure after llama.cpp, FluidAudio or
@@ -247,15 +252,14 @@ A few days of real use side by side, then remove OpenWhispr from login items.
 | | |
 |---|---|
 | Speech-to-text | `com.hedworth.parakeet-ane` on 127.0.0.1:11435, binary in `~/.local/bin` |
-| Cleanup LLM | `com.hedworth.llama-cleanup` on 127.0.0.1:11434, `/opt/homebrew/bin/llama-server` |
-| Models | `~/models/gemma4-e2b-cleanup/` (GGUF hard-linked from Ollama's blob, plus MTP drafter); Parakeet CoreML in `~/Library/Application Support/FluidAudio/Models` |
+| Cleanup LLM | `com.hedworth.llama-cleanup` on 127.0.0.1:11434, `/opt/homebrew/bin/llama-server`, unsloth QAT model + drafter, `--spec-draft-n-max 6` |
+| Models | `~/models/gemma4-e2b-cleanup/` (`unsloth-*` files in use; the older Ollama hard link and ggml-org drafter are kept for rollback); Parakeet CoreML in `~/Library/Application Support/FluidAudio/Models` |
 | OpenWhispr | Transcription: Self-hosted, OpenAI-compatible, `http://127.0.0.1:11435/v1`. Cleanup: `http://127.0.0.1:11434/v1`. Debug logging on. |
 | Ollama | Installed, login agent disabled (`launchctl disable gui/<uid>/com.ollama.ollama`) |
 | Hardware | MacBook Pro, M4 Pro (8P + 4E), 24 GB, macOS 26.7 |
 
 ## Open questions
 
-- How much does unsloth's QAT-matched MTP drafter improve on ggml-org's 82% acceptance?
 - The first transcription after ~23 min idle took 267 ms (vs ~110 ms warm), more than the
   90 s idle penalty. Is the Neural Engine model being evicted?
 - WebM decode on real OpenWhispr recordings takes 11-56 ms vs 7-23 ms on the test clips.
