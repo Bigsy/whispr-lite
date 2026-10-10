@@ -188,7 +188,9 @@ AudioActivityTests.optionalSyntheticWorkerBenchmark` exercises synthetic convers
 
 Warm capture keeps only 150 ms of idle audio in RAM and shows the microphone indicator.
 On-demand mode starts on press. Capture uses the hardware format, a fixed 16-slot input
-pool, serial conversion and bounded 16 kHz PCM. Release waits for the packet containing
+pool of 8,192-frame slots, serial conversion and bounded 16 kHz PCM. The larger slots
+cover the 4,410-frame tap packets observed on this Mac at 44.1 kHz despite requesting
+512 frames. Release waits for the packet containing
 the accepted release boundary, trims it and drains the converter once. The 120-second
 ceiling reserves a small margin for pre-roll/drain and offers a copy-only result. Exact
 physical-event/onset behavior, Bluetooth routing and power use still need hardware tests.
@@ -551,3 +553,26 @@ no readiness polling. The batch check uses synthetic PCM, excludes microphone ca
 physical release, display compositor delay and third-party fields, and therefore cannot
 close release-to-visible-text acceptance. Do not run integration benchmarks alongside
 builds or other model loads when assessing latency.
+
+For an opt-in acoustic benchmark on this Mac, `--capture-flow-check WAV SOX DEVICE
+EXPECTED_WORDS OUTPUT_JSON REPETITIONS` opens the app's measured native text field, waits for normal
+readiness, starts real microphone capture, plays the synthetic WAV through the named
+CoreAudio output with SoX, releases after playback, and requires a visible native text
+update. Run one pilot before 31 repetitions (one first-use and 30 warm). The app writes only stage timings, a
+synthetic-phrase detection boolean and capture-start failure count to the ignored JSON;
+it does not save captured audio or text. For example:
+
+```sh
+open -W -n --stdout /tmp/whispr-capture.log --stderr /tmp/whispr-capture.stderr \
+  'dist/Whispr Lite.app' --args --capture-flow-check \
+  "$PWD/bench/results/audio/short.wav" /opt/homebrew/bin/sox \
+  'MacBook Pro Speakers' 'hello world' "$PWD/bench/results/capture-flow.json" 1
+```
+
+The saved ASR/cleanup settings and microphone are used; the system default output is
+unchanged. Press/release are invoked inside the benchmark, so event-tap response and
+physical key action remain separate acceptance gates. The visible timestamp comes from
+the native text view's change callback, not the display compositor or another app. A
+silent or echo-cancelled input yields no timing report; do not treat it as a latency
+sample. Quit other Whispr Lite instances before running this finite mode and reopen
+the normal signed app afterward.

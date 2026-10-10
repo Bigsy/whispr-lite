@@ -36,6 +36,7 @@ private final class ConverterInput: @unchecked Sendable {
 }
 /// Fixed pool: the real-time callback copies into an available slot, never waits for a lock.
 final class AudioWorker: @unchecked Sendable {
+    private static let maximumInputFrames: AVAudioFrameCount = 8192
     let queue = DispatchQueue(label: "WhisprLite.audio", qos: .userInitiated)
     private let lock = NSLock()
     private let pool: [AVAudioPCMBuffer]
@@ -68,13 +69,13 @@ final class AudioWorker: @unchecked Sendable {
               let converter = AVAudioConverter(from: format, to: target),
               let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: 8192) else { throw AppError.capture }
         self.converter = converter; self.output = output
-        pool = (0..<16).compactMap { _ in AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4096) }
+        pool = (0..<16).compactMap { _ in AVAudioPCMBuffer(pcmFormat: format, frameCapacity: Self.maximumInputFrames) }
         guard pool.count == 16 else { throw AppError.capture }
         free = Array(0..<16); free.reserveCapacity(16)
     }
     func receive(_ input: AVAudioPCMBuffer, hostSeconds: Double? = nil) {
         guard lock.try() else { markDiscontinuity(); return }
-        guard input.frameLength <= 4096, let index = free.popLast() else { callbackOverflow = true; lock.unlock(); return }
+        guard input.frameLength <= Self.maximumInputFrames, let index = free.popLast() else { callbackOverflow = true; lock.unlock(); return }
         let buffer = pool[index]
         buffer.frameLength = input.frameLength
         let src = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input.audioBufferList))

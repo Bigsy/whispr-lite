@@ -12,6 +12,8 @@ import WhisprLiteCore
     private var item: NSStatusItem!
     private var settingsWindow: NSWindow?
     private var benchmarkWindow: NSWindow?
+    private var benchmarkField: MeasuredTextView?
+    private var benchmarkVisible: ((Double) -> Void)?
     private var store: SettingsStore!
     private var diagnostics: DiagnosticLogger?
     private let audio = AudioCapture()
@@ -84,8 +86,20 @@ import WhisprLiteCore
         indicator.activitySource = { [weak self] in self?.audio.recordingActivity ?? 0 }
         observeLifecycle()
         if CommandLine.arguments.contains("--benchmark-window") { showBenchmark() }
+        if CommandLine.arguments.contains("--capture-flow-check") { showBenchmark() }
         configure()
         if CommandLine.arguments.contains("--settings") { showSettings() }
+        if let index = CommandLine.arguments.firstIndex(of: "--capture-flow-check") {
+            Task {
+                do {
+                    try await runCaptureFlowCheck(arguments: Array(CommandLine.arguments.dropFirst(index + 1)))
+                    exit(0)
+                } catch {
+                    print("capture-flow check failed: \(type(of: error))")
+                    exit(1)
+                }
+            }
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--readiness-report"), CommandLine.arguments.count > index + 1 {
             writeReadinessReport(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
         }
@@ -397,14 +411,110 @@ import WhisprLiteCore
             let field = MeasuredTextView(frame: NSRect(x: 20, y: 45, width: 510, height: 110))
             field.font = .systemFont(ofSize: 16)
             field.onUpdate = { [weak self] in
-                if let ms = self?.coordinator?.recordVisibleText() { print("release-to-visible-text ms=\(ms)") }
+                if let ms = self?.coordinator?.recordVisibleText() {
+                    print("release-to-visible-text ms=\(ms)")
+                    self?.benchmarkVisible?(ms)
+                }
             }
             let label = NSTextField(labelWithString: "The console records content-free monotonic text-update times.")
             label.frame = NSRect(x: 20, y: 10, width: 510, height: 25)
             view.addSubview(field); view.addSubview(label)
-            window.contentView = view; window.isReleasedWhenClosed = false; window.center(); benchmarkWindow = window
+            window.contentView = view; window.isReleasedWhenClosed = false; window.center()
+            benchmarkField = field; benchmarkWindow = window
         }
         NSApp.activate(ignoringOtherApps: true); benchmarkWindow?.makeKeyAndOrderFront(nil)
+    }
+    /// Opt-in acoustic loop: synthetic speaker playback, real microphone, normal pipeline
+    /// and native paste. Press/release are called here, so the event tap is outside timing.
+    private func runCaptureFlowCheck(arguments: [String]) async throws {
+        guard arguments.count == 6, let repetitions = Int(arguments[5]), 1...31 ~= repetitions,
+              let field = benchmarkField, let window = benchmarkWindow else { throw AppError.unsupported }
+        let fixture = URL(fileURLWithPath: arguments[0])
+        let player = URL(fileURLWithPath: arguments[1])
+        let expectedWords = arguments[3].lowercased().split(separator: " ")
+        guard !expectedWords.isEmpty else { throw AppError.unsupported }
+        let output = URL(fileURLWithPath: arguments[4])
+        let device = arguments[2]
+        let deadline = ContinuousClock.now.advanced(by: .seconds(120))
+        while readinessState == .preparing && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        guard readinessState == .ready, let coordinator else { throw AppError.notReady }
+        coordinator.timings.setEnabled(true)
+        insertion.timings = coordinator.timings
+        audio.debugTimings = true
+        var observations: [[String: Any]] = []
+        var captureStartFailures = 0
+        for repetition in 0..<repetitions {
+            field.string = ""; field.setSelectedRange(NSRange(location: 0, length: 0))
+            NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil)
+            window.makeFirstResponder(field)
+            for _ in 0..<100 {
+                if NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier,
+                   window.isKeyWindow, window.firstResponder === field { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier,
+                  window.isKeyWindow, window.firstResponder === field else {
+                print("capture-flow focus frontmost=\(NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier) key=\(window.isKeyWindow) responder=\(window.firstResponder === field)")
+                throw AppError.targetChanged
+            }
+            var visibleMS: Double?
+            benchmarkVisible = { visibleMS = $0 }
+            for _ in 0..<3 {
+                coordinator.press()
+                if coordinator.state == .recording { break }
+                captureStartFailures += 1
+                coordinator.release()
+                try await Task.sleep(for: .milliseconds(250))
+            }
+            guard coordinator.state == .recording else { throw AppError.notReady }
+            try await Task.sleep(for: .milliseconds(250))
+            let playback = Process()
+            playback.executableURL = player
+            playback.arguments = ["-q", fixture.path, "-t", "coreaudio", device, "gain", "-n", "-6"]
+            playback.standardOutput = FileHandle.nullDevice
+            playback.standardError = FileHandle.nullDevice
+            let status = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, Error>) in
+                playback.terminationHandler = { finished in continuation.resume(returning: finished.terminationStatus) }
+                do { try playback.run() }
+                catch { playback.terminationHandler = nil; continuation.resume(throwing: error) }
+            }
+            guard status == 0 else { throw AppError.capture }
+            try await Task.sleep(for: .milliseconds(150))
+            coordinator.release()
+            let visibleDeadline = ContinuousClock.now.advanced(by: .seconds(12))
+            while visibleMS == nil && ContinuousClock.now < visibleDeadline {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            guard let visibleMS, !field.string.isEmpty else { throw AppError.inference }
+            let events = coordinator.timings.events
+            guard let session = events.last(where: { $0.stage == .visibleText })?.session else { throw AppError.inference }
+            let owned = events.filter { $0.session == session }
+            func span(_ start: TimingStage, _ end: TimingStage) throws -> Double {
+                guard let left = owned.first(where: { $0.stage == start }),
+                      let right = owned.first(where: { $0.stage == end }), right.seconds >= left.seconds else { throw AppError.inference }
+                return (right.seconds - left.seconds) * 1000
+            }
+            observations.append(["repetition": repetition, "condition": repetition == 0 ? "first" : "warm",
+                "release_to_visible_ms": visibleMS,
+                "release_to_capture_finalized_ms": try span(.release, .captureFinalized),
+                "asr_ms": try span(.asrStart, .asrEnd),
+                "cleanup_ms": try span(.cleanupStart, .cleanupEnd),
+                "result_to_visible_ms": try span(.resultReady, .visibleText),
+                "release_to_insertion_dispatch_ms": try span(.release, .insertionDispatched),
+                "phrase_detected": expectedWords.allSatisfy { field.string.lowercased().contains($0) }])
+            print("capture-flow observation=\(repetition + 1)/\(repetitions)")
+            benchmarkVisible = nil
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        let report: [String: Any] = ["schema": 1, "mode": "signed-acoustic-capture-to-native-text",
+            "observations": observations, "capture_start_failures": captureStartFailures,
+            "microphone_capture_measured": true,
+            "native_text_update_measured": true, "physical_hotkey_measured": false,
+            "display_compositor_latency_measured": false, "private_content_recorded": false]
+        try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: output, options: .atomic)
     }
     @objc private func quit() {
         setupTask?.cancel(); hotkey?.stop(); coordinator?.suspend(); audio.suspend()

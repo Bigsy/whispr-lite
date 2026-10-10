@@ -304,6 +304,19 @@ private actor WarmupBackend: PressWarmableASRBackend {
         try worker.begin(warm: true)
         #expect(try await worker.end().samples.isEmpty)
     }
+    @Test func hardwareSizedInputPacketDoesNotOverflowWarmCapture() async throws {
+        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 44_100, channels: 1, interleaved: false))
+        let worker = try AudioWorker(format: format)
+        // This Mac delivers 4,410 frames per callback despite a 512-frame tap request.
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4410))
+        buffer.frameLength = 4410
+        for index in 0..<4410 { buffer.floatChannelData![0][index] = 0.25 }
+        worker.receive(buffer)
+        try worker.begin(warm: true)
+        let audio = try await worker.end()
+        #expect(abs(audio.samples.count - 1600) <= 2)
+        #expect(audio.samples.suffix(100).contains { abs($0) > 0.1 })
+    }
 }
 @Suite struct StreamingTests {
     @Test func revisedSnapshotsOrderedFinishAuthoritativeAndCancelFinal() async throws {

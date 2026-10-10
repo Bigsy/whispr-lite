@@ -208,6 +208,44 @@ early partial in them. A 2-second streaming initial window, wasted full generati
 same-slot contention outweigh this mock's silent-tail opportunity for common dictation.
 The temporary server stopped on exit; the installed cleanup service was not replaced.
 
+## Acoustic release-to-visible validation attempt
+
+10 October 2026: an opt-in finite signed-app benchmark was added to play a synthetic
+phrase through a named CoreAudio output while the normal configured microphone,
+ASR, cleanup and native benchmark text field run. It invokes coordinator press/release
+inside the app, so physical key delivery and display-compositor visibility remain
+outside its span. Only timing stages and a phrase-match boolean would enter the ignored
+report; no microphone audio or recognised text is persisted.
+
+The initial pilots exposed a capture defect before playback: the 44.1 kHz input tap
+delivered 4,410-frame packets even though it requested 512 frames. The fixed callback
+pool accepted at most 4,096 frames; three successive press attempts failed with
+`overflow`. Increasing each of the 16 preallocated slots to 8,192 frames retains bounded
+callback work and accepted the observed packet. A synthetic 4,410-frame regression
+verifies warm capture and conversion. After the fix, a signed pilot reached capture
+finalization and ASR with 27,327 owned samples and no capture failure.
+
+The acoustic loop did not produce usable speech. Pilots through the built-in speaker,
+display output and selected external output all returned no visible text; the first
+fixed-path run recorded an empty ASR result, so it could not measure cleanup or
+release-to-visible latency. A separate in-memory AVFoundation level probe reported
+-91 dB with and without synthetic playback. That probe may have different microphone
+permission or echo-cancellation behavior from the signed app; it does not establish the
+cause of the empty result. No pilot is counted as a successful latency observation.
+No audio or transcript was written to disk.
+
+`make check` passed with normal session access: 71 Swift tests in 22 suites, 14 native
+broker tests, 14 setup tests, 4 release-tooling tests, signed arm64 app, doctor and
+bundle smoke check. A sandboxed attempt failed one native test; the full permitted
+rerun passed. A further signed synthetic native-flow attempt lost destination focus on
+its first fixture and produced no new report. Prior diagnostic logs contain 36
+release-to-insertion-dispatch spans (629 ms median, 1,415 ms p95), but mix earlier
+sessions/configurations and do not establish visible text or current-build latency.
+
+The 30+ real release-to-visible stage benchmark remains open. It needs a verified
+microphone speech source or controlled input route, followed by actual text-update
+observations; this attempt neither confirms nor rejects the long-idle warm-up benefit.
+
 ## Press-time ASR warm-up prototype
 
 10 October 2026: the pinned Unified batch backend was prepared from cached models,
