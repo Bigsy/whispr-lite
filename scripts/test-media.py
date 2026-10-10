@@ -171,6 +171,23 @@ class LeaseTests(unittest.TestCase):
                 b.send('end'); b.wait('skipped')
                 self.assertEqual(b.commands, [1])
 
+    def test_identifier_minted_by_our_pause_without_metadata_still_resumes(self):
+        # Chrome: the pause update carries a new opaque ID and no comparable track metadata.
+        for metadata in [None, {**TRACK, 'artist': '', 'album': ''}, {**TRACK, 'duration': 180.4}]:
+            with self.subTest(metadata=metadata):
+                b = self.broker(WHISPR_TEST_PAUSE_ITEM='minted.by.pause')
+                b.send('testState', state=dict(metadata=metadata))
+                b.send('begin'); b.wait('paused')
+                b.send('end'); b.wait('released'); b.wait('resumed')
+                self.assertEqual(b.commands, [1, 0])
+
+    def test_contradicting_track_at_pause_still_invalidates(self):
+        b = self.broker(WHISPR_TEST_PAUSE_ITEM='other.item', WHISPR_TEST_PAUSE_TITLE='Different synthetic title')
+        b.send('testState', state=dict(metadata=TRACK))
+        b.send('begin'); self.assertEqual(b.wait('skipped')['reason'], 'itemChanged')
+        b.send('end'); self.assertEqual(b.wait('skipped')['reason'], 'noLease')
+        self.assertEqual(b.commands, [1])
+
     def test_debug_off_omits_diagnostic_reason_and_invalidation_event(self):
         b = self.broker(WHISPR_DEBUG_DIAGNOSTICS='0')
         b.send('begin'); b.wait('paused')

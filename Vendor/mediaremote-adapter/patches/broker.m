@@ -29,6 +29,12 @@ static BOOL issue(MRCommand command) {
 #ifdef WHISPR_BROKER_TEST
     emit(@{@"type": @"testCommand", @"command": @(command)});
     if (!getenv("WHISPR_TEST_UNCONFIRMED")) fakeState[@"playing"] = @(command == kMRPlay);
+    // Chrome-like players mint a new opaque item ID in the same update that reports the pause.
+    if (command == kMRPause && getenv("WHISPR_TEST_PAUSE_ITEM")) fakeState[@"item"] = @(getenv("WHISPR_TEST_PAUSE_ITEM"));
+    if (command == kMRPause && getenv("WHISPR_TEST_PAUSE_TITLE")) {
+        NSMutableDictionary *metadata = [fakeState[@"metadata"] mutableCopy]; metadata[@"title"] = @(getenv("WHISPR_TEST_PAUSE_TITLE"));
+        fakeState[@"metadata"] = metadata;
+    }
     return YES;
 #else
     return g_mediaRemote.sendCommand(command, nil);
@@ -83,6 +89,10 @@ static NSDictionary *fakeSnapshot(void) {
     return snapshot;
 }
 #endif
+/// Same title, artist and album; players may report a slightly different duration once paused.
+static BOOL sameTrack(NSArray *a, NSArray *b) {
+    return [a[0] isEqual:b[0]] && [a[1] isEqual:b[1]] && [a[2] isEqual:b[2]] && fabs([a[3] doubleValue] - [b[3] doubleValue]) <= 1;
+}
 static NSString *identityFailure(NSDictionary *a, NSDictionary *b) {
     if (![b[@"known"] boolValue]) return @"unknownPlayer";
     if (![a[@"trustworthy"] boolValue] || ![b[@"trustworthy"] boolValue]) return @"unidentifiedPlayer";
@@ -91,9 +101,18 @@ static NSString *identityFailure(NSDictionary *a, NSDictionary *b) {
     NSArray *before = a[@"trackIdentity"], *after = b[@"trackIdentity"];
     // Some players regenerate the opaque content ID after Pause. Matching bounded
     // content metadata distinguishes that refresh from a real track change.
-    if (before && after && ![before isEqual:after]) return @"itemChanged";
-    if (![a[@"item"] isEqual:b[@"item"]] && !(before && after && [before isEqual:after])) return @"itemChanged";
+    if (before && after && !sameTrack(before, after)) return @"itemChanged";
+    if (![a[@"item"] isEqual:b[@"item"]] && !(before && after && sameTrack(before, after))) return @"itemChanged";
     return nil;
+}
+/// Chrome reports our Pause and a new opaque item ID in the same update, often with no
+/// artist/album/duration to compare. Until the pause is confirmed, the same player process
+/// with no contradicting track metadata is that refresh. Once confirmed, changes stay strict.
+static BOOL pauseRefresh(NSDictionary *owned, NSDictionary *next) {
+    NSDictionary *a = owned[@"identity"];
+    NSArray *before = a[@"trackIdentity"], *after = next[@"trackIdentity"];
+    return ![owned[@"confirmed"] boolValue] && [identityFailure(a, next) isEqual:@"itemChanged"] &&
+        ![a[@"item"] isEqual:next[@"item"]] && !(before && after && !sameTrack(before, after));
 }
 static BOOL identityMatches(NSDictionary *a, NSDictionary *b) { return identityFailure(a, b) == nil; }
 static void invalidateLease(NSString *reason) {
@@ -105,7 +124,7 @@ static void acceptState(NSDictionary *next) {
     NSMutableDictionary *value = [next mutableCopy]; value[@"sequence"] = @(observation); value[@"subscriptionHealthy"] = @(subscriptionHealthy);
     state = value;
     if (lease && [lease[@"issued"] boolValue]) {
-        NSString *reason = identityFailure(lease[@"identity"], state);
+        NSString *reason = pauseRefresh(lease, state) ? nil : identityFailure(lease[@"identity"], state);
         if (reason) { invalidateLease(reason); }
         else {
             if (![lease[@"identity"][@"item"] isEqual:state[@"item"]]) {
@@ -191,7 +210,8 @@ static void releaseLease(void) {
             reply(@"released", owned, current); // submission only
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
                 refresh(^(NSDictionary *next) {
-                    BOOL resumed = identityMatches(owned[@"identity"], next) && [next[@"playing"] boolValue];
+                    BOOL sameItem = identityMatches(owned[@"identity"], next) || pauseRefresh(@{@"identity": owned[@"identity"]}, next);
+                    BOOL resumed = sameItem && [next[@"playing"] boolValue];
                     replyReason(resumed ? @"resumed" : @"unconfirmed", owned, next, resumed ? nil : @"resumeUnconfirmed");
                 });
             });

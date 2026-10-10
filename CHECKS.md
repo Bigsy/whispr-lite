@@ -208,6 +208,21 @@ early partial in them. A 2-second streaming initial window, wasted full generati
 same-slot contention outweigh this mock's silent-tail opportunity for common dictation.
 The temporary server stopped on exit; the installed cleanup service was not replaced.
 
+## Chrome media resume
+
+10 October 2026: the user's debug log showed every Chrome dictation as `issued`, then
+`skipped/itemChanged` on the first update, already paused and before any `paused`
+confirmation, then `noLease` at release, so Chrome stayed paused. Spotify, whose paused
+update keeps comparable metadata, resumed. The broker now accepts a new opaque item ID from the same
+player process on the update that confirms its own pause, unless track metadata
+contradicts it; after confirmation the check stays strict. Two synthetic broker tests
+cover an ID minted at pause (no metadata, no artist/album, 0.4 s duration change) and a
+contradicting title at pause; the existing strict-ID tests pass unchanged. After the
+rebuild, the user confirmed Chrome resuming on two physical dictations; the log shows
+`itemIdentifierRefreshed`, `paused` and `released` for both. The broker's 40 ms
+post-Play check still reported `resumeUnconfirmed` for both (diagnostic only; Play was
+submitted and playback resumed).
+
 ## Hold-time ASR keep-warm
 
 10 October 2026: 48 logged real dictations (old capture path) had median ASR 217 ms and

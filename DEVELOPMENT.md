@@ -316,8 +316,11 @@ they do not establish historical provider parity or reviewed accuracy.
 Media control uses the persistent system-Perl broker. Transient helper failures allow at
 most two replacements per run, after old-process settlement. Generations discard old
 replies and playback leases. Fatal/invalid protocol disables control for the run; bounded
-off-main-thread writes and reads keep ASR independent. Real player/footprint/power
-acceptance remains open in CHECKS.md.
+off-main-thread writes and reads keep ASR independent. Chrome reports our pause and a new
+opaque item ID in the same update, often without comparable track metadata; until the
+pause is confirmed, the same player process with no contradicting metadata is treated as
+that refresh. Once confirmed, any item change still cancels the resume. Duration may
+differ by up to 1 s. Real player/footprint/power acceptance remains open in CHECKS.md.
 
 ## SwiftPM and real-model integration
 
