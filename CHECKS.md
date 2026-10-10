@@ -165,6 +165,49 @@ temporary server stopped and the installed service remained healthy.
 The signed app was relaunched after the model runs; startup diagnostics recorded
 `preparationReady` in 571 ms and `readiness=ready` at 17:09 UTC.
 
+## Speculative full cleanup mock
+
+10 October 2026: one paced Unified pass on each existing synthetic clip, plus one pass
+each on the 0.96 s short and 2.66 s correction clips with 2.7 s and 1.8 s of appended
+silence. The final clips were 3.66 s and 4.46 s. The app was closed for CoreML and
+reopened afterward. The ordinary short clip emitted no partial. The first ordinary
+correction and pause partials differed from their final transcripts. With appended
+silence, the short clip emitted an exact final-matching partial 1,416 ms before release;
+the correction clip's first two partials were wrong and its exact one arrived only
+163 ms before release. These ASR snapshots have one observation each, so partial-match
+frequency and accuracy are not established.
+
+An isolated pinned Gemma server on port 11437, with full-prompt RAM restoration off,
+ran 30 interleaved baseline/speculative pairs per available snapshot. Each condition
+started from the same warm fixed prefix and used the saved prompt and dictionary only
+in RAM. The mock reused completed speculative output only for an exact raw transcript
+and unchanged settings; otherwise it ran authoritative final cleanup. Trimmed outputs
+matched across all pairs. Release savings combine measured Gemma time with the single
+ASR snapshot's lead time; no concurrent ASR/Gemma, microphone or visible-text timing was
+measured. Report: ignored `bench/results/speculative-cleanup.json`.
+
+| Snapshot | Exact final match | Median extra/wasted Gemma work | Projected median release saving |
+|---|---:|---:|---:|
+| Ordinary correction, first partial | No | 91 ms | 1.9 ms |
+| Ordinary pause, first partial | No | 92 ms | 3.3 ms |
+| Extended correction, first partial | No | 94 ms | 1.6 ms |
+| Extended correction, late partial | Yes | 135 ms generation | 134 ms |
+| Extended short, first partial | Yes | 130 ms generation | 131 ms |
+
+The exact-match rows move cleanup into the user's silent hold, rather than reducing
+total work. A separate 30-run stress probe submitted a stale partial and, 5 ms later,
+the authoritative final request to the same Gemma slot. All 30 finals succeeded and
+matched baseline output, but release-to-final response was 173 ms median / 182 ms p95,
+versus 94 ms median / 111 ms p95 for the correction baseline without overlap. This
+shows a real contention penalty if speculation remains active near release; it is not
+a full app latency comparison.
+
+Decision: no app integration. The current app uses batch ASR, while the paced streaming
+adapter was slower on the ordinary under-five-second clips and emitted no useful exact
+early partial in them. A 2-second streaming initial window, wasted full generations and
+same-slot contention outweigh this mock's silent-tail opportunity for common dictation.
+The temporary server stopped on exit; the installed cleanup service was not replaced.
+
 ## Press-time ASR warm-up prototype
 
 10 October 2026: the pinned Unified batch backend was prepared from cached models,

@@ -353,6 +353,18 @@ preflight with a direct final chat request. Its direct path is only a latency mo
 does not preserve the app's exact context-limit check. The metric-only report is ignored
 at `bench/results/cleanup-roundtrips.json`.
 
+`python3 scripts/bench-speculative-cleanup.py --repetitions 30` reads the ignored
+synthetic `streaming-snapshots.json` and `speculative-snapshots.json`. To reproduce the
+latter, append 2.7 seconds of silence to `bench/results/audio/short.wav` and 1.8 seconds
+to `correction.wav` with `sox ... pad 0 SECONDS`, put the two files in an ignored WAV
+directory, then run `--streaming-prototype CACHE WAV_DIRECTORY
+bench/results/speculative-snapshots.json --repetitions 1` with the app closed. Reopen
+the signed app afterward. The cleanup mock starts an isolated Gemma server on 11437,
+compares full partial cleanup with final-only cleanup, and overlaps stale/final requests
+on its one slot. The ignored `bench/results/speculative-cleanup.json` contains metrics
+only; the installed 11436 service and private settings remain untouched. Release savings
+combine separately measured partial lead and Gemma timing, so they are projections.
+
 `--press-warmup-prototype CACHE WAV_DIRECTORY OUTPUT_JSON --repetitions 30
 --idle-seconds 1` uses the same pinned batch backend for an alternating baseline versus
 one 16 kHz silence inference started at synthetic press. It wakes every 40 ms during
