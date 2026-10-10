@@ -24,7 +24,7 @@ import WhisprLiteCore
             prompt: try store.privateText("prompt.txt") ?? SettingsStore.defaultPrompt,
             dictionary: try store.privateText("dictionary.txt") ?? "", inputFormat: metadata.cleanupInputFormat,
             dictionaryPrefix: metadata.cleanupDictionaryPrefix))
-        try await LocalHTTP().cleanupReadiness(LocalEndpoint(arguments[3]))
+        try await LocalHTTP.shared.cleanupReadiness(LocalEndpoint(arguments[3]))
         let backend = ParakeetCoreBackend(cacheRoot: cache)
         try await backend.prepare()
         let pipeline = BatchPipeline(backend: backend, cleanup: cleanup)

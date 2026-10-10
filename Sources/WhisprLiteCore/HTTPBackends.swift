@@ -11,6 +11,8 @@ public struct LocalEndpoint: Sendable {
     }
 }
 public final class LocalHTTP: Sendable {
+    /// One session for the app's lifetime; sessions are never invalidated, so don't make one per setup.
+    public static let shared = LocalHTTP()
     private let session: URLSession
     public init(session suppliedSession: URLSession? = nil) {
         if let suppliedSession { session = suppliedSession; return }
@@ -69,7 +71,7 @@ public actor HTTPASRBackend: ASRBackend {
     private let endpoint: LocalEndpoint
     private let http: LocalHTTP
     private var state: BackendReadiness = .unloaded
-    public init(endpoint: LocalEndpoint, http: LocalHTTP = .init()) { self.endpoint = endpoint; self.http = http }
+    public init(endpoint: LocalEndpoint, http: LocalHTTP = .shared) { self.endpoint = endpoint; self.http = http }
     public func readiness() -> BackendReadiness { state }
     public func prepare() async throws {
         state = .preparing
@@ -106,22 +108,34 @@ public struct CleanupConfiguration: Sendable {
         self.inputFormat = inputFormat; self.dictionaryPrefix = dictionaryPrefix
     }
 }
+/// Tokens of the fixed request framing, measured once during preparation and shared by copies.
+private final class PromptBudget: @unchecked Sendable {
+    private let lock = NSLock()
+    private var tokens: Int?
+    var fixedTokens: Int? { lock.withLock { tokens } }
+    func store(_ value: Int) { lock.withLock { tokens = value } }
+}
 public struct HTTPCleanup: TextCleanup {
+    public static let contextTokens = 4096
     public let configuration: CleanupConfiguration
     private let http: LocalHTTP
     private let dictionary: DictionaryCorrections
-    public init(_ configuration: CleanupConfiguration, http: LocalHTTP = .init()) {
+    private let budget = PromptBudget()
+    public init(_ configuration: CleanupConfiguration, http: LocalHTTP = .shared) {
         self.configuration = configuration; self.http = http
         dictionary = DictionaryCorrections(configuration.dictionary)
     }
-    public func request(_ text: String) throws -> URLRequest {
+    /// Cleanup output is about as long as its input. A fixed 512 cut off long fast dictations,
+    /// and let a short input the model answers instead of cleans run on for hundreds of tokens.
+    public static func outputLimit(for text: String) -> Int { min(1024, max(128, text.utf8.count / 2 + 64)) }
+    public func request(_ text: String, maxTokens: Int = 512) throws -> URLRequest {
         let system = configuration.prompt + (dictionary.vocabulary.isEmpty ? "" : configuration.dictionaryPrefix + dictionary.vocabulary)
         let user = configuration.inputFormat == .openWhispr ? "<transcript>\n\(text)\n</transcript>\n\nOutput only the cleaned transcript." : text
         // Bound the request allocation; the exact templated token count is checked before inference.
         guard system.utf8.count + user.utf8.count <= 16_384 else { throw AppError.contextLimit }
         let body: [String: Any] = ["model": configuration.model,
             "messages": [["role": "system", "content": system], ["role": "user", "content": user]],
-            "temperature": 0, "max_tokens": 512, "stream": false,
+            "temperature": 0, "max_tokens": maxTokens, "stream": false,
             "chat_template_kwargs": ["enable_thinking": false]]
         var request = URLRequest(url: configuration.endpoint.url.appendingPathComponent("v1/chat/completions"))
         request.httpMethod = "POST"; request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -134,7 +148,7 @@ public struct HTTPCleanup: TextCleanup {
         let first = try await tokens(for: request("ZZZ synthetic marker"))
         let second = try await tokens(for: request("aaa different marker"))
         let prefix = zip(first, second).prefix { $0.0 == $0.1 }.map { $0.0 }
-        guard !prefix.isEmpty, prefix.count + 512 <= 4096 else { throw AppError.contextLimit }
+        guard !prefix.isEmpty, prefix.count + 512 <= Self.contextTokens else { throw AppError.contextLimit }
         try Task.checkCancellation()
         var request = URLRequest(url: configuration.endpoint.url.appendingPathComponent("completion"))
         request.httpMethod = "POST"
@@ -147,6 +161,8 @@ public struct HTTPCleanup: TextCleanup {
         // response text; preparation must never become a dictation result.
         guard !response.truncated, (0...1).contains(response.tokens_predicted) else { throw AppError.cleanup }
         try Task.checkCancellation()
+        // Everything but the marker text: the system prompt, dictionary and template framing.
+        budget.store(max(first.count, second.count))
     }
     private func tokens(for completion: URLRequest) async throws -> [Int] {
         // Avoid guessing tokens from characters: exported prompts/dictionaries can exceed
@@ -170,10 +186,20 @@ public struct HTTPCleanup: TextCleanup {
         return try JSONDecoder().decode(Tokens.self, from: await http.send(tokens, limit: 128 * 1024)).tokens
     }
     public func clean(_ text: String) async throws -> String {
-        let completion = try request(text)
-        guard try await tokens(for: completion).count + 512 <= 4096 else { throw AppError.contextLimit }
+        let limit = Self.outputLimit(for: text)
+        let maxTokens: Int
+        // Every token covers at least one UTF-8 byte, so the measured framing plus the transcript's
+        // bytes (and a margin for merges at the boundary) bounds the exact count with no round trips.
+        if let fixed = budget.fixedTokens, fixed + text.utf8.count + 8 + limit <= Self.contextTokens {
+            maxTokens = limit
+        } else {
+            let room = Self.contextTokens - (try await tokens(for: request(text)).count)
+            // Never stricter than the former fixed 512-token reservation.
+            guard room >= min(limit, 512) else { throw AppError.contextLimit }
+            maxTokens = min(limit, room)
+        }
         try Task.checkCancellation()
-        let data = try await http.send(completion)
+        let data = try await http.send(try request(text, maxTokens: maxTokens))
         struct Response: Decodable { struct Choice: Decodable { struct Message: Decodable { let content: String }; let message: Message; let finish_reason: String? }; let choices: [Choice] }
         let result = try JSONDecoder().decode(Response.self, from: data)
         guard let choice = result.choices.first, choice.finish_reason == "stop" else { throw AppError.cleanup }

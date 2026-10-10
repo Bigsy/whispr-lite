@@ -34,13 +34,20 @@ private final class ConverterInput: @unchecked Sendable {
     var supplied = false
     init(_ buffer: AVAudioPCMBuffer?) { self.buffer = buffer }
 }
-/// Fixed pool: the real-time callback copies into an available slot, never waits for a lock.
+/// Fixed pool: the callback claims slots in order and the serial worker returns them in the
+/// same order, so a counting semaphore replaces a lock. The callback never waits.
 final class AudioWorker: @unchecked Sendable {
-    private static let maximumInputFrames: AVAudioFrameCount = 8192
+    /// Taps deliver 100-400 ms packets whatever size is requested (4,410 frames at 44.1 kHz on
+    /// the development Mac), so their slots hold the longest packet at the hardware rate. A sink
+    /// node delivers each hardware I/O cycle (512 frames, about 11.6 ms, there): many small slots
+    /// keep a similar stall tolerance.
+    let maximumInputFrames: AVAudioFrameCount
     let queue = DispatchQueue(label: "WhisprLite.audio", qos: .userInitiated)
-    private let lock = NSLock()
     private let pool: [AVAudioPCMBuffer]
-    private var free: [Int]
+    private let freeSlots = DispatchSemaphore(value: 0)
+    private var nextSlot = 0 // Callback only.
+    private let bufferCount: Int
+    private let bytesPerFrame: UInt32
     private var callbackOverflow = false
     private let converter: AVAudioConverter
     private let output: AVAudioPCMBuffer
@@ -64,39 +71,53 @@ final class AudioWorker: @unchecked Sendable {
     private var streamingEnabled = false
     private var endBoundary: Double?
     private var completion: CheckedContinuation<PCM16k, any Error>?
-    init(format: AVAudioFormat) throws {
+    private var lastPacketSeconds = 0.0
+    private var drainSerial = 0
+    private var drainTimedOut = false
+    init(format: AVAudioFormat, lowLatency: Bool = false) throws {
+        maximumInputFrames = lowLatency ? max(4096, AVAudioFrameCount((format.sampleRate * 0.05).rounded(.up)))
+            : max(8192, AVAudioFrameCount((format.sampleRate * 0.4).rounded(.up)))
         guard let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false),
               let converter = AVAudioConverter(from: format, to: target),
               let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: 8192) else { throw AppError.capture }
         self.converter = converter; self.output = output
-        pool = (0..<16).compactMap { _ in AVAudioPCMBuffer(pcmFormat: format, frameCapacity: Self.maximumInputFrames) }
-        guard pool.count == 16 else { throw AppError.capture }
-        free = Array(0..<16); free.reserveCapacity(16)
+        let frames = maximumInputFrames
+        let slots = lowLatency ? 128 : 16
+        pool = (0..<slots).compactMap { _ in AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) }
+        guard pool.count == slots else { throw AppError.capture }
+        bufferCount = Int(pool[0].audioBufferList.pointee.mNumberBuffers)
+        bytesPerFrame = format.streamDescription.pointee.mBytesPerFrame
+        // Start at zero and signal: libdispatch traps if a semaphore is freed below its initial value.
+        for _ in pool { freeSlots.signal() }
     }
     func receive(_ input: AVAudioPCMBuffer, hostSeconds: Double? = nil) {
-        guard lock.try() else { markDiscontinuity(); return }
-        guard input.frameLength <= Self.maximumInputFrames, let index = free.popLast() else { callbackOverflow = true; lock.unlock(); return }
+        receive(input.audioBufferList, frames: input.frameLength, hostSeconds: hostSeconds)
+    }
+    /// Safe on the real-time I/O thread: no lock, no wait, a bounded copy and one handoff.
+    func receive(_ list: UnsafePointer<AudioBufferList>, frames: AVAudioFrameCount, hostSeconds: Double? = nil) {
+        let src = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: list))
+        let bytes = frames * bytesPerFrame
+        guard frames <= maximumInputFrames, src.count == bufferCount, src.allSatisfy({ $0.mDataByteSize <= bytes }),
+              freeSlots.wait(timeout: .now()) == .success else { markOverflow(); return }
+        let index = nextSlot; nextSlot = (nextSlot + 1) % pool.count
         let buffer = pool[index]
-        buffer.frameLength = input.frameLength
-        let src = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input.audioBufferList))
+        buffer.frameLength = frames
         let dst = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
-        guard src.count == dst.count, (0..<src.count).allSatisfy({ src[$0].mDataByteSize <= dst[$0].mDataByteSize }) else {
-            callbackOverflow = true; free.append(index); lock.unlock(); return
-        }
         for channel in 0..<src.count {
             if let source = src[channel].mData, let target = dst[channel].mData { memcpy(target, source, Int(src[channel].mDataByteSize)) }
         }
-        lock.unlock()
         queue.async { [self] in
             if audioEpoch == nil { audioEpoch = hostSeconds }
-            convert(pool[index])
-            if let endBoundary, let host = hostSeconds,
-               host + Double(pool[index].frameLength) / pool[index].format.sampleRate >= endBoundary {
+            let packet = pool[index]
+            lastPacketSeconds = Double(packet.frameLength) / packet.format.sampleRate
+            convert(packet)
+            if let endBoundary, let host = hostSeconds, host + lastPacketSeconds >= endBoundary {
                 finalize()
             }
-            lock.lock(); free.append(index); lock.unlock()
+            freeSlots.signal()
         }
     }
+    private func markOverflow() { queue.async { self.callbackOverflow = true } }
     // Runs only on the conversion queue. Host/sample time is checked before receive in the tap owner.
     func markDiscontinuity() { queue.async { self.failed = true } }
     private func convert(_ input: AVAudioPCMBuffer?) {
@@ -134,9 +155,9 @@ final class AudioWorker: @unchecked Sendable {
     func begin(warm: Bool, streaming: Bool = false, activity: Bool = false, timings: Bool = false) throws {
         try queue.sync {
             guard !recording, completion == nil else { throw AppError.capture }
-            lock.lock(); let overflow = callbackOverflow; callbackOverflow = false; lock.unlock()
+            let overflow = callbackOverflow; callbackOverflow = false
             guard !overflow else { throw AppError.overflow }
-            failed = false; count = 0
+            failed = false; drainTimedOut = false; count = 0
             firstAudio = nil; timingEnabled = timings; activityEnabled = activity; meter = .init(); self.activity.publish(0)
             streamingEnabled = streaming; chunk = []; chunk.reserveCapacity(640)
             if streaming {
@@ -151,6 +172,7 @@ final class AudioWorker: @unchecked Sendable {
     }
     func chunks() -> AsyncThrowingStream<PCM16k, any Error>? { queue.sync { stream } }
     func firstAudioUptime() -> Double? { queue.sync { firstAudio } }
+    func lastDrainTimedOut() -> Bool { queue.sync { drainTimedOut } }
     private func deliver(_ value: Float) {
         guard streamingEnabled, streamContinuation != nil else { return }
         chunk.append(value)
@@ -168,6 +190,7 @@ final class AudioWorker: @unchecked Sendable {
             queue.async { [self] in
                 guard recording else { continuation.resume(throwing: AppError.capture); return }
                 completion = continuation; endBoundary = boundary
+                drainSerial &+= 1; let serial = drainSerial
                 if let boundary, let epoch = audioEpoch {
                     let allowed = max(0, Int(ceil((boundary - epoch) * 16_000)))
                     let excess = min(count, max(0, outputPosition - allowed))
@@ -181,8 +204,10 @@ final class AudioWorker: @unchecked Sendable {
                     finalize()
                 } else {
                     // Keep capture alive for the callback containing the release sample, then drain once.
-                    queue.asyncAfter(deadline: .now() + 0.15) { [self] in
-                        if completion != nil { failed = true; finalize() }
+                    // A late packet (Bluetooth, system load) costs only the unseen tail, never the recording.
+                    let wait = min(0.5, max(0.15, lastPacketSeconds + 0.1))
+                    queue.asyncAfter(deadline: .now() + wait) { [self] in
+                        if completion != nil, drainSerial == serial { drainTimedOut = true; finalize() }
                     }
                 }
             }
@@ -193,7 +218,7 @@ final class AudioWorker: @unchecked Sendable {
         completion = nil
         convert(nil); converter.reset(); recording = false
         activityEnabled = false; activity.publish(0)
-        lock.lock(); let overflow = callbackOverflow; callbackOverflow = false; lock.unlock()
+        let overflow = callbackOverflow; callbackOverflow = false
         defer { count = 0; rollCount = 0; endBoundary = nil; audioEpoch = nil; outputPosition = 0 }
         guard !failed, !overflow else { streamContinuation?.finish(throwing: AppError.overflow); streamContinuation = nil; continuation.resume(throwing: AppError.overflow); return }
         flushChunk(); streamContinuation?.finish(); streamContinuation = nil
@@ -210,27 +235,43 @@ final class AudioTap: @unchecked Sendable {
     func callback() -> @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void {
         { [self] buffer, time in receive(buffer, time: time) }
     }
-    func receive(_ buffer: AVAudioPCMBuffer, time: AVAudioTime) {
-        if time.isSampleTimeValid {
-            if let expectedSample, time.sampleTime != expectedSample { worker.markDiscontinuity() }
-            expectedSample = time.sampleTime + Int64(buffer.frameLength)
+    func sinkCallback() -> AVAudioSinkNodeReceiverBlock {
+        { [self] time, frames, list in
+            let stamp = time.pointee
+            receive(list, frames: frames, sampleTime: stamp.mFlags.contains(.sampleTimeValid) ? AVAudioFramePosition(stamp.mSampleTime) : nil,
+                    hostSeconds: stamp.mFlags.contains(.hostTimeValid) ? AVAudioTime.seconds(forHostTime: stamp.mHostTime) : nil)
+            return noErr
         }
-        worker.receive(buffer, hostSeconds: time.isHostTimeValid ? AVAudioTime.seconds(forHostTime: time.hostTime) : nil)
+    }
+    func receive(_ buffer: AVAudioPCMBuffer, time: AVAudioTime) {
+        receive(buffer.audioBufferList, frames: buffer.frameLength, sampleTime: time.isSampleTimeValid ? time.sampleTime : nil,
+                hostSeconds: time.isHostTimeValid ? AVAudioTime.seconds(forHostTime: time.hostTime) : nil)
+    }
+    private func receive(_ list: UnsafePointer<AudioBufferList>, frames: AVAudioFrameCount, sampleTime: AVAudioFramePosition?, hostSeconds: Double?) {
+        if let sampleTime {
+            if let expectedSample, sampleTime != expectedSample { worker.markDiscontinuity() }
+            expectedSample = sampleTime + AVAudioFramePosition(frames)
+        }
+        worker.receive(list, frames: frames, hostSeconds: hostSeconds)
     }
 }
 @MainActor public final class AudioCapture: CaptureDriver {
     private var engine: AVAudioEngine?
     private var worker: AudioWorker?
+    private var tapInstalled = false
     private var warm = true
     private var streamingEnabled = false
     public var showAudioActivity = true
     public var debugTimings = false
     public var recordingActivity: Float { worker?.activity.read() ?? 0 }
     public var firstAudioUptime: Double? { worker?.firstAudioUptime() }
+    public var drainTimedOut: Bool { worker?.lastDrainTimedOut() ?? false }
     public var onFailure: (() -> Void)?
     private var changeObserver: NSObjectProtocol?
     public init() {}
-    public func prepare(warm: Bool, microphoneUID: String, streaming: Bool = false) throws {
+    /// `lowLatency` reads each hardware I/O cycle through a sink node instead of a 100 ms tap,
+    /// so release waits about 6 ms rather than about 50 ms for the packet holding its boundary.
+    public func prepare(warm: Bool, microphoneUID: String, streaming: Bool = false, lowLatency: Bool = true) throws {
         suspend(); self.warm = warm; streamingEnabled = streaming
         let engine = AVAudioEngine()
         if !microphoneUID.isEmpty {
@@ -240,9 +281,15 @@ final class AudioTap: @unchecked Sendable {
         }
         let format = engine.inputNode.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { throw AppError.capture }
-        let worker = try AudioWorker(format: format)
+        let worker = try AudioWorker(format: format, lowLatency: lowLatency)
         let tap = AudioTap(worker)
-        engine.inputNode.installTap(onBus: 0, bufferSize: 512, format: format, block: tap.callback())
+        if lowLatency {
+            let sink = AVAudioSinkNode(receiverBlock: tap.sinkCallback())
+            engine.attach(sink); engine.connect(engine.inputNode, to: sink, format: format)
+        } else {
+            engine.inputNode.installTap(onBus: 0, bufferSize: 512, format: format, block: tap.callback())
+            tapInstalled = true
+        }
         engine.prepare()
         self.engine = engine; self.worker = worker
         changeObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
@@ -265,7 +312,8 @@ final class AudioTap: @unchecked Sendable {
     }
     public func suspend() {
         if let changeObserver { NotificationCenter.default.removeObserver(changeObserver); self.changeObserver = nil }
-        engine?.stop(); engine?.inputNode.removeTap(onBus: 0)
+        engine?.stop()
+        if tapInstalled { engine?.inputNode.removeTap(onBus: 0); tapInstalled = false }
         engine = nil; worker = nil
     }
 }

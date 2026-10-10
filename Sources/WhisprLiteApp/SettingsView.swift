@@ -214,6 +214,10 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
                     }
                 }
             }
+            card("Microphone capture") {
+                Toggle("Low-latency capture", isOn: $preferences.lowLatencyCapture)
+                help("Reads the microphone about every 10 ms instead of every 100 ms, so text arrives sooner after you release. Turn off if a microphone records silence or fails.")
+            }
             card("Response deadlines") {
                 row("Speech recognition") {
                     TextField("Speech deadline", value: $preferences.asrTimeoutSeconds, format: .number)

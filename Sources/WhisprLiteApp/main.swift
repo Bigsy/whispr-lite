@@ -24,6 +24,10 @@ import WhisprLiteCore
     private var hotkey: GlobalHotkey?
     private var setupTask: Task<Void, Never>?
     private var localBackend: ParakeetCoreBackend?
+    /// The last successfully prepared ASR backend, reused while its settings are unchanged.
+    private var preparedASR: (backend: any ASRBackend, configuration: ASRConfiguration)?
+    private var captureRecovery: Task<Void, Never>?
+    private var captureRecoveries: [ContinuousClock.Instant] = []
     private var tapReady = false
     private var pipelineReady = false
     private var sessionAvailable = true
@@ -169,8 +173,11 @@ import WhisprLiteCore
         insertion.diagnostics = debug ? diagnostics : nil; media.diagnostics = debug ? diagnostics : nil
         audio.showAudioActivity = preferences.showAudioActivity
         audio.debugTimings = debug
+        // Saving unrelated settings, wake, unlock and readiness checks keep a loaded model.
+        let asrConfiguration = ASRConfiguration(preferences)
+        let reused = preparedASR.flatMap { $0.configuration == asrConfiguration ? $0.backend : nil }
         let backend: any ASRBackend
-        do { backend = try BackendFactory.make(mode: preferences.backend, endpoint: preferences.asrEndpoint,
+        do { backend = try reused ?? BackendFactory.make(mode: preferences.backend, endpoint: preferences.asrEndpoint,
             cacheRoot: preferences.asrModelDirectory.isEmpty ? nil : URL(fileURLWithPath: preferences.asrModelDirectory, isDirectory: true),
             allowDownloads: preferences.allowASRDownloads, model: preferences.asrModel) }
         catch { update("Check the selected backend settings.", readiness: .needsAttention); return }
@@ -198,9 +205,7 @@ import WhisprLiteCore
             coordinator?.safetyDuration = .seconds(preferences.warmCapture ? 119.8 : 119.95)
         } catch { update("Check private prompt and local endpoint settings", readiness: .needsAttention); return }
         coordinator?.onChange = { [weak self] in self?.refresh() }
-        audio.onFailure = { [weak self] in
-            self?.coordinator?.suspend(); self?.update("Microphone changed. Check readiness to rebuild capture.")
-        }
+        audio.onFailure = { [weak self] in self?.recoverCapture(epoch: epoch, preferences: preferences) }
         media.onChange = { [weak self] in self?.mediaStatus = self?.media.status ?? "" }
         setupTask = Task { [weak self] in
             guard let self else { return }
@@ -214,9 +219,13 @@ import WhisprLiteCore
                 await previousSetup?.value
                 await previousCoordinator?.settlePressWarmup()
                 guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }
-                try await self.localBackend?.unload()
-                guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }
-                self.localBackend = backend as? ParakeetCoreBackend
+                if reused == nil {
+                    self.preparedASR = nil
+                    try await self.localBackend?.unload()
+                    guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }
+                    self.localBackend = backend as? ParakeetCoreBackend
+                }
+                // A ready engine returns at once; HTTP still rechecks health.
                 try await withDeadline(.seconds(preferences.allowASRDownloads ? 900 : 120), stage: "Preparation") {
                     try await backend.prepare { [weak self] stage in
                         DispatchQueue.main.async {
@@ -229,10 +238,21 @@ import WhisprLiteCore
                         }
                     }
                 }
+                self.preparedASR = (backend, asrConfiguration)
                 if preferences.backend != .demo {
                     checkingCleanup = true
                     self.update("Checking cleanup service", readiness: .preparing)
-                    try await LocalHTTP().cleanupReadiness(LocalEndpoint(preferences.cleanupEndpoint))
+                    let cleanupEndpoint = try LocalEndpoint(preferences.cleanupEndpoint)
+                    // The service may still be loading (login, restart); wait about 15 s before asking the user.
+                    for attempt in 1... {
+                        do { try await LocalHTTP.shared.cleanupReadiness(cleanupEndpoint); break }
+                        catch {
+                            guard attempt < 6, !(error is CancellationError) else { throw error }
+                            self.update("Waiting for cleanup service", readiness: .preparing)
+                            try await Task.sleep(for: .seconds(attempt))
+                            guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }
+                        }
+                    }
                     guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }
                     if let cleanup = cleanup as? HTTPCleanup {
                         self.update("Preparing cleanup", readiness: .preparing)
@@ -252,7 +272,8 @@ import WhisprLiteCore
                 guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
                     self.update("Microphone permission needed", detail: "Allow microphone access below, then check readiness.", readiness: .needsAttention); return
                 }
-                try self.audio.prepare(warm: preferences.warmCapture, microphoneUID: preferences.microphoneUID, streaming: preferences.backend == .demo && preferences.streamingDemo)
+                try self.audio.prepare(warm: preferences.warmCapture, microphoneUID: preferences.microphoneUID, streaming: preferences.backend == .demo && preferences.streamingDemo,
+                                       lowLatency: preferences.lowLatencyCapture)
                 guard AXIsProcessTrusted() else {
                     self.audio.suspend(); self.update("Accessibility permission needed", detail: "Enable Whispr Lite in Accessibility settings below, then check readiness.", readiness: .needsAttention); return
                 }
@@ -293,6 +314,36 @@ import WhisprLiteCore
                         readiness: .needsAttention)
                 }
             }
+        }
+    }
+    /// Route changes (AirPods connecting, the default input switching) stop AVAudioEngine.
+    /// Rebuild only capture after the burst settles; the model, cleanup and event tap are unaffected.
+    private func recoverCapture(epoch: UUID, preferences: Preferences) {
+        guard settingsEpoch == epoch, pipelineReady else { return }
+        coordinator?.suspend()
+        let now = ContinuousClock.now
+        captureRecoveries = captureRecoveries.filter { $0.duration(to: now) < .seconds(30) } + [now]
+        captureRecovery?.cancel()
+        guard captureRecoveries.count <= 3 else {
+            update("Microphone keeps changing", detail: "Check the microphone, then check readiness.", readiness: .needsAttention); return
+        }
+        update("Microphone changed. Reconnecting", readiness: .preparing)
+        captureRecovery = Task { [weak self] in
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+            guard let self, self.settingsEpoch == epoch, self.pipelineReady else { return }
+            do {
+                try self.audio.prepare(warm: preferences.warmCapture, microphoneUID: preferences.microphoneUID,
+                                       streaming: preferences.backend == .demo && preferences.streamingDemo, lowLatency: preferences.lowLatencyCapture)
+            } catch {
+                self.update("Microphone unavailable", detail: "Reconnect or choose a microphone in Advanced, then check readiness.", readiness: .needsAttention)
+                return
+            }
+            self.coordinator?.ready = self.tapReady
+            // Clear a "not ready" notice from a press made while reconnecting.
+            if self.coordinator?.state == .error { self.coordinator?.cancel() }
+            self.update(self.tapReady ? "Ready to dictate" : "Input Monitoring permission needed",
+                        detail: self.tapReady ? "" : "Enable Whispr Lite in Input Monitoring settings below, then check readiness.",
+                        readiness: self.tapReady ? .ready : .needsAttention)
         }
     }
     private func update(_ text: String, detail: String = "", readiness: SetupReadiness? = nil) {
@@ -525,6 +576,14 @@ import WhisprLiteCore
     func applicationWillTerminate(_ notification: Notification) {
         diagnostics?.record(.init(.shutdown))
         coordinator?.suspend(); audio.suspend(); media.shutdown(); insertion.clipboard.settle(); indicator.hide()
+    }
+}
+/// Settings that select and load the ASR model; anything else can change without a reload.
+private struct ASRConfiguration: Equatable {
+    let backend: BackendMode, endpoint: String, cacheDirectory: String, allowDownloads: Bool, model: ParakeetModel
+    init(_ preferences: Preferences) {
+        backend = preferences.backend; endpoint = preferences.asrEndpoint; cacheDirectory = preferences.asrModelDirectory
+        allowDownloads = preferences.allowASRDownloads; model = preferences.asrModel
     }
 }
 @MainActor final class MeasuredTextView: NSTextView {

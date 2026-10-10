@@ -52,8 +52,9 @@ import Foundation
             let mode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
             #expect(mode == 0o600)
         }
-        let current = try String(contentsOf: directory.appendingPathComponent("debug.jsonl"), encoding: .utf8)
-        #expect(current.contains("itemChanged"))
+        // Record sizes vary with uptime digits, so the rotation point can put it in either file.
+        let logged = try files.map { try String(contentsOf: $0, encoding: .utf8) }.joined()
+        #expect(logged.contains("itemChanged"))
         #expect(try FileManager.default.attributesOfItem(atPath: directory.path)[.posixPermissions] as? Int == 0o700)
     }
     @Test func saturationAndDiskFailureDoNotBlockCaller() async throws {

@@ -2,9 +2,9 @@
 
 Native macOS push-to-talk dictation app for Apple Silicon, using Swift 6.2+,
 AppKit/SwiftUI, local ParakeetCore ASR and a separate local Gemma cleanup service.
-Read `PLAN.md` for remaining work, `DEVELOPMENT.md` for setup and `CHECKS.md` for evidence.
-Keep the remaining-work checklist current; completed implementation details belong in
-the development guide and checks, rather than an ever-growing plan.
+Read `DEVELOPMENT.md` for setup and `CHECKS.md` for evidence and open validation gates.
+Completed implementation details belong in the development guide; measured results and
+remaining gates belong in the checks.
 
 ## Product and UI
 

@@ -82,6 +82,5 @@ make check   # Tests, signed app build, doctor and bundle smoke check
 
 - [Development guide](DEVELOPMENT.md) — setup, configuration and benchmarks.
 - [Checks](CHECKS.md) — measured results and remaining validation.
-- [Plan](PLAN.md) — remaining milestones and release criteria.
 - [Historical notes](bench/HISTORICAL_NOTES.md) — original OpenWhispr stack experiments.
 - [Third-party notices](THIRD_PARTY_NOTICES.md) — dependencies and behavioral references.

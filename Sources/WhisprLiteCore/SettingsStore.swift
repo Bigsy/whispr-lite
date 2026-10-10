@@ -25,6 +25,7 @@ public struct Preferences: Codable, Sendable {
     public var asrModelDirectory = ""
     public var hotkey = HotkeyConfiguration()
     public var warmCapture = true
+    public var lowLatencyCapture = true
     public var pauseMedia = true
     public var streamingDemo = false
     public var showAudioActivity = true
@@ -38,7 +39,7 @@ public struct Preferences: Codable, Sendable {
     public var cleanupTimeoutSeconds = 10.0
     public init() {}
     private enum CodingKeys: String, CodingKey {
-        case version, backend, asrModel, allowASRDownloads, asrModelDirectory, hotkey, warmCapture, pauseMedia, streamingDemo, showAudioActivity, debugLogging, microphoneUID
+        case version, backend, asrModel, allowASRDownloads, asrModelDirectory, hotkey, warmCapture, lowLatencyCapture, pauseMedia, streamingDemo, showAudioActivity, debugLogging, microphoneUID
         case asrEndpoint, cleanupEndpoint, cleanupInputFormat, cleanupDictionaryPrefix, asrTimeoutSeconds, cleanupTimeoutSeconds
     }
     public init(from decoder: Decoder) throws {
@@ -51,6 +52,7 @@ public struct Preferences: Codable, Sendable {
         asrModelDirectory = try container.decodeIfPresent(String.self, forKey: .asrModelDirectory) ?? ""
         hotkey = try container.decodeIfPresent(HotkeyConfiguration.self, forKey: .hotkey) ?? .init()
         warmCapture = try container.decodeIfPresent(Bool.self, forKey: .warmCapture) ?? true
+        lowLatencyCapture = try container.decodeIfPresent(Bool.self, forKey: .lowLatencyCapture) ?? true
         pauseMedia = try container.decodeIfPresent(Bool.self, forKey: .pauseMedia) ?? true
         streamingDemo = try container.decodeIfPresent(Bool.self, forKey: .streamingDemo) ?? false
         showAudioActivity = try container.decodeIfPresent(Bool.self, forKey: .showAudioActivity) ?? true

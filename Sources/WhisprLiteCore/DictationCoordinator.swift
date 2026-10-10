@@ -6,10 +6,12 @@ import Foundation
     func suspend()
     func chunks() -> AsyncThrowingStream<PCM16k, any Error>?
     var firstAudioUptime: Double? { get }
+    var drainTimedOut: Bool { get }
 }
 public extension CaptureDriver {
     func chunks() -> AsyncThrowingStream<PCM16k, any Error>? { nil }
     var firstAudioUptime: Double? { nil }
+    var drainTimedOut: Bool { false }
 }
 @MainActor public protocol InsertionDriver: AnyObject {
     func snapshot() -> UUID
@@ -59,15 +61,23 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     public func press() {
         guard !activationHeld else { return }
         activationHeld = true
-        guard ready, !draining, state == .idle || state == .error else { message = "Busy or not ready"; onChange?(); return }
+        guard ready, !draining, state == .idle || state == .error else {
+            if !ready, !draining, state == .idle || state == .error {
+                // The event tap swallowed the shortcut, so say why rather than doing nothing.
+                diagnostics?.record(.init(.failure, code: .notReady))
+                message = "Dictation isn't ready yet. Check the Whispr Lite menu."; state = .error
+            } else { message = "Busy or not ready"; onChange?() }
+            return
+        }
         let id = UUID(); generation &+= 1
         let owner = generation
         session = id; finalized = false; recoveryText = nil
         timings.mark(.press, session: id)
         (insertion as? TextInserter)?.diagnosticSession = id
-        let target = insertion.snapshot()
         do { try capture.begin() }
         catch { diagnostics?.record(.init(.failure, session: id, code: .capture)); message = AppError.capture.localizedDescription; state = .error; session = nil; return }
+        // After capture starts: the snapshot is synchronous AX IPC into the target app and can be slow.
+        let target = insertion.snapshot()
         message = "Recording"; state = .recording
         media.begin(id)
         startPressWarmupIfIdle()
@@ -121,7 +131,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
             self.draining = false
             self.timings.mark(.captureFinalized, session: id)
             if self.timings.isEnabled, let first = self.capture.firstAudioUptime { self.timings.mark(.firstAudio, session: id, uptime: first) }
-            self.diagnostics?.record(.init(.capture, session: id, sampleCount: audio.samples.count))
+            self.diagnostics?.record(.init(.capture, session: id, code: self.capture.drainTimedOut ? .drainTimeout : nil, sampleCount: audio.samples.count))
             self.media.end(id)
             guard self.generation == owner, !Task.isCancelled else { return }
             do {
@@ -162,6 +172,8 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         }
     }
     public func cancel() {
+        // Escape arrives from every app; with nothing to cancel or dismiss, leave state and UI alone.
+        guard session != nil || state != .idle || draining else { activationHeld = false; insertionSession = nil; return }
         if let session { diagnostics?.record(.init(.cancelled, session: session)) }
         generation &+= 1; activationHeld = false; insertionSession = nil
         let owner = generation

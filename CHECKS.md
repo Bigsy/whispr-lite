@@ -208,6 +208,48 @@ early partial in them. A 2-second streaming initial window, wasted full generati
 same-slot contention outweigh this mock's silent-tail opportunity for common dictation.
 The temporary server stopped on exit; the installed cleanup service was not replaced.
 
+## Low-latency capture and read-driven clipboard restore
+
+10 October 2026: a content-free probe on this Mac's default input (44.1 kHz mono) showed
+the sink node delivering 512-frame cycles every 11.6 ms with valid sample and host times,
+against 4,410-frame tap packets. A temporary probe then timed the release drain (release
+boundary to finalized PCM) over two alternating passes of 12 warm trials per path. The test
+process had no microphone authorization, so input was silent, but delivery timing came from
+the real device:
+
+| Path | Median | Min | Max | Late drains |
+|---|---:|---:|---:|---:|
+| Tap (former) | 61.6 / 57.9 ms | 13.9 / 11.0 ms | 115.8 / 106.2 ms | 0 |
+| Sink node | 9.0 / 9.7 ms | 4.2 / 7.7 ms | 16.8 / 14.7 ms | 0 |
+
+The probe was removed after measurement and no audio was written. Synthetic tests cover
+sink-callback timestamps, release trimming, a missing I/O cycle failing rather than
+splicing, and a 1.4 s worker stall absorbed by the 128-slot pool. Clipboard tests cover a
+target read restoring after the grace period rather than the fallback, stale read callbacks,
+transient markers and a native promised-text read. `make check` passed: 82 Swift tests in 24
+suites plus native broker, setup and release tests, signed app, doctor and smoke check.
+Not measured: speech through the signed app, Bluetooth or USB microphones on the sink path,
+release-to-visible latency, and clipboard restore timing in third-party apps or with
+clipboard managers running.
+
+## Capture, setup and cleanup robustness pass
+
+10 October 2026: slot sizing from the hardware rate, a lock-free callback slot handoff,
+non-fatal late release drain, route-change capture rebuild, visible not-ready presses,
+idle Escape no-op, capture before the AX snapshot with a 1 s AX timeout and batched
+validation attributes, prepared-model reuse across setup, a shared HTTP session, a
+proportional cleanup output limit and skipping the cleanup preflight when a byte bound
+proves the prompt fits. New synthetic tests cover 96/192 kHz packets, pool exhaustion and
+slot return, a late release packet, not-ready presses, idle Escape, capture-before-snapshot
+order, the proportional output limit and the skipped preflight. The diagnostics rotation
+test previously failed 4 of 24 isolated runs on the unchanged tree because record sizes vary
+with uptime digits; it now accepts the record in either rotated file.
+
+`make check` passed: 77 Swift tests in 23 suites, 14 native broker tests, 14 setup tests,
+4 release-tooling tests, signed arm64 app with no compiler warnings, doctor and bundle
+smoke check. Not measured: real route changes, Bluetooth or high-rate microphones, AX
+timing in third-party apps, cleanup latency saving in the app, or release-to-visible latency.
+
 ## Acoustic release-to-visible validation attempt
 
 10 October 2026: an opt-in finite signed-app benchmark was added to play a synthetic

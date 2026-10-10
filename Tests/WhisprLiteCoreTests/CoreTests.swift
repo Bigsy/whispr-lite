@@ -35,6 +35,12 @@ import AVFoundation
         let body = try #require(JSONSerialization.jsonObject(with: request.httpBody!) as? [String: Any])
         #expect(body["temperature"] as? Int == 0)
         #expect(body["max_tokens"] as? Int == 512)
+        let bounded = try #require(JSONSerialization.jsonObject(with: cleanup.request("hello", maxTokens: 128).httpBody!) as? [String: Any])
+        #expect(bounded["max_tokens"] as? Int == 128)
+        // Proportional output: short input is capped tight, a long dictation gets more than 512.
+        #expect(HTTPCleanup.outputLimit(for: "send it by friday") == 128)
+        #expect(HTTPCleanup.outputLimit(for: String(repeating: "word ", count: 300)) == 814)
+        #expect(HTTPCleanup.outputLimit(for: String(repeating: "x", count: 4000)) == 1024)
         #expect(body["stream"] as? Bool == false)
         #expect((body["chat_template_kwargs"] as? [String: Bool])?["enable_thinking"] == false)
         #expect(throws: AppError.contextLimit) { try cleanup.request(String(repeating: "x", count: 16_384)) }
@@ -95,6 +101,12 @@ struct FailingCleanup: TextCleanup { func clean(_ text: String) throws -> String
         if shouldFail { throw AppError.targetChanged }
         texts.append(text)
     }
+}
+@MainActor final class OrderedInsertion: InsertionDriver {
+    let capture: FakeCapture; var beginsAtSnapshot: [Int] = []
+    init(_ capture: FakeCapture) { self.capture = capture }
+    func snapshot() -> UUID { beginsAtSnapshot.append(capture.begins); return UUID() }
+    func insert(_ text: String, target: UUID) throws {}
 }
 @MainActor final class FakeMedia: MediaDriver {
     var begins: [UUID] = []; var ends: [UUID] = []
@@ -174,6 +186,38 @@ private actor WarmupBackend: PressWarmableASRBackend {
         #expect(insertion.texts.isEmpty)
         #expect(coordinator.recoveryText != nil)
     }
+    @Test func notReadyPressExplainsInsteadOfSilentlySwallowing() async throws {
+        let (coordinator, capture, _, _) = try await fixture()
+        coordinator.ready = false
+        coordinator.press(); coordinator.release()
+        #expect(coordinator.state == .error && capture.begins == 0)
+        #expect(coordinator.message.contains("isn't ready"))
+        coordinator.ready = true
+        coordinator.press()
+        #expect(coordinator.state == .recording)
+    }
+    @Test func escapeWhileIdleChangesNothing() async throws {
+        let (coordinator, _, _, _) = try await fixture()
+        var changes = 0
+        coordinator.onChange = { changes += 1 }
+        coordinator.cancel(); coordinator.cancel()
+        #expect(changes == 0 && coordinator.state == .idle)
+        coordinator.ready = false; coordinator.press()
+        #expect(coordinator.state == .error)
+        coordinator.cancel()
+        #expect(coordinator.state == .idle)
+    }
+    @Test func captureStartsBeforeTargetSnapshot() async throws {
+        let capture = FakeCapture(), media = FakeMedia()
+        let insertion = OrderedInsertion(capture)
+        let backend = FakeASRBackend(); try await backend.prepare()
+        let coordinator = DictationCoordinator(capture: capture, insertion: insertion, media: media,
+                                               pipeline: .init(backend: backend, cleanup: DemoCleanup()))
+        coordinator.ready = true
+        coordinator.press()
+        #expect(insertion.beginsAtSnapshot == [1])
+        coordinator.cancel()
+    }
     @Test func targetFailureKeepsRecoveryText() async throws {
         let (coordinator, _, insertion, _) = try await fixture()
         insertion.shouldFail = true
@@ -217,7 +261,9 @@ private actor WarmupBackend: PressWarmableASRBackend {
     var changeCount = 0; var text: String? = "original"
     var content = ClipboardSnapshot(items: [["text": Data("original".utf8)], ["image": Data([1, 2, 3])]])
     func snapshot() -> ClipboardSnapshot { content }
+    var reader: (@MainActor () -> Void)?
     func write(_ text: String) { self.text = text; changeCount += 1 }
+    func write(_ text: String, onRead: @escaping @MainActor () -> Void) { write(text); reader = onRead }
     func restore(_ snapshot: ClipboardSnapshot) { content = snapshot; text = "restored"; changeCount += 1 }
 }
 @MainActor @Suite struct ClipboardTests {
@@ -235,6 +281,23 @@ private actor WarmupBackend: PressWarmableASRBackend {
         try owner.write("first"); try owner.write("second"); owner.settle()
         #expect(clipboard.content == original)
         #expect(clipboard.changeCount == 4)
+    }
+    @Test func targetReadRestoresAfterGraceNotTheFallbackTimeout() async throws {
+        let clipboard = MemoryClipboard(); let original = clipboard.content
+        let owner = ClipboardTransaction(clipboard)
+        try owner.write("result", delay: .seconds(30), afterRead: .milliseconds(5))
+        try await Task.sleep(for: .milliseconds(20))
+        #expect(clipboard.text == "result")
+        clipboard.reader?()
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(clipboard.content == original && clipboard.text == "restored")
+        // A stale read callback from an earlier transaction cannot restore a newer one early.
+        let stale = clipboard.reader
+        try owner.write("second", delay: .seconds(30), afterRead: .milliseconds(5))
+        stale?()
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(clipboard.text == "second")
+        owner.settle()
     }
     @Test func cancelledDelayedRestoreCannotClobberNewCopy() async throws {
         let clipboard = MemoryClipboard(); let owner = ClipboardTransaction(clipboard)
@@ -304,18 +367,82 @@ private actor WarmupBackend: PressWarmableASRBackend {
         try worker.begin(warm: true)
         #expect(try await worker.end().samples.isEmpty)
     }
-    @Test func hardwareSizedInputPacketDoesNotOverflowWarmCapture() async throws {
-        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 44_100, channels: 1, interleaved: false))
+    @Test(arguments: [44_100.0, 96_000.0, 192_000.0]) func hardwareSizedInputPacketDoesNotOverflowWarmCapture(rate: Double) async throws {
+        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 1, interleaved: false))
         let worker = try AudioWorker(format: format)
-        // This Mac delivers 4,410 frames per callback despite a 512-frame tap request.
-        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4410))
-        buffer.frameLength = 4410
-        for index in 0..<4410 { buffer.floatChannelData![0][index] = 0.25 }
+        // Taps deliver ~100 ms packets despite a 512-frame request: 4,410 frames at 44.1 kHz on this Mac.
+        let frames = AVAudioFrameCount(rate / 10)
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames))
+        buffer.frameLength = frames
+        for index in 0..<Int(frames) { buffer.floatChannelData![0][index] = 0.25 }
         worker.receive(buffer)
         try worker.begin(warm: true)
         let audio = try await worker.end()
         #expect(abs(audio.samples.count - 1600) <= 2)
         #expect(audio.samples.suffix(100).contains { abs($0) > 0.1 })
+    }
+}
+@Suite struct LowLatencyCaptureTests {
+    func feed(_ callback: AVAudioSinkNodeReceiverBlock, packets: Int, rate: Double, gapAfter: Int? = nil) throws {
+        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 1, interleaved: false))
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 512)); buffer.frameLength = 512
+        for i in 0..<512 { buffer.floatChannelData![0][i] = 0.2 }
+        var sample = 0.0
+        for packet in 0..<packets {
+            var stamp = AudioTimeStamp()
+            stamp.mSampleTime = sample; stamp.mHostTime = AVAudioTime.hostTime(forSeconds: 10 + sample / rate)
+            stamp.mFlags = [.sampleTimeValid, .hostTimeValid]
+            _ = callback(&stamp, 512, buffer.audioBufferList)
+            sample += packet == gapAfter ? 1024 : 512
+        }
+    }
+    @Test func ioCyclePacketsTrimToTheReleaseBoundary() async throws {
+        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 44_100, channels: 1, interleaved: false))
+        let worker = try AudioWorker(format: format, lowLatency: true)
+        let callback = AudioTap(worker).sinkCallback()
+        try worker.begin(warm: false)
+        // Ten 11.6 ms I/O cycles, as this Mac delivers; release 50 ms in.
+        try feed(callback, packets: 10, rate: 44_100)
+        let audio = try await worker.end(at: AVAudioTime.seconds(forHostTime: AVAudioTime.hostTime(forSeconds: 10.05)))
+        #expect(abs(audio.samples.count - 800) <= 16)
+        #expect(!worker.lastDrainTimedOut())
+    }
+    @Test func missingIOCycleStillFailsInsteadOfSplicingAudio() async throws {
+        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 1, interleaved: false))
+        let worker = try AudioWorker(format: format, lowLatency: true)
+        let callback = AudioTap(worker).sinkCallback()
+        try worker.begin(warm: false)
+        try feed(callback, packets: 6, rate: 48_000, gapAfter: 2)
+        await #expect(throws: AppError.overflow) { try await worker.end() }
+    }
+    @Test func smallSlotsStillAbsorbAWorkerStall() async throws {
+        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 44_100, channels: 1, interleaved: false))
+        let worker = try AudioWorker(format: format, lowLatency: true)
+        let callback = AudioTap(worker).sinkCallback()
+        try worker.begin(warm: false)
+        let gate = DispatchSemaphore(value: 0)
+        worker.queue.async { gate.wait() }
+        // About 1.4 s of I/O cycles while the worker is stalled.
+        try feed(callback, packets: 120, rate: 44_100)
+        gate.signal()
+        let audio = try await worker.end()
+        #expect(abs(audio.samples.count - 120 * 512 * 16_000 / 44_100) <= 16)
+    }
+}
+@Suite struct AudioPoolTests {
+    @Test func exhaustedPoolOverflowsWithoutBlockingAndReturnsEverySlot() async throws {
+        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false))
+        let worker = try AudioWorker(format: format)
+        let packet = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 320)); packet.frameLength = 320
+        let gate = DispatchSemaphore(value: 0)
+        worker.queue.async { gate.wait() }
+        // 16 slots: the 17th callback finds none and returns at once rather than waiting.
+        for _ in 0..<17 { worker.receive(packet) }
+        gate.signal()
+        #expect(throws: AppError.overflow) { try worker.begin(warm: false) }
+        try worker.begin(warm: false)
+        for _ in 0..<40 { worker.receive(packet); worker.queue.sync {} }
+        #expect(try await worker.end().samples.count == 12_800)
     }
 }
 @Suite struct StreamingTests {
@@ -351,6 +478,22 @@ private actor WarmupBackend: PressWarmableASRBackend {
         let result = try await finish.value
         #expect(result.samples.count == 400)
         #expect(result.samples.suffix(80).allSatisfy { abs($0 - 0.9) < 0.001 })
+    }
+    @Test func lateReleasePacketKeepsCapturedAudio() async throws {
+        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false))
+        let worker = try AudioWorker(format: format)
+        let packet = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 320)); packet.frameLength = 320
+        for i in 0..<320 { packet.floatChannelData![0][i] = 0.3 }
+        try worker.begin(warm: false)
+        worker.receive(packet, hostSeconds: 10)
+        // The packet covering the release never arrives: keep what was captured, flag the tail.
+        let result = try await worker.end(at: 10.5)
+        #expect(result.samples.count == 320)
+        #expect(worker.lastDrainTimedOut())
+        try worker.begin(warm: false)
+        worker.receive(packet)
+        _ = try await worker.end()
+        #expect(!worker.lastDrainTimedOut())
     }
 }
 

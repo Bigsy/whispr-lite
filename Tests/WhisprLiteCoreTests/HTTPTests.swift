@@ -72,9 +72,35 @@ private final class FixtureProtocol: URLProtocol, @unchecked Sendable {
         #expect(messages[0]["content"] == "Synthetic prompt\n\nSynthetic dictionary: Whispr Lite, Parakeet")
         #expect(messages[1]["content"] == "<transcript>\nhello\n</transcript>\n\nOutput only the cleaned transcript.")
         FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("apply-template"), body: Data("{\"prompt\":\"Synthetic template\"}".utf8))
-        let overflow = try JSONSerialization.data(withJSONObject: ["tokens": Array(repeating: 1, count: 3585)])
+        let overflow = try JSONSerialization.data(withJSONObject: ["tokens": Array(repeating: 1, count: 3969)])
         FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("tokenize"), body: overflow)
         await #expect(throws: AppError.contextLimit) { try await cleanup.clean("hello") }
+        // A short transcript needs only its proportional output room beside a large prompt.
+        let large = try JSONSerialization.data(withJSONObject: ["tokens": Array(repeating: 1, count: 3585)])
+        FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("tokenize"), body: large)
+        let chat = endpoint.url.appendingPathComponent("v1/chat/completions")
+        FixtureProtocol.responses.set(chat, body: Data("{\"choices\":[{\"message\":{\"content\":\"Hello.\"},\"finish_reason\":\"stop\"}]}".utf8))
+        #expect(try await cleanup.clean("hello") == "Hello.")
+        let last = try #require(FixtureProtocol.responses.bodies(chat).last)
+        let sent = try #require(JSONSerialization.jsonObject(with: last) as? [String: Any])
+        #expect(sent["max_tokens"] as? Int == 128)
+    }
+    @Test func preparedFramingSkipsPerDictationTokenizerRoundTrips() async throws {
+        let (endpoint, http) = try fixture()
+        let cleanup = HTTPCleanup(.init(endpoint: endpoint, prompt: "Synthetic prompt"), http: http)
+        let tokenizer = endpoint.url.appendingPathComponent("tokenize")
+        let chat = endpoint.url.appendingPathComponent("v1/chat/completions")
+        FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("apply-template"), body: Data("{\"prompt\":\"Synthetic template\"}".utf8))
+        FixtureProtocol.responses.set(tokenizer, body: Data("{\"tokens\":[2,3,4]}".utf8))
+        FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("completion"), body: Data("{\"tokens_predicted\":1,\"truncated\":false}".utf8))
+        FixtureProtocol.responses.set(chat, body: Data("{\"choices\":[{\"message\":{\"content\":\"Hello.\"},\"finish_reason\":\"stop\"}]}".utf8))
+        try await cleanup.preparePrefix()
+        #expect(FixtureProtocol.responses.bodies(tokenizer).count == 2)
+        #expect(try await cleanup.clean("hello") == "Hello.")
+        #expect(FixtureProtocol.responses.bodies(tokenizer).count == 2)
+        // A transcript too long for the byte bound falls back to the exact check.
+        #expect(try await cleanup.clean(String(repeating: "x", count: 4000)) == "Hello.")
+        #expect(FixtureProtocol.responses.bodies(tokenizer).count == 3)
     }
     @Test func readinessRejectsHealthyServiceWithWrongModel() async throws {
         let (endpoint, http) = try fixture()

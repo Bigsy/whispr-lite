@@ -13,7 +13,7 @@ public enum DiagnosticCode: String, Codable, Sendable {
     case press, release, cancel, ready, notReady, preparing, needsAttention
     case disabled, starting, recovering, unavailable, begin, end, paused, resumed, skipped, unconfirmed, fatal, snapshot, issued, released
     case accessibilityDenied, noTarget, appChanged, elementChanged, disabledTarget, secureTarget, unsupportedRole, readonlyTarget
-    case modifiersHeld, clipboard, capture, overflow, deadline, inference, cleanup, contextLimit, unsupported, invalidAudio, audioLimit, protocolViolation, targetChanged
+    case modifiersHeld, clipboard, capture, drainTimeout, overflow, deadline, inference, cleanup, contextLimit, unsupported, invalidAudio, audioLimit, protocolViolation, targetChanged
     case nativeAX, commandPaste, restored, userClipboardChanged, restoreFailed
     case missingCache, downloadFailed, preparationFailed, busy, queueFull, cancelled
     public static func failure(_ error: AppError) -> Self {
@@ -97,12 +97,14 @@ public struct DiagnosticConfiguration: Codable, Sendable {
     public let backend: BackendMode
     public let asrModel: ParakeetModel?
     public let warmCapture: Bool
+    public let lowLatencyCapture: Bool
     public let pauseMedia: Bool
     public let audioActivity: Bool
     public let asrTimeout: Double
     public let cleanupTimeout: Double
     public init(_ preferences: Preferences) {
         backend = preferences.backend; warmCapture = preferences.warmCapture; pauseMedia = preferences.pauseMedia
+        lowLatencyCapture = preferences.lowLatencyCapture
         asrModel = preferences.backend == .parakeet ? preferences.asrModel : nil
         audioActivity = preferences.showAudioActivity; asrTimeout = preferences.asrTimeoutSeconds; cleanupTimeout = preferences.cleanupTimeoutSeconds
     }
