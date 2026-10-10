@@ -1,0 +1,14 @@
+# Keep the implementation plan versionable despite the global PLAN.md ignore rule.
+!/PLAN.md
+!/AGENTS.md
+.build/
+.swiftpm/
+dist/
+.idea/
+.DS_Store
+config.local.json
+/private/
+bench/results/
+*.local.txt
+__pycache__/
+*.pyc

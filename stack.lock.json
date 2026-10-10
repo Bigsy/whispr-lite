@@ -1,0 +1,531 @@
+{
+  "schema": 1,
+  "recorded_date": "2026-10-10",
+  "scope": "published library, configured cleanup service and signed synthetic native insertion; hardware/player/daily-use release pending",
+  "platform": {
+    "macOS": "27.0",
+    "build": "26A428",
+    "architecture": "arm64",
+    "swift": "Apple Swift version 6.2.3 (swiftlang-6.2.3.3.21 clang-1700.6.3.2)\nTarget: arm64-apple-macosx28.0",
+    "sdk": "26.2"
+  },
+  "media_adapter": {
+    "version": "0.7.6",
+    "revision": "3ac3d4bdf862c7b5399b4fba4df5689f5c38609a",
+    "archive_sha256": "0891554af8ee8fc1bb1d14ddf023f8e4ce3093387391122c865f7e02c2d1f3de"
+  },
+  "FluidAudio": {
+    "version": "0.17.7",
+    "revision": "503b4bd1bbf7220882de39fe8ae6716aae4132da"
+  },
+  "installed_models": {
+    "cleanup": {
+      "file": "gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf",
+      "bytes": 2620370976,
+      "sha256": "e531007218dfab990486a5de7676a6932d6ea8dea233d1f698d7c21cf8a16889",
+      "repository": "unsloth/gemma-4-E2B-it-qat-GGUF",
+      "repository_revision": "66a399f68ddd113b06dff02fca9523e55465d11d",
+      "cache_root": "~/Library/Application Support/WhisprLite/Cleanup"
+    },
+    "drafter": {
+      "file": "mtp-gemma-4-E2B-it.gguf",
+      "bytes": 59235648,
+      "sha256": "586f2460b909008640981ec34060aa864e03c144fbabfb3173c4335087e4aae0",
+      "repository": "unsloth/gemma-4-E2B-it-qat-GGUF",
+      "repository_revision": "66a399f68ddd113b06dff02fca9523e55465d11d",
+      "cache_root": "~/Library/Application Support/WhisprLite/Cleanup"
+    },
+    "ASR": {
+      "model": "Unified int8",
+      "repository": "FluidInference/parakeet-unified-en-0.6b-coreml",
+      "repository_revision": null,
+      "cache_root": ".build/models",
+      "provenance": "APFS clones from sibling synthetic benchmark assets to workspace and owned app cache; default/shared caches unchanged",
+      "files_sha256": {
+        "config.json": "6cbe6c76445410c5c6debf3d44c8c3b75e9966bf09bba5cd138c2378c62120f6",
+        "metadata.json": "2b26a96b76fe1f7a04d3e867f50c75d6ce5dd1650d0dbcd4c35b591b22305f0e",
+        "parakeet_unified_decoder.mlmodelc/analytics/coremldata.bin": "9ae70f6559989f88b856b326e59315798f9f0d08207a19fcc2dd3287a30088a5",
+        "parakeet_unified_decoder.mlmodelc/coremldata.bin": "ce99c4488840fc463d59f8d4d6d2a9e8ceae8138ead51e3c265dde4d2ba4a0e9",
+        "parakeet_unified_decoder.mlmodelc/model.mil": "6e60965b89c93943aa2be2d991c2461108145851fde05e1d048223a32d4cb20d",
+        "parakeet_unified_decoder.mlmodelc/weights/weight.bin": "96f990461a5986d5e7309ad1a0f36084fbf0f4b28aec35948f8b8d0dcbf8599e",
+        "parakeet_unified_encoder_int8.mlmodelc/analytics/coremldata.bin": "57e116a9d5765e39c0cdf754137ab744ddae34d9c6d68a5fdcad6600ae3a7b6b",
+        "parakeet_unified_encoder_int8.mlmodelc/coremldata.bin": "54f533d30343d5e62b324a0691e4c262a6768b07b6e88e7aa14c617a2baba8a3",
+        "parakeet_unified_encoder_int8.mlmodelc/model.mil": "c1c5d71c6cbf4d35bba08458746bde3640da7b1b444e1229a269393a58222c10",
+        "parakeet_unified_encoder_int8.mlmodelc/weights/weight.bin": "f984b81590a4deae041ae20fbab8981c2d2a5b528b2ac81fae81c432633535c6",
+        "parakeet_unified_encoder_streaming_70_13_13_int8.mlmodelc/analytics/coremldata.bin": "ffbbab2cbdc941dd88fc41c41d3f7ac61cc31475a17a1cb06ed7f3b0b25c611b",
+        "parakeet_unified_encoder_streaming_70_13_13_int8.mlmodelc/coremldata.bin": "e1ffdae252dcc276ff2964ee2259a63d9c519b8413302609300d692f6a79b824",
+        "parakeet_unified_encoder_streaming_70_13_13_int8.mlmodelc/model.mil": "64a4bdf20760025c8df072872b9aa71fdbce938f469c976fda690354424cc93c",
+        "parakeet_unified_encoder_streaming_70_13_13_int8.mlmodelc/weights/weight.bin": "259e5818cf4acee1155409a048ec408eecd8cfc27ade04ba18bca243398cc9b6",
+        "parakeet_unified_joint_decision_single_step.mlmodelc/analytics/coremldata.bin": "163877ad14af97ec4107cd854fd1c6d336ee5d40ad25a657cc764fb763f452f5",
+        "parakeet_unified_joint_decision_single_step.mlmodelc/coremldata.bin": "68a081570a48b52ec9379e153bd56748a5408a50be16767601563f231eaeff03",
+        "parakeet_unified_joint_decision_single_step.mlmodelc/model.mil": "03c21096090bcd0b71c896c5ae0eb815db31a91c6676f572a7868eee4299abe3",
+        "parakeet_unified_joint_decision_single_step.mlmodelc/weights/weight.bin": "06831afa6d1beb0c0b10350ebf7886bc37638e951d14e738d7e06fbd2a05012f",
+        "vocab.json": "e1a7bff4f5df133c0f4ad47b8e43c96f6bf1865d99126a4c4725ef51d0108bec"
+      },
+      "configured_cache_root": "~/Library/Application Support/WhisprLite/Models"
+    }
+  },
+  "cleanup_prompt_parity": "installed OpenWhispr 1.8.3 prompt resolution/dictionary/request framing recovered; 24 synthetic output-cap comparisons equal; historical provider/output parity and reviewed expectations pending",
+  "cleanup_default_review": {
+    "default_characters": 1723,
+    "saved_prompt_characters": 2592,
+    "scope": "general bundled default; optional private context; editor reset applies only on Save; existing private override and framing preserved",
+    "synthetic_quality": "18 cases with public dictionary; baseline plain 16/18, tagged 15/18; general default plain 18/18, tagged 17/18; default plus private context 18/18 both; small single-pass regression set, not complete accuracy acceptance",
+    "timing": "720 interleaved observations, 30 per four fixtures/prompt/cache mode; cleanup path includes template/tokenization/completion; warm model weights throughout; disabled-cache zero token reuse verified",
+    "context_candidate_median_ms": {
+      "baseline_uncached": 1076.42,
+      "candidate_uncached": 907.13,
+      "baseline_warm": 174.9,
+      "candidate_warm": 169.29
+    },
+    "verification": "make check: 60 Swift, 14 broker, 14 setup; sixteen native renders; signed readiness pipeline/event tap and all three permissions ready; normal app reopened",
+    "privacy": "report contains numeric metrics and synthetic case IDs only; no prompt, dictionary, personal context or generated output",
+    "report": "bench/results/prompt-review.json",
+    "readiness_report": "bench/results/readiness-prompt-default.json",
+    "limitations": "no model-load, long-idle, physical capture, ASR or visible-insertion latency measurement; broader reviewed corpus and hardware acceptance remain open"
+  },
+  "services": {
+    "127.0.0.1:11434": "Ollama; existing service unchanged",
+    "127.0.0.1:11435": "unavailable; optional HTTP ASR",
+    "127.0.0.1:11436": "healthy; owned pinned Gemma/MTP cleanup service"
+  },
+  "release_integration_passed": false,
+  "parakeet_release": {
+    "url": "https://github.com/Bigsy/parakeet-ane-server.git",
+    "version": "0.2.0",
+    "revision": "09873950b95b966ad8237caca1be1d604d235db6",
+    "default_dependency": true,
+    "lockfile": "Package.resolved",
+    "compilation": "passed",
+    "real_batch_validation": "passed: 6 synthetic fixtures, 180 warm observations, empty/silence, cancellation/reuse, unload/reprepare",
+    "real_streaming_validation": "passed: 6 synthetic fixtures, ordered input/partials/final, cancellation/settlement, batch fallback and mode reset",
+    "app_resource_packaging": "passed: signed normal build, bundle smoke, real bundled model preparation/short input/unload",
+    "broader_streaming_acceptance": "pending: reviewed accuracy, capture pacing, power/residency and app rollout",
+    "batch_words_equal_fixture_count": 5,
+    "streaming_fixture_count": 6,
+    "streaming_accuracy_parity": "not established: 25-second fixture has word-level disagreement",
+    "cache_errors": "signed offline app explicitly rejects isolated partial and corrupt compiled-model cache copies"
+  },
+  "historical_integration": {
+    "date": "2026-10-09",
+    "batch_candidate": {
+      "revision": "ef0a8eba35cd56510b10756c8235e742e390710d",
+      "default_dependency": false,
+      "compilation": "passed",
+      "preparation": "blocked: missingCache",
+      "swift_source_sha256": {
+        "ParakeetEngine.swift": "336d87040b32a2b2dc6ab7fd473fc9c9547d485c2448a7c1f415b6405d12f3d2",
+        "SpeechModel.swift": "d1794ba48da9cab4d75b8cde4b2586578eedc91fccb5bcd1007d8916978a1a7c",
+        "Types.swift": "29f7fe18c60c499dc9523b308dd0b8547ec542fbd15b592ad24b04f41dd1d886"
+      },
+      "app_resource_packaging": "passed: generated resourceURL lookup, bundled resources, signed app smoke check",
+      "model_resource_acceptance": "pending: missingCache"
+    },
+    "streaming_snapshot": {
+      "uncommitted": true,
+      "swift_source_sha256": {
+        "CancellationFlag.swift": "fbab696032935c7f8ee2a8c879ffd56405b39a3c43a6690c80e37c0d490634c1",
+        "ParakeetEngine.swift": "39812078f7cdbd5e5999df07a1d69bdebe5c6a55525347b19f74b49975b1dc53",
+        "SpeechModel.swift": "d1794ba48da9cab4d75b8cde4b2586578eedc91fccb5bcd1007d8916978a1a7c",
+        "StreamingModel.swift": "7ec02f9f855cf65e0a0e1f9b21f193d8f91af46a926d768fc8c5dcd13ada1b8d",
+        "StreamingSession.swift": "83404b36bd58032a20cf3b22009def3900e1a8adafec62b664b2cb0842e7f339",
+        "TranscriptMailbox.swift": "b798da53d8bab3c0aa33b39a7473bd844153c4657be00a29f87886700b3a72dd",
+        "Types.swift": "5c10be080772686c636f682401527d074e583445d31eda5fc52a2e87b3bcb8f4"
+      },
+      "compilation": "passed (opt-in consumer build, no model execution)",
+      "real_model_validation": "pending"
+    }
+  },
+  "cleanup_runtime": {
+    "path": "llama-server",
+    "version": "0.4.0",
+    "commit": "5266f24da",
+    "sha256": "d707b6db4c1397a7383176fba12d339e5b33c7513669d74c8fbc2a76f6979a72",
+    "revision": "5266f24da75dc449bd56cbed7addb9c8e4a6a73e",
+    "minimum_macos": "13.3",
+    "alias": "gemma4-e2b-cleanup:latest",
+    "port": 11436,
+    "launch_agent": "com.hedworth.whispr-lite.cleanup",
+    "tested_setup": "standalone release provisioned and owned cleanup LaunchAgent switched; healthy; Gemma/MTP model files and preferences preserved",
+    "portable_provisioning": "official ARM64 archive and bundled libraries declare macOS 13.3; app requires 14+; fresh-machine/older-macOS acceptance and notarization pending",
+    "tuning": {
+      "draft_type": "draft-mtp",
+      "draft_length": 6,
+      "swa_full": true,
+      "context": 4096,
+      "parallel_slots": 1,
+      "flash_attention": "on",
+      "load_mode": "mmap+mlock",
+      "reasoning": "off",
+      "temperature": 0,
+      "metal_residency_seconds": 86400
+    },
+    "release": {
+      "file": "llama-b10809-bin-macos-arm64.tar.gz",
+      "bytes": 11123196,
+      "sha256": "7d692df9e1e386e62f1c12b843903218041e6cd74c9415aa39a7ed3176f9eaa2",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10809/llama-b10809-bin-macos-arm64.tar.gz",
+      "tag": "b10809",
+      "directory": "llama-b10809"
+    },
+    "files_sha256": {
+      "LICENSE": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+      "ggml-metal-tuning": "15ad6396d170490d818f3843055efbeace22a0150ce84e747dbc402584e31b1d",
+      "ggml-rpc-server": "99e258b7c0094556cfae6593e53ac3003854d85f71a95362c156dcfaeedf3e8c",
+      "libggml-base.0.23.0.dylib": "ceb4884265248e0260ab142821778d5af57fef07171ad73fd0f165bf6fe84b60",
+      "libggml-base.0.dylib": "ceb4884265248e0260ab142821778d5af57fef07171ad73fd0f165bf6fe84b60",
+      "libggml-base.dylib": "ceb4884265248e0260ab142821778d5af57fef07171ad73fd0f165bf6fe84b60",
+      "libggml-blas.0.23.0.dylib": "414856968dcddae3a67e0f9c6dc012e5c4db13320c4d7ea5924dc1ad192dcfd6",
+      "libggml-blas.0.dylib": "414856968dcddae3a67e0f9c6dc012e5c4db13320c4d7ea5924dc1ad192dcfd6",
+      "libggml-blas.dylib": "414856968dcddae3a67e0f9c6dc012e5c4db13320c4d7ea5924dc1ad192dcfd6",
+      "libggml-cpu.0.23.0.dylib": "e63a7b4f8eaa5bbd8e93e524d1a828de22a42bead57ae79cfab46e2339571fb2",
+      "libggml-cpu.0.dylib": "e63a7b4f8eaa5bbd8e93e524d1a828de22a42bead57ae79cfab46e2339571fb2",
+      "libggml-cpu.dylib": "e63a7b4f8eaa5bbd8e93e524d1a828de22a42bead57ae79cfab46e2339571fb2",
+      "libggml-metal.0.23.0.dylib": "89bb5b9ffcae6c19feda3338bc64a57b976f9f70a987e66ee49df7e58636058c",
+      "libggml-metal.0.dylib": "89bb5b9ffcae6c19feda3338bc64a57b976f9f70a987e66ee49df7e58636058c",
+      "libggml-metal.dylib": "89bb5b9ffcae6c19feda3338bc64a57b976f9f70a987e66ee49df7e58636058c",
+      "libggml-rpc.0.23.0.dylib": "d998f743ae44021c8990a95765585d813bf161fcc8c7a527ed9f746e0f76d144",
+      "libggml-rpc.0.dylib": "d998f743ae44021c8990a95765585d813bf161fcc8c7a527ed9f746e0f76d144",
+      "libggml-rpc.dylib": "d998f743ae44021c8990a95765585d813bf161fcc8c7a527ed9f746e0f76d144",
+      "libggml.0.23.0.dylib": "98fa46f0bcd8c75a335f733c38cb79f911bc39412ba15ef52fee3ac051c14069",
+      "libggml.0.dylib": "98fa46f0bcd8c75a335f733c38cb79f911bc39412ba15ef52fee3ac051c14069",
+      "libggml.dylib": "98fa46f0bcd8c75a335f733c38cb79f911bc39412ba15ef52fee3ac051c14069",
+      "libllama-batched-bench-impl.dylib": "e37eb3a0d6fea179ee5a2b1732abe3fd72c85575a10461bbf4fb227615acaa3f",
+      "libllama-bench-impl.dylib": "bdaea51d4b1d0fdfc57e3ad31c02283fe2e8b8110aefcf5f477ff4d34a530ce9",
+      "libllama-cli-impl.dylib": "1cf2adb08ae408a0c8edec4cbc06317fa7da430e4793ee48a97ef1a2675d0415",
+      "libllama-common.0.4.0.dylib": "79d5212a78d796bc7e90239a815a394241763ab3af8a5c5c4971a7a263c0e2c6",
+      "libllama-common.0.dylib": "79d5212a78d796bc7e90239a815a394241763ab3af8a5c5c4971a7a263c0e2c6",
+      "libllama-common.dylib": "79d5212a78d796bc7e90239a815a394241763ab3af8a5c5c4971a7a263c0e2c6",
+      "libllama-completion-impl.dylib": "a31599b9c21cd5b59d8b234f760a33f9e82bcd30c870b64dfc2a2f74f9e8c32e",
+      "libllama-fit-params-impl.dylib": "f343f24e0e721a35dd0dc0c9e8884c737697f416affe3d8a0984b0310e21de7d",
+      "libllama-perplexity-impl.dylib": "160f9eae0c5720f74c29dd1c922901ed23741498b8d9b8bc1f9a08630164831c",
+      "libllama-quantize-impl.dylib": "8005805741e80e78f801d48ee5c22a0bbbf0bda0536b3f3927e66e7749ee7cda",
+      "libllama-server-impl.dylib": "86a09cd461fb608136861b482e909e5d2b5b0c4b46c974d67bc624ee24866ade",
+      "libllama.0.4.0.dylib": "2ed3e44d06e741c777ab7b8619579ebd2009836014344180a18b994c1e1a604a",
+      "libllama.0.dylib": "2ed3e44d06e741c777ab7b8619579ebd2009836014344180a18b994c1e1a604a",
+      "libllama.dylib": "2ed3e44d06e741c777ab7b8619579ebd2009836014344180a18b994c1e1a604a",
+      "libmtmd.0.4.0.dylib": "6e902b5676376c466dc4a1ed66a3b2c675589b47a5292581a3bc7cec895516fa",
+      "libmtmd.0.dylib": "6e902b5676376c466dc4a1ed66a3b2c675589b47a5292581a3bc7cec895516fa",
+      "libmtmd.dylib": "6e902b5676376c466dc4a1ed66a3b2c675589b47a5292581a3bc7cec895516fa",
+      "llama": "60413f11d5fdcb2fdb4bb5d9aed1f9b80d02e6714e8bbde5fe3199a1c4bda865",
+      "llama-batched-bench": "8fd2ad28a3a2b8fe40be9b27577876a68af50b996a559dd6abd66975099dfe70",
+      "llama-bench": "26700f6752ceaad48804db45d70f1abe5ea77ab25496bd667bf085392c0e016d",
+      "llama-cli": "76eae98242c4f95904200a8475976ae9e25316fc1ae14b1be733b8444d59983c",
+      "llama-completion": "2091333ea035d33736c7355dfe73efdfa05a0a5bf321897f2a86e2317f33a45e",
+      "llama-cvector-generator": "165316ab7bbc2d754808850c510a6596b2fda1b7ad8cf186931427d5010141f1",
+      "llama-export-lora": "325a1a576e7014c3cbe539df48334eb74913e6801c0a28204e5c971f21681372",
+      "llama-fit-params": "a08c4016b54e5c014c2e54b8b977ba990c63d89497b6561b453f5ae5202e4b6c",
+      "llama-gemma3-cli": "f7f9126b0881654bdb4c9ceab6de40f42e31998fa0c775505b5979ef7e8e567e",
+      "llama-gguf-split": "aac59b5b9e22e5814286219dccce5f57953b05a8dd5ba96f966db0b11bbc70d2",
+      "llama-imatrix": "01eb826efc2982e0cbe119f96dabca517b4faaf5cfb20bfb8d4afcd046fad6b5",
+      "llama-llava-cli": "9a77293c34faa94ae6955f9b1da3dca9fa55cf09fcd0fff87c96f5ec44b9d547",
+      "llama-minicpmv-cli": "4baffe08bb410686ee032b1b2ff9a948bbde3fdc014dddf750f36978e3b40589",
+      "llama-mtmd-cli": "b61a6f2b996b6068f36399ac5b54503856071596aef5ff3e665d311ead7e7884",
+      "llama-mtmd-debug": "95aedf8df825ffa3ec77eb62f9bf695f9cd81a74a7336060a528dc526a557050",
+      "llama-perplexity": "a20c6e50a62953590608762c00e85d69241222d17dfeab1942fb7cbfd4574909",
+      "llama-quantize": "0ece83905109d9a3345c3e5b81f32082d30c59bb802a0762ce9439767b0fc1d7",
+      "llama-qwen2vl-cli": "9be4a36b2587c0216009b1ed59ac79b1e4dd2e885f326e8aeffac8aa37761d31",
+      "llama-results": "b59a13b57cf80bb0016a1d074725b2ef0efe0c948a7e8a325eaa29e2cd78d80d",
+      "llama-server": "d707b6db4c1397a7383176fba12d339e5b33c7513669d74c8fbc2a76f6979a72",
+      "llama-tokenize": "35c8809e943f4460858f4ccf265ea7066a05c944da0bfee5329b081a230ac76e",
+      "llama-tts": "e1a08ab5e9e4159aed191f11b536c21212e2442a97bd89cfb994906b1bcafc69"
+    },
+    "synthetic_release_parity": {
+      "schema": 1,
+      "release": "b10809",
+      "revision": "5266f24da75dc449bd56cbed7addb9c8e4a6a73e",
+      "matched_synthetic_fixtures": 24,
+      "candidate_gemma_mtp_ready": true,
+      "original_budget": 512,
+      "private_contents_recorded": false,
+      "accuracy_reviewed": false,
+      "physical_latency_measured": false
+    },
+    "production_service_verification": {
+      "schema": 1,
+      "owned_agent": true,
+      "standalone_executable": true,
+      "homebrew_process_files": false,
+      "loaded_release_libraries": true,
+      "mtp_enabled": true,
+      "draft_length_6": true,
+      "model_alias": true,
+      "private_contents_recorded": false,
+      "runner_python_available": true,
+      "homebrew_python": false
+    }
+  },
+  "cleanup_import": {
+    "source_version": "1.8.3",
+    "prompt_source": "installed-default",
+    "dictionary_entries": 188,
+    "public_source_sha256": {
+      "src/config/prompts/index.ts": "ae295a121a0af7836897f9f3f07cc0c19665e63bdbf1fe53c57ca3e293d20491",
+      "src/locales/en/prompts.json": "eff692aa01fd12e93375a473fbed860b6ba45a314ffbff0f500e83eaefeb75cf",
+      "src/config/languageRegistry.json": "3ef14fb3169ab4b417cda964aed4c6e90ba6bfc33297dfbc4133c9ce1d3835da"
+    },
+    "private_contents_in_inventory": false,
+    "app_output_token_cap": 512,
+    "reference_minimum_output_token_cap": 4096,
+    "controlled_budget_parity": true,
+    "synthetic_cleanup_warm_observations": 720
+  },
+  "synthetic_native_batch_flow": "passed: 6 synthetic fixtures, 180 warm native text updates plus 6 warmups; excludes physical capture/release, compositor and third-party targets",
+  "media_recovery": "bounded two replacements per run; old generation/lease invalidation and crash/fatal/permission/malformed/oversized/slow-reader process checks passed; real player compatibility pending",
+  "native_permission_readiness": "Launch Services preparation passed: microphone/Accessibility/Input Monitoring, real event tap, offline ASR, exact cleanup alias, warm capture",
+  "native_stage_timing_rerun": "pending: lock screen rejects native insertion; user unlock/focus requested",
+  "locked_startup": "final signed probe passed: Dictation paused, no ready pipeline/event tap; preparation invalidated on lock/sleep/session loss",
+  "shortcut_recorder": "native settings sheet, local active-only event capture, physical Left/Right modifiers, chord/release/cancel/persistence tests passed; physical key acceptance remains pending",
+  "right_control_startup_recovery": "missing caches and cleanup service restored from verified local assets; owned ASR folder selected, key code 62/private text preserved; signed Launch Services pipeline/event tap/permissions ready; physical key and popup acceptance pending",
+  "feedback_and_diagnostics": {
+    "normal_indicator_points": [
+      238,
+      64
+    ],
+    "error_indicator_points": [
+      360,
+      94
+    ],
+    "audio_activity_max_hz": 10,
+    "audio_activity": "optional converted-PCM RMS/noise gate; visual only; no idle timer or ML VAD",
+    "worker_benchmark": "30 interleaved synthetic observations/condition; paired median +0.016 ms per 2 seconds audio; physical/ASR latency unmeasured",
+    "draw_benchmark": "30 observations/condition; 10 draws each; offscreen bitmap CPU paired median +0.563 ms/update; GPU/compositor/power unmeasured",
+    "diagnostics": "opt-in typed JSONL; utility writer; 128 pending events; 2 x 2 MiB; no private contents/paths/raw errors",
+    "generic_paste": "removed terminal allowlist and AX writable-value requirement; saved focus/security/readonly/clipboard/layout validation retained; Ghostty acceptance pending",
+    "media_protocol": "normalizes Objective-C 0/1 booleans; native wire regression passes; real Spotify cycles pending",
+    "openwhispr_inspected": {
+      "installed_version": "1.8.3",
+      "license": "MIT",
+      "public_source_sha256": {
+        "src/helpers/clipboard.js": "d0d1bcff419d77036272d07800552c0d9d71169027eb0a7ac66a401c444f15d3",
+        "src/helpers/mediaPlayer.js": "3730ecab22976c0cc201c4c8412dc49e50552a7a55096eddb7aa8b245ffe0b0d"
+      },
+      "github": {
+        "latest_release": "v1.10.2",
+        "release_commit": "1c123e8739f87c0a72d0b252bc9cff14e684b7f4",
+        "main_commit": "5f9a88b0481a066c147bfd2c38ea1d9acae502ee",
+        "mediaPlayer_js_sha256": "0d803970e16772815147c82c1cafb0fbc50fc887441c6377fbdc4077b4a3107b",
+        "license": "MIT",
+        "macos_behavior": "playing-state probe, explicit Pause/remembered flag/Play; media-key toggle fallback; no track ID validation; release/main files match",
+        "source_copied": false,
+        "paste_public_source_sha256": {
+          "src/helpers/clipboard.js": "5770b0aeb65f951e522a754f77692faf3922d7d9c995ea874bb62cf3dabcdbbb",
+          "resources/macos-fast-paste.swift": "d41fa8582d9bf69a1a5d70bfc181cf5460df1f3e15afe61efeb47eec8ebd348d"
+        },
+        "macos_paste_behavior": "generic Command-V down/up at session event tap; our private event source/hardware-state guard/layout lookup independently implemented; no source or arbitrary delays copied"
+      }
+    },
+    "debug_only_timings": "no stage clock reads/event accumulation, ASR/cleanup timing callback, first-audio diagnostic timestamp or clipboard diagnostic callback when disabled; explicit benchmarks opt in",
+    "media_diagnostics": "debug-only fixed skip/invalidation reasons and request-to-confirmation timing summary; real Spotify retest showed itemChanged after confirmed Pause with no user track/playback change",
+    "media_identifier_refresh": "same player/PID/process lifetime and bounded title/artist/album/duration may match an opaque identifier refresh; metadata stays only in helper RAM and is stripped from protocol replies; actual content/player/playback changes invalidate; missing metadata keeps strict item ID; latest retest: four confirmed pauses, three confirmed resumes, one unconfirmed; user reports Spotify working; full cycle/player matrix pending",
+    "support_folder_recovery": {
+      "cause": "unproven; app/support assets and cleanup LaunchAgent disappeared; install/restart scripts reviewed without finding an asset-deletion path",
+      "models": "workspace sources and restored owned ASR/Gemma/MTP copies passed full SHA-256 checks",
+      "preferences": "backed up; exported cleanup prompt/dictionary/framing restored only over recognized defaults; Right Control preserved; debug enabled",
+      "runtime": "official standalone b10809, same v0.4.0 revision; GitHub archive digest and 60 runtime files pinned; no Homebrew dependencies; Python 3.9 supported",
+      "verification": "production standalone service loaded bundled libraries with no Homebrew files; signed Launch Services readiness reports ready ASR/cleanup/event tap and all three permissions; normal reopened app logged ready with debug on and Right Control; physical dictation/media acceptance pending",
+      "readiness_report": "bench/results/readiness-release-restored.json"
+    },
+    "insertion_modifier_recovery": {
+      "observed": "six sessions completed ASR and cleanup; one insertion blocked with modifiersHeld before paste; five Command-V dispatches are not proof of visibility",
+      "cause": "old logs lack modifier categories; stale synthetic/session state remains a hypothesis",
+      "implementation": "HID hardware modifier guard, existing 250 ms bound; private-source Command-V at session tap; target/layout/clipboard ownership and one insertion preserved",
+      "debug_only": "typed hardware/session modifier categories and physical wait; extra session-state query/callback/record disabled in normal mode; clear hardware path has no clock read or sleep",
+      "verification": "make test and make check pass: 60 Swift, 14 broker, 14 setup; five modifier regressions and diagnostic privacy checks; signed Launch Services probe ready with all three permissions; normal app reopened ready with Right Control/debug; post-change physical trial pending",
+      "report": "bench/results/missing-paste-retest.json",
+      "readiness_report": "bench/results/readiness-modifier-fix.json"
+    }
+  },
+  "historical_cleanup_runtime": {
+    "path": "/opt/homebrew/Cellar/llama.cpp/0.4.0/bin/llama-server",
+    "revision": "5266f24da75dc449bd56cbed7addb9c8e4a6a73e",
+    "binary_sha256": "8939a1cf8a4e9a5cc18d6cd4d2d55440b48f8a44db00abe459a28d837ea051f7",
+    "minimum_macos": "26.0",
+    "purpose": "Initial cleanup/native synthetic timing baseline; superseded by same-revision standalone release"
+  },
+  "asr_model_picker": {
+    "choices": [
+      "unified",
+      "ultra",
+      "v2",
+      "v3"
+    ],
+    "default": "unified",
+    "saved_preferences": "missing field keeps Unified; invalid choices reject; private text/shortcut/download policy preserved",
+    "mode": "batch; streaming adapter unchanged",
+    "ownership": "wait for cancelled previous setup; unload old local engine before loading replacement; busy unload fails preparation explicitly",
+    "diagnostics": "fixed selected-model enum in opt-in configuration records; older records decode; no recording-time instrumentation added",
+    "verification": "make check: 63 Swift, 14 broker, 14 setup; 18 native renders; real batch checks for Unified and Ultra; signed bundle Ultra prepare/short-input/unload passed; final Unified Launch Services readiness all permissions/pipeline/tap ready; normal app reopened",
+    "comparison": {
+      "report": "bench/results/model-comparison.json",
+      "observations_per_model": 90,
+      "synthetic_clips": 3,
+      "order": "Unified then Ultra, one loaded model at a time",
+      "normalized_reference_matches": {
+        "unified": 3,
+        "ultra": 2
+      },
+      "difference": "Ultra substitutes a report for the report on the longer synthetic clip",
+      "timings_ms": {
+        "short": {
+          "unified": {
+            "median_ms": 61.4,
+            "p90_ms": 67.07,
+            "p95_ms": 72.66
+          },
+          "ultra": {
+            "median_ms": 55.6,
+            "p90_ms": 57.77,
+            "p95_ms": 59.3
+          }
+        },
+        "correction": {
+          "unified": {
+            "median_ms": 73.59,
+            "p90_ms": 89.76,
+            "p95_ms": 128.67
+          },
+          "ultra": {
+            "median_ms": 60.54,
+            "p90_ms": 62.61,
+            "p95_ms": 68.58
+          }
+        },
+        "eight-seconds": {
+          "unified": {
+            "median_ms": 97.86,
+            "p90_ms": 118.27,
+            "p95_ms": 125.3
+          },
+          "ultra": {
+            "median_ms": 90.93,
+            "p90_ms": 100.27,
+            "p95_ms": 101.11
+          }
+        }
+      },
+      "limitations": "small clean synthetic corpus, no interleaved model order or physical/real-speech/noise/memory-pressure acceptance"
+    },
+    "ultra_cache": {
+      "repository": "FluidInference/parakeet-ultra-coreml",
+      "revision": "95eaa59a39d4394f047a4dc5cce480388a60d1b6",
+      "bytes": 632318254,
+      "cache_folder": "parakeet-ultra",
+      "license": "CC-BY-4.0 per retained model card",
+      "files": [
+        {
+          "file": ".gitattributes",
+          "bytes": 1519,
+          "sha256": "11ad7efa24975ee4b0c3c3a38ed18737f0658a5f75a0a96787b576a78a023361"
+        },
+        {
+          "file": "Decoder.mlmodelc/analytics/coremldata.bin",
+          "bytes": 243,
+          "sha256": "fe92b6cfaa012abd5248c0bc877832f19807015abffc60d87b8ccc8ccb48b3b5"
+        },
+        {
+          "file": "Decoder.mlmodelc/coremldata.bin",
+          "bytes": 560,
+          "sha256": "3b06e66768f0df7e21795f50e2b29300e33eeb1a2579dc42c695279c2d308497"
+        },
+        {
+          "file": "Decoder.mlmodelc/model.mil",
+          "bytes": 13110,
+          "sha256": "956f600207f88396017ca5c96cfa3acd5bfee60835a5b44b762e033a8fb28955"
+        },
+        {
+          "file": "Decoder.mlmodelc/weights/weight.bin",
+          "bytes": 23604992,
+          "sha256": "02a0d219f281b9665bc10c8768649403b2eebbbf4b44c627041d948e0de11bb4"
+        },
+        {
+          "file": "Encoder.mlmodelc/analytics/coremldata.bin",
+          "bytes": 243,
+          "sha256": "d87101d824d6723cf95304da33755c3c60e762663b9ef2b0c4bd0aa166a09a0d"
+        },
+        {
+          "file": "Encoder.mlmodelc/coremldata.bin",
+          "bytes": 514,
+          "sha256": "397a84a4062f563cbc5f56077c674f09a61d85be5090f61d2f1932afb92ac0fe"
+        },
+        {
+          "file": "Encoder.mlmodelc/model.mil",
+          "bytes": 1002653,
+          "sha256": "f5d601568a4171d99a314c0fe3f6bc67715da2623732a3fb566e050ea83e5848"
+        },
+        {
+          "file": "Encoder.mlmodelc/weights/weight.bin",
+          "bytes": 594211328,
+          "sha256": "315ba01f33cadbf601d43ac7f5c86208b7aa75fdaa34705c9869d5abe3521c9b"
+        },
+        {
+          "file": "JointDecisionv3.mlmodelc/analytics/coremldata.bin",
+          "bytes": 243,
+          "sha256": "68d38ca646aebafa7a9329e2efda50f5767c49e89fdb5f77f212072bb66f97c4"
+        },
+        {
+          "file": "JointDecisionv3.mlmodelc/coremldata.bin",
+          "bytes": 592,
+          "sha256": "5e3af5a4ce686f6c237cadbd9284e10d333bc0e1546633cd0e430e6194044bc4"
+        },
+        {
+          "file": "JointDecisionv3.mlmodelc/model.mil",
+          "bytes": 11777,
+          "sha256": "791b3c3cf3eb2079c84623fc880f6bba008d1366e5f8b03e9a8ed8bd4d7194a0"
+        },
+        {
+          "file": "JointDecisionv3.mlmodelc/weights/weight.bin",
+          "bytes": 12642764,
+          "sha256": "3f310b85b82341c53ec383025ab094a4e462ee1c592e1ad7c6bfe39cff66ca25"
+        },
+        {
+          "file": "Preprocessor.mlmodelc/analytics/coremldata.bin",
+          "bytes": 243,
+          "sha256": "c9beeb989c8d66f8be11df59bc6df277ec76cee404f6865b46243835ef562f6d"
+        },
+        {
+          "file": "Preprocessor.mlmodelc/coremldata.bin",
+          "bytes": 486,
+          "sha256": "dbde3f2300842c1fd51ef3ff948a0bcffe65ffd2dca10707f2509f32c1d65b1d"
+        },
+        {
+          "file": "Preprocessor.mlmodelc/metadata.json",
+          "bytes": 2841,
+          "sha256": "2a98699e22d279dd37fa1d238aeb1c6db1df0d6fad687775324157689d8f3acf"
+        },
+        {
+          "file": "Preprocessor.mlmodelc/model.mil",
+          "bytes": 28181,
+          "sha256": "4b8518a956450fec57f06c2a21bdffc26973f7f1fa6842fb38fe917f896b6b93"
+        },
+        {
+          "file": "Preprocessor.mlmodelc/weights/weight.bin",
+          "bytes": 491072,
+          "sha256": "129b76e3aeafa8afa3ea76d995b964b145fe83700d579f6ff42c4c38fa0968ea"
+        },
+        {
+          "file": "README.md",
+          "bytes": 2235,
+          "sha256": "9e9e26b6da628a0dc34b9c55f2029e486fc02304ccd7f83825333572ae11c158"
+        },
+        {
+          "file": "config.json",
+          "bytes": 414,
+          "sha256": "965c69bf500c7be18958df6438dc1ba897721690ae412937ca7c91e28cec1870"
+        },
+        {
+          "file": "parakeet_v3_vocab.json",
+          "bytes": 151122,
+          "sha256": "7ec60e05f1b24480736ec0eed40900f4626bce1fa9a60fd700ec7e2a59198735"
+        },
+        {
+          "file": "parakeet_vocab.json",
+          "bytes": 151122,
+          "sha256": "7ec60e05f1b24480736ec0eed40900f4626bce1fa9a60fd700ec7e2a59198735"
+        }
+      ],
+      "verification": "repository sizes plus LFS SHA-256/Git blob IDs verified; cloned owned cache rehashed; existing Unified and private settings preserved"
+    },
+    "readiness_report": "bench/results/readiness-model-picker.json"
+  }
+}

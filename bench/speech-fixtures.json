@@ -1,0 +1,35 @@
+{
+  "voice": "Samantha",
+  "words_per_minute": 180,
+  "format": "WAV PCM16 mono 16000 Hz",
+  "generator": "macOS say + afconvert (OS voice version must be recorded)",
+  "clips": [
+    {
+      "id": "short",
+      "text": "Hello world."
+    },
+    {
+      "id": "correction",
+      "text": "Thursday. [[slnc 500]] No, Friday."
+    },
+    {
+      "id": "dictionary",
+      "text": "Whispr Lite uses Parakeet and Gemma."
+    },
+    {
+      "id": "pauses",
+      "text": "Start the sentence. [[slnc 1500]] Finish the sentence."
+    },
+    {
+      "id": "eight-seconds",
+      "text": "Please send the report on Friday. I mean Friday, not Thursday. Keep the final word.",
+      "duration_seconds": 8
+    },
+    {
+      "id": "twenty-five-seconds",
+      "text": "This is a longer synthetic dictation. We need to preserve names, pauses, corrections, and the final word. The meeting was planned for Thursday. No, change that to Friday. Whispr Lite uses Parakeet for transcription and Gemma for cleanup. After a pause, continue the same sentence and keep all of its context.",
+      "duration_seconds": 25
+    }
+  ],
+  "fixed_duration_policy": "Pad shorter complete utterances with silence; never trim speech to meet the target."
+}

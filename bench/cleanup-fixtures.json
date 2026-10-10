@@ -1,0 +1,146 @@
+[
+  {
+    "id": "cleanup-01",
+    "raw": "hello world",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-02",
+    "raw": "um send the report tomorrow",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-03",
+    "raw": "we meet on Thursday no Friday",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-04",
+    "raw": "please call Alex at noon",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-05",
+    "raw": "the service is called Parakeet",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-06",
+    "raw": "Gemma cleans up the transcript",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-07",
+    "raw": "Whispr Lite should preserve this name",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-08",
+    "raw": "first item buy milk second item buy bread",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-09",
+    "raw": "yes",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-10",
+    "raw": "no",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-11",
+    "raw": "thanks",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-12",
+    "raw": "what time does the meeting start",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-13",
+    "raw": "I think uh the result is ready",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-14",
+    "raw": "the version is six point two",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-15",
+    "raw": "open bracket example close bracket",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-16",
+    "raw": "do not change the meaning of this sentence",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-17",
+    "raw": "we need a short pause before continuing",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-18",
+    "raw": "please write one paragraph with punctuation",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-19",
+    "raw": "cancel that correction use Friday instead",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-20",
+    "raw": "The code uses Swift and AppKit",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-21",
+    "raw": "the microphone is warm",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-22",
+    "raw": "keep the final word ending",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-23",
+    "raw": "We can wait for the model to load and then start again",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  },
+  {
+    "id": "cleanup-24",
+    "raw": "After a long pause continue the same sentence without losing its context",
+    "expected": null,
+    "provenance": "synthetic-development-input; installed-stack parity pending"
+  }
+]
