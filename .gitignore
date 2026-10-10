@@ -1,5 +1,5 @@
-# Keep the implementation plan versionable despite the global PLAN.md ignore rule.
-!/PLAN.md
+# Keep the local implementation plan out of GitHub.
+/PLAN.md
 !/AGENTS.md
 .build/
 .swiftpm/
