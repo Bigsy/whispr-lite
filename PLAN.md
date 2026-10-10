@@ -33,31 +33,38 @@ cleanup-only or ASR-only measurements as physical release-to-visible-text latenc
   including long idle and an independent cleanup-service restart. Automatic restart
   detection and button-press recovery are not part of this change.
 
-### 2. Unified streaming ASR
+### 2. Unified streaming ASR — rejected for common short dictation
 
-- [ ] After reviewing experiment 1, trial the existing real streaming adapter with paced
-  input against batch; include short speech, corrections, pauses and long dictation.
-- [ ] Measure residual finish and whole pipeline latency, disagreement, compute and
-  fallback load time. Unified is streaming-capable; Ultra/v2/v3 are currently batch-only.
+- [x] After reviewing experiment 1, trial the existing real streaming adapter with paced
+  input against batch. Decide on short speech, corrections and pauses under five seconds;
+  the user says these cover about 99% of use. Treat long dictation as an edge case.
+- [x] Measure residual finish, disagreement and fallback load time. The 30-run synthetic
+  ASR trial was slower than batch after release for all three common clips. Whole-pipeline
+  latency, compute and power remain unmeasured; no app integration is justified.
+  Unified is streaming-capable; Ultra/v2/v3 are currently batch-only.
   The current streaming export has about 2.08 seconds of initial window latency.
-- [ ] Review whether the gain merits the accuracy/resource tradeoff before app integration.
+- [x] Review the short-clip result before app integration. Keep batch as the real-model
+  app path. The longer synthetic clip has a streaming/batch word disagreement and is
+  secondary to the user's short-dictation workload.
   Retain one authoritative final result and final-only insertion. Settle CoreML ownership
   before cancellation fallback or mode changes; never split dictation context at pauses.
 
-### 3. Streaming partials into Gemma prefill
+### 3. Streaming partials into Gemma prefill — rejected for common short dictation
 
-- [ ] After reviewing streaming, feed changed full transcript snapshots to prompt-only
-  evaluation; measure incremental gain over streaming without prefill, including revisions.
-- [ ] Prototype one cleanup slot, latest-snapshot coalescing and a 500 ms minimum interval.
-  Use a fresh scheduler per recording; verify server settlement, not just client cancellation.
-  Overlap ASR finish with prefill settlement, then issue final cleanup after both complete.
-- [ ] Check output parity, cache reuse and contention before deciding on integration.
-  Prefill moves input evaluation earlier; final output generation still takes time.
+- [x] Mock prompt-only evaluation from actual synthetic Unified partial snapshots against
+  the already warm fixed prefix. The one-second clip emitted no partial; the correction
+  and pause clips added only one and three reusable tokens respectively.
+- [x] Compare 30 baseline/prefill cleanup pairs per eligible clip with isolated Gemma,
+  output parity, cache reuse and lead time. Projected median saving is 2.0 and 1.5 ms.
+  Do not wire a per-recording scheduler or contend with final cleanup for this result.
+  A production scheduler, cancellation settlement and whole-pipeline timing would be
+  necessary if a future streaming model produces earlier useful partials.
 
-### 4. Lower-priority experiments, only after the above decisions
+### 4. Lower-priority experiments
 
-- [ ] Consider removing redundant template/tokenisation round trips (existing short-input
-  measurements suggest roughly 7–8 ms), preserving exact context-limit rejection.
+- [x] Mock removal of per-request template/tokenisation round trips. Thirty paired
+  synthetic comparisons saved only 2–4 ms median for the user's short clips. Keep
+  exact context-limit rejection and the current implementation.
 - [ ] Consider one ASR warm-up on press after inactivity, safely settled before real ASR.
   Repeated `prepare()` is a no-op; periodic idle silence pings previously showed no benefit.
 - [ ] Consider speculative full cleanup during pauses, reusing output only if the final

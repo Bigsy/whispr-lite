@@ -109,6 +109,62 @@ For the configured local backend, cleanup prefill is awaited before
 `preparationReady`, so this verifies the normal startup path completed. No physical
 push-to-talk, final insertion or release-to-visible-text timing was measured.
 
+## Paced Unified streaming and partial-prefill prototypes
+
+10 October 2026: the pinned published ParakeetCore Unified adapter received 640-sample
+chunks on a 40 ms schedule. The app was closed to avoid model contention. Three synthetic
+Samantha clips under five seconds each had 30 batch and 30 streaming observations; batch
+samples bracketed each streaming block. Model preparation and mode switches were outside
+timed capture spans. These are ASR-only estimates, with no microphone, Gemma, insertion,
+CPU/ANE-energy or release-to-visible-text measurement. Streaming residual includes work
+remaining after nominal audio end. Results: ignored `bench/results/streaming-prototype.json`.
+
+| Synthetic clip | Audio | Batch median / p95 | Streaming residual median / p95 | First partial |
+|---|---:|---:|---:|---:|
+| Hello world | 0.96 s | 59 / 61 ms | 152 / 207 ms | none |
+| Thursday, no Friday | 2.66 s | 66 / 67 ms | 105 / 124 ms | 2.23 s median |
+| Sentence with pause | 4.19 s | 71 / 76 ms | 168 / 193 ms | 2.24 s median |
+
+Streaming and batch words matched in all 90 runs. The one-second clip differed in
+punctuation in every run; the other two had exact text parity. Median maximum append lag
+was 3, 147 and 159 ms respectively; this bench does not reproduce the app's finite
+capture-stream buffer. A cancelled-stream-to-batch fallback, including model-mode switch,
+took 280 ms; returning to streaming took 169 ms. A single exploratory 25-second paced run
+had 162 ms residual versus 252 ms batch, but the long fixture has an existing word-level
+streaming/batch disagreement and does not represent the user's roughly 99% under-five-
+second workload. The decision is to keep batch in normal dictation.
+
+One additional paced pass recorded only synthetic partial snapshots. The one-second
+clip produced none. The correction emitted “Thursday” at 2.21 s, 452 ms before release;
+the pause clip emitted “Start the sentence” at 2.21 s, 1,985 ms before release. Its later
+partial arrived after nominal release. With the already warm 968-token fixed Gemma prefix,
+these first snapshots added only one and three reusable tokens to their final prompts.
+
+The isolated pinned Gemma server then ran 30 baseline/partial-prefill pairs for each
+eligible clip, disabling RAM restoration of prior full prompts. Exact trimmed cleanup
+output matched across conditions. Baseline median final request was 92 ms for correction
+and 137 ms for pause; partial prefill cost 45 and 48 ms before release, reducing median
+final request to 90 and 132 ms. Paired projected median release savings, including any
+prefill spill past the measured lead time, were only 2.0 and 1.5 ms. This mock did not
+run Gemma concurrently with ASR or measure contention, and its projected release savings
+are not app timings. Report: ignored `bench/results/partial-prefill.json`. The temporary
+server stopped; the installed cleanup service remained healthy. No streaming or
+per-recording Gemma prefill was integrated.
+
+The next small mock compared the current `/apply-template` and `/tokenize` preflight
+against a direct chat request on those same three synthetic short transcripts, 30 paired
+observations per fixture in rotating order. It reset the isolated pinned server to the
+same warm fixed prefix before each condition and verified exact cleanup output parity.
+The checked path spent a median 4.4–4.7 ms on the two preflight requests. Paired median
+end-to-end saving without them was only 2.2 ms for correction, 4.0 ms for pause and
+3.2 ms for the one-second clip; final-request timing noise offset some preflight cost.
+The direct-request mock skipped exact preflight context validation, so it was not
+integrated. Metric-only report: ignored `bench/results/cleanup-roundtrips.json`. The
+temporary server stopped and the installed service remained healthy.
+
+The signed app was relaunched after the model runs; startup diagnostics recorded
+`preparationReady` in 571 ms and `readiness=ready` at 17:09 UTC.
+
 ## Small Unified / Ultra comparison
 
 Three existing Samantha synthetic clips, 30 warm runs per clip per model (180 measured

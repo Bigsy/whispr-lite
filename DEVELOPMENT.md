@@ -330,6 +330,29 @@ reuse and unload/reprepare. `--streaming-check` uses the same arguments and chec
 batch fallback and returning to streaming. It sends audio without capture pacing and
 does not measure physical partial lag, visible insertion, cleanup or ground-truth WER.
 
+`--streaming-prototype CACHE WAV_DIRECTORY OUTPUT_JSON --repetitions 30` compares
+the pinned Unified adapter with batch on the same synthetic files. It feeds 640-sample
+chunks on a 40 ms capture schedule, holds the end until the audio duration, and records
+first partial, append lag, finish call, residual after release and batch inference time.
+Batch samples bracket the streaming block; model-mode switches and session creation are
+outside the timed capture spans. It also measures a cancelled-stream-to-batch fallback
+and reset. The raw JSON is ignored under `bench/results/`. Use normal GPU access, close
+the running app during measurement, and do not supply private recordings. This bench
+does not include microphone buffering, Gemma cleanup or visible insertion.
+With `--repetitions 1`, the prototype also records synthetic partial text for a
+follow-up prompt-cache mock; the 30-run report retains only partial counts and timing.
+`python3 scripts/bench-partial-prefill.py --repetitions 30` reads those synthetic
+snapshots and starts an isolated pinned Gemma server on 11437 with RAM prompt
+restoration disabled. It compares the already warm fixed prefix with prefix plus first
+partial and writes metric-only output to ignored `bench/results/partial-prefill.json`.
+The installed 11436 service is untouched. Its release savings are projections from
+measured partial lead time and request durations, not full pipeline observations.
+`python3 scripts/bench-cleanup-roundtrips.py --repetitions 30` uses the same isolated
+server and synthetic final transcripts to compare the existing exact template/token
+preflight with a direct final chat request. Its direct path is only a latency mock: it
+does not preserve the app's exact context-limit check. The metric-only report is ignored
+at `bench/results/cleanup-roundtrips.json`.
+
 For a small model comparison, point the batch command at a directory containing just
 the desired synthetic clips. `--model` selects the speech model; downloads remain off
 unless explicitly requested:

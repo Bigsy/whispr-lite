@@ -20,6 +20,15 @@ import WhisprLiteCore
             return
         }
         #if PARAKEET_STREAMING_CANDIDATE
+        if let index = CommandLine.arguments.firstIndex(of: "--streaming-prototype"), CommandLine.arguments.count > index + 3 {
+            let repeatIndex = CommandLine.arguments.firstIndex(of: "--repetitions")
+            let repetitions = repeatIndex.flatMap { CommandLine.arguments.indices.contains($0 + 1) ? Int(CommandLine.arguments[$0 + 1]) : nil } ?? 30
+            guard repetitions > 0 else { throw AppError.invalidAudio }
+            try await streamingPrototype(cache: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true),
+                corpus: URL(fileURLWithPath: CommandLine.arguments[index + 2], isDirectory: true),
+                output: URL(fileURLWithPath: CommandLine.arguments[index + 3]), repetitions: repetitions)
+            return
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--streaming-check"), CommandLine.arguments.count > index + 3 {
             try await realStreaming(cache: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true),
                 corpus: URL(fileURLWithPath: CommandLine.arguments[index + 2], isDirectory: true),
@@ -188,6 +197,103 @@ import WhisprLiteCore
         print("real-batch fixtures=\(files.count) warm-observations=\(files.count * 30) cancellation=ok unload=ok")
     }
     #if PARAKEET_STREAMING_CANDIDATE
+    static func streamingPrototype(cache: URL, corpus: URL, output: URL, repetitions: Int) async throws {
+        let files = try FileManager.default.contentsOfDirectory(at: corpus, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "wav" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        guard !files.isEmpty else { throw AppError.invalidAudio }
+        let backend = ParakeetStreamingBackend(cacheRoot: cache)
+        try await backend.prepare()
+        var observations: [[String: Any]] = []
+        for file in files {
+            let audio = try readPCM(file)
+            let reference = try await backend.transcribe(audio)
+            var batchMS: [Double] = []
+            var streaming: [[String: Any]] = []
+            let before = repetitions / 2
+            for _ in 0..<before {
+                let started = ContinuousClock.now
+                let result = try await backend.transcribe(audio)
+                batchMS.append(milliseconds(started.duration(to: .now)))
+                guard result == reference else { throw AppError.inference }
+            }
+            // This switch and the first session are outside measured capture/release spans.
+            let warm = try await backend.makeSession()
+            await warm.cancel()
+            for _ in 0..<repetitions {
+                let session = try await backend.makeSession()
+                let started = ContinuousClock.now
+                var offset = 0
+                var firstPartialMS: Double?
+                var partials = 0
+                var revision = 0
+                var partialSnapshots: [[String: Any]] = []
+                var maximumAppendLagMS = 0.0
+                while offset < audio.samples.count {
+                    let targetMS = Double(offset) / 16
+                    let elapsedMS = milliseconds(started.duration(to: .now))
+                    if targetMS > elapsedMS {
+                        try await Task.sleep(for: .milliseconds(Int((targetMS - elapsedMS).rounded(.up))))
+                    }
+                    let end = min(offset + 640, audio.samples.count)
+                    try await session.append(PCM16k(Array(audio.samples[offset..<end])), startingAt: offset)
+                    offset = end
+                    maximumAppendLagMS = max(maximumAppendLagMS,
+                        milliseconds(started.duration(to: .now)) - Double(offset) / 16)
+                    if let update = try await session.partial(), update.revision > revision {
+                        revision = update.revision; partials += 1
+                        if firstPartialMS == nil { firstPartialMS = milliseconds(started.duration(to: .now)) }
+                        if repetitions <= 2 {
+                            partialSnapshots.append(["at_ms": milliseconds(started.duration(to: .now)), "text": update.text])
+                        }
+                    }
+                }
+                let releaseMS = audio.duration * 1_000
+                let elapsedMS = milliseconds(started.duration(to: .now))
+                if releaseMS > elapsedMS {
+                    try await Task.sleep(for: .milliseconds(Int((releaseMS - elapsedMS).rounded(.up))))
+                }
+                let finishStarted = ContinuousClock.now
+                let final = try await session.finish()
+                let totalMS = milliseconds(started.duration(to: .now))
+                guard final.audioDuration == audio.duration else { throw AppError.inference }
+                streaming.append(["total_ms": totalMS, "residual_after_release_ms": max(0, totalMS - releaseMS),
+                    "finish_call_ms": milliseconds(finishStarted.duration(to: .now)),
+                    "maximum_append_lag_ms": maximumAppendLagMS, "first_partial_ms": firstPartialMS as Any? ?? NSNull(),
+                    "partial_revisions": partials, "partial_snapshots": partialSnapshots,
+                    "text": final.text, "batch_text_equal": final.text == reference.text])
+            }
+            // Batch after streaming brackets the streaming run to expose thermal drift.
+            _ = try await backend.transcribe(audio) // Switch/prepare outside timed samples.
+            for _ in before..<repetitions {
+                let started = ContinuousClock.now
+                let result = try await backend.transcribe(audio)
+                batchMS.append(milliseconds(started.duration(to: .now)))
+                guard result == reference else { throw AppError.inference }
+            }
+            observations.append(["fixture": file.lastPathComponent, "audio_seconds": audio.duration,
+                "batch_text": reference.text, "batch_ms": batchMS, "streaming": streaming])
+            print("paced-streaming fixture=\(file.lastPathComponent) repetitions=\(repetitions)")
+            fflush(stdout)
+        }
+        let cancellation = try await backend.makeSession()
+        try await cancellation.append(PCM16k([Float](repeating: 0, count: 640)), startingAt: 0)
+        await cancellation.cancel()
+        let fallbackStarted = ContinuousClock.now
+        _ = try await backend.transcribe(readPCM(files[0]))
+        let fallbackMS = milliseconds(fallbackStarted.duration(to: .now))
+        let resetStarted = ContinuousClock.now
+        let reset = try await backend.makeSession()
+        let resetMS = milliseconds(resetStarted.duration(to: .now))
+        await reset.cancel()
+        let result: [String: Any] = ["schema": 1, "mode": "unified-paced-streaming-prototype",
+            "repetitions": repetitions, "capture_paced": true, "cleanup_measured": false,
+            "visible_text_measured": false, "ground_truth_accuracy_measured": false,
+            "fallback_switch_and_batch_ms": fallbackMS, "batch_to_streaming_reset_ms": resetMS,
+            "fixtures": observations]
+        try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]).write(to: output, options: .atomic)
+        print("paced-streaming result=\(output.path)")
+    }
     static func realStreaming(cache: URL, corpus: URL, output: URL) async throws {
         let batch = ParakeetCoreBackend(cacheRoot: cache)
         try await batch.prepare()
