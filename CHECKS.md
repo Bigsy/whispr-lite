@@ -165,6 +165,55 @@ temporary server stopped and the installed service remained healthy.
 The signed app was relaunched after the model runs; startup diagnostics recorded
 `preparationReady` in 571 ms and `readiness=ready` at 17:09 UTC.
 
+## Press-time ASR warm-up prototype
+
+10 October 2026: the pinned Unified batch backend was prepared from cached models,
+then tested on two synthetic clips. Each observation had a one-second idle interval
+before simulated press and 40 ms ticks during the audio-length hold. Alternating
+baseline and candidate observations ran 30 times per clip. The candidate started one
+16 kHz, one-second silence inference at press, awaited its settlement at release, then
+ran the same final batch transcription. Outputs matched exactly in all 120 final runs.
+This excludes microphone capture, Gemma, insertion and energy measurement. A first
+two-run pilot with one long sleep overshot nominal release and was discarded; the
+corrected 40 ms tick run had median release lag under 3 ms.
+
+| Synthetic clip | Baseline release → ASR median / p95 | Press warm-up median / p95 | Paired median saving | Paired wins |
+|---|---:|---:|---:|---:|
+| 0.96 s short | 169 / 306 ms | 164 / 301 ms | 8 ms | 18/30 |
+| 2.66 s correction | 176 / 307 ms | 172 / 312 ms | 2 ms | 16/30 |
+
+The extra silence inference cost about 160 ms median at press for both clips; it was
+settled before release in all repeated observations. The broad, bimodal final ASR
+distribution remained in both conditions, so the two-run pilot's larger apparent gain
+did not repeat. Report: ignored `bench/results/press-warmup.json`. A 90-second idle
+spot check used two paired observations per clip, so it is exploratory:
+
+| 90 s idle clip | Baseline release → ASR | Press warm-up release → ASR | Paired savings |
+|---|---:|---:|---:|
+| 0.96 s short | 209, 193 ms | 119, 135 ms | 90, 57 ms |
+| 2.66 s correction | 206, 219 ms | 177, 161 ms | 29, 58 ms |
+
+All four pairs improved and retained exact synthetic output. The extra silence inference
+took 147–188 ms before release. Reports: ignored `bench/results/press-warmup-idle90.json`
+and `bench/results/press-warmup-correction-idle90.json`. This prompted a conditional
+implementation after 90 seconds without ASR activity, with no timer or polling. The
+warm-up runs away from the event-tap callback, is allowed to settle rather than being
+cancelled mid-CoreML, and is awaited before final ASR and model replacement. Four
+long-idle pairs do not establish a general latency or battery benefit; physical
+recording, 5/25-minute idle and power checks remain open.
+
+After integration, `make check` passed with normal session/keychain access: 70 Swift
+tests in 22 suites, 14 native broker tests, 14 setup tests, 4 release-tooling tests,
+arm64 signed app build, doctor and bundle/resource smoke. The focused lifecycle test
+cancelled one press, immediately retried, and verified the pending warm-up settled
+before final ASR with only one inserted result. The initial sandboxed `make test` run
+failed three native pasteboard/modifier tests because of restricted session access;
+the permitted normal-session rerun passed them. The signed build has not yet had a
+physical push-to-talk or measured release-to-visible-text trial.
+
+The rebuilt signed app was relaunched in the background; startup diagnostics recorded
+`preparationReady` in 649 ms and `readiness=ready` at 17:43 UTC.
+
 ## Small Unified / Ultra comparison
 
 Three existing Samantha synthetic clips, 30 warm runs per clip per model (180 measured

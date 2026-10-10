@@ -19,6 +19,18 @@ import WhisprLiteCore
             try await dictionaryCheck()
             return
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--press-warmup-prototype"), CommandLine.arguments.count > index + 3 {
+            let repeatIndex = CommandLine.arguments.firstIndex(of: "--repetitions")
+            let idleIndex = CommandLine.arguments.firstIndex(of: "--idle-seconds")
+            let repetitions = repeatIndex.flatMap { CommandLine.arguments.indices.contains($0 + 1) ? Int(CommandLine.arguments[$0 + 1]) : nil } ?? 30
+            let idleSeconds = idleIndex.flatMap { CommandLine.arguments.indices.contains($0 + 1) ? Double(CommandLine.arguments[$0 + 1]) : nil } ?? 1
+            guard repetitions > 0, (0...1_500).contains(idleSeconds) else { throw AppError.invalidAudio }
+            try await pressWarmupPrototype(cache: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true),
+                corpus: URL(fileURLWithPath: CommandLine.arguments[index + 2], isDirectory: true),
+                output: URL(fileURLWithPath: CommandLine.arguments[index + 3]),
+                repetitions: repetitions, idleSeconds: idleSeconds)
+            return
+        }
         #if PARAKEET_STREAMING_CANDIDATE
         if let index = CommandLine.arguments.firstIndex(of: "--streaming-prototype"), CommandLine.arguments.count > index + 3 {
             let repeatIndex = CommandLine.arguments.firstIndex(of: "--repetitions")
@@ -134,6 +146,68 @@ import WhisprLiteCore
     static func milliseconds(_ duration: Duration) -> Double {
         let value = duration.components
         return Double(value.seconds) * 1_000 + Double(value.attoseconds) / 1e15
+    }
+    static func pressWarmupPrototype(cache: URL, corpus: URL, output: URL,
+                                     repetitions: Int, idleSeconds: Double) async throws {
+        let files = try FileManager.default.contentsOfDirectory(at: corpus, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "wav" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        guard !files.isEmpty else { throw AppError.invalidAudio }
+        let backend = ParakeetCoreBackend(cacheRoot: cache)
+        try await backend.prepare()
+        let silence = try PCM16k([Float](repeating: 0, count: 16_000))
+        var fixtures: [[String: Any]] = []
+        for file in files {
+            let audio = try readPCM(file)
+            let expected = try await backend.transcribe(audio)
+            guard !expected.text.isEmpty else { throw AppError.inference }
+            var observations: [[String: Any]] = []
+            for repetition in 0..<repetitions {
+                for candidate in repetition.isMultiple(of: 2) ? [false, true] : [true, false] {
+                    if idleSeconds > 0 {
+                        try await Task.sleep(for: .milliseconds(Int((idleSeconds * 1_000).rounded(.up))))
+                    }
+                    let press = ContinuousClock.now
+                    let warmup = candidate ? Task {
+                        let started = ContinuousClock.now
+                        let result = try await backend.transcribe(silence)
+                        guard result.text.isEmpty else { throw AppError.inference }
+                        return milliseconds(started.duration(to: .now))
+                    } : nil
+                    let releaseMS = audio.duration * 1_000
+                    // Keep capture active on a 40 ms schedule. A single long sleep
+                    // can overshoot release and confound an idle warm-up comparison.
+                    while true {
+                        let remaining = releaseMS - milliseconds(press.duration(to: .now))
+                        if remaining <= 0 { break }
+                        try await Task.sleep(for: .milliseconds(max(1, min(40, Int(remaining.rounded(.up))))))
+                    }
+                    let release = ContinuousClock.now
+                    let warmupMS = try await warmup?.value ?? 0
+                    let warmupWaitMS = milliseconds(release.duration(to: .now))
+                    let finalStarted = ContinuousClock.now
+                    let result = try await backend.transcribe(audio)
+                    let finalASRMS = milliseconds(finalStarted.duration(to: .now))
+                    guard result == expected else { throw AppError.inference }
+                    observations.append(["repetition": repetition, "condition": candidate ? "press_warmup" : "baseline",
+                        "release_to_asr_ms": max(0, milliseconds(press.duration(to: .now)) - releaseMS),
+                        "release_tick_lag_ms": max(0, milliseconds(press.duration(to: release)) - releaseMS),
+                        "final_asr_ms": finalASRMS, "warmup_ms": warmupMS,
+                        "warmup_wait_after_release_ms": warmupWaitMS])
+                }
+                print("press-warmup fixture=\(file.lastPathComponent) round=\(repetition + 1)/\(repetitions)")
+                fflush(stdout)
+            }
+            fixtures.append(["fixture": file.lastPathComponent, "audio_seconds": audio.duration,
+                "synthetic_transcript": expected.text, "observations": observations])
+        }
+        let report: [String: Any] = ["schema": 1, "mode": "press-warmup-asr-prototype",
+            "repetitions_per_condition": repetitions, "idle_seconds_before_press": idleSeconds,
+            "capture_simulated_by_40ms_ticks": true, "model_prepared_before_timing": true,
+            "cleanup_measured": false, "physical_capture_or_insertion_measured": false,
+            "fixtures": fixtures]
+        try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: output, options: .atomic)
+        print("press-warmup result=\(output.path)")
     }
     static func realBatch(cache: URL, corpus: URL, output: URL, model: ParakeetModel = .unified, allowDownloads: Bool = false) async throws {
         let backend = ParakeetCoreBackend(cacheRoot: cache, allowDownloads: allowDownloads, model: model)

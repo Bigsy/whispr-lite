@@ -353,6 +353,25 @@ preflight with a direct final chat request. Its direct path is only a latency mo
 does not preserve the app's exact context-limit check. The metric-only report is ignored
 at `bench/results/cleanup-roundtrips.json`.
 
+`--press-warmup-prototype CACHE WAV_DIRECTORY OUTPUT_JSON --repetitions 30
+--idle-seconds 1` uses the same pinned batch backend for an alternating baseline versus
+one 16 kHz silence inference started at synthetic press. It wakes every 40 ms during
+the synthetic recording, waits for warm-up settlement at release, then measures final
+ASR. It reports the extra warm-up inference and release tick lag separately. Cached
+models are prepared before timed spans; the normal app should be closed for measurement.
+Use only synthetic WAVs. A short idle interval is a repeated comparison, while sparse
+90-second idle observations are exploratory and must be labeled as such.
+
+Normal direct Parakeet dictation starts one batch silence inference when push-to-talk
+begins at least 90 seconds after the last ASR activity. It runs on the model's worker
+while the normal capture path records. There is no idle timer or periodic model ping.
+The one-shot task is not cancelled while CoreML may still own the engine: release waits
+for its settlement before final ASR, and settings preparation waits before unloading
+the old model. Cancellation suppresses the old dictation result; an immediate retry
+can await the same pending warm-up. Other ASR backends and demo mode do not warm.
+This is based on a small long-idle synthetic spot check; hardware capture, power and
+longer idle gates remain in PLAN.md and CHECKS.md.
+
 For a small model comparison, point the batch command at a directory containing just
 the desired synthetic clips. `--model` selects the speech model; downloads remain off
 unless explicitly requested:

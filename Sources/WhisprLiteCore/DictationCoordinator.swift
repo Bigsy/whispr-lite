@@ -27,6 +27,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     public var ready = false
     public var onChange: (() -> Void)?
     public var streamingEnabled = false
+    public var pressWarmupAfter: Duration = .seconds(90)
     public var prefill: PrefillScheduler?
     public private(set) var partial: PartialSnapshot?
     private var streaming: StreamingPipeline?
@@ -42,6 +43,9 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     private var session: UUID?
     private var generation: UInt64 = 0
     private var task: Task<Void, Never>?
+    private var pressWarmup: Task<Void, Never>?
+    private var pressWarmupSerial: UInt64 = 0
+    private var lastASRActivity = ContinuousClock.now
     private var ceiling: Task<Void, Never>?
     private var finalized = false
     private var activationHeld = false
@@ -66,6 +70,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         catch { diagnostics?.record(.init(.failure, session: id, code: .capture)); message = AppError.capture.localizedDescription; state = .error; session = nil; return }
         message = "Recording"; state = .recording
         media.begin(id)
+        startPressWarmupIfIdle()
         if streamingEnabled, pipeline.backend.capabilities.streaming, let chunks = capture.chunks() {
             let streaming = StreamingPipeline(backend: pipeline.backend)
             self.streaming = streaming; streamingFailed = false; partial = nil
@@ -120,6 +125,10 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
             self.media.end(id)
             guard self.generation == owner, !Task.isCancelled else { return }
             do {
+                // A cancelled task can return before CoreML has settled. The warm-up
+                // itself is never cancelled; final ASR and model replacement await it.
+                await self.pressWarmup?.value
+                guard self.generation == owner, !Task.isCancelled else { return }
                 let recorder = self.timings
                 var mark: (@Sendable (TimingStage) async -> Void)?
                 if recorder.isEnabled { mark = { stage in await recorder.mark(stage, session: id) } }
@@ -185,7 +194,21 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         cancel()
         capture.suspend()
     }
+    public func settlePressWarmup() async { await pressWarmup?.value }
+    private func startPressWarmupIfIdle() {
+        guard !streamingEnabled, pressWarmup == nil,
+              lastASRActivity.duration(to: .now) >= pressWarmupAfter,
+              let backend = pipeline.backend as? any PressWarmableASRBackend else { return }
+        pressWarmupSerial &+= 1
+        let serial = pressWarmupSerial
+        pressWarmup = Task { [weak self] in
+            _ = try? await backend.warmForRecording()
+            guard let self else { return }
+            self.lastASRActivity = .now
+            if self.pressWarmupSerial == serial { self.pressWarmup = nil }
+        }
+    }
     public func setMessage(_ value: String) { message = value; onChange?() }
-    private func fail(_ error: AppError) { diagnostics?.record(.init(.failure, session: session, code: .failure(error))); streaming = nil; delivery = nil; partial = nil; message = error.localizedDescription; state = .error; session = nil }
-    private func complete() { if let session { diagnostics?.record(.init(.completed, session: session)) }; streaming = nil; delivery = nil; partial = nil; session = nil; currentTarget = nil; message = ready ? "Ready" : "Not ready"; state = .idle }
+    private func fail(_ error: AppError) { lastASRActivity = .now; diagnostics?.record(.init(.failure, session: session, code: .failure(error))); streaming = nil; delivery = nil; partial = nil; message = error.localizedDescription; state = .error; session = nil }
+    private func complete() { lastASRActivity = .now; if let session { diagnostics?.record(.init(.completed, session: session)) }; streaming = nil; delivery = nil; partial = nil; session = nil; currentTarget = nil; message = ready ? "Ready" : "Not ready"; state = .idle }
 }

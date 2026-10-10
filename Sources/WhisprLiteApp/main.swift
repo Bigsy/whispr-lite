@@ -142,8 +142,9 @@ import WhisprLiteCore
             suspendSession(); return
         }
         let previousSetup = setupTask
+        let previousCoordinator = coordinator
         previousSetup?.cancel(); hotkey?.stop(); hotkey = nil
-        coordinator?.suspend(); audio.suspend(); media.shutdown()
+        previousCoordinator?.suspend(); audio.suspend(); media.shutdown()
         indicator.hide()
         pipelineReady = false; tapReady = false
         settingsEpoch = UUID(); let epoch = settingsEpoch
@@ -197,6 +198,7 @@ import WhisprLiteCore
                 // Serialise replacements. Cancellation cannot preempt CoreML work;
                 // a busy old engine rejects unloading, so no new model is loaded yet.
                 await previousSetup?.value
+                await previousCoordinator?.settlePressWarmup()
                 guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }
                 try await self.localBackend?.unload()
                 guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }

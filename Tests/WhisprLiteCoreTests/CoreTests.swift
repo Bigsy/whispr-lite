@@ -101,6 +101,23 @@ struct FailingCleanup: TextCleanup { func clean(_ text: String) throws -> String
     func begin(_ session: UUID) { begins.append(session) }
     func end(_ session: UUID) { ends.append(session) }
 }
+private actor WarmupBackend: PressWarmableASRBackend {
+    nonisolated let capabilities = ASRCapabilities()
+    private(set) var warmCalls = 0
+    private(set) var finalBeforeWarmSettled = false
+    private var warmSettled = false
+    func prepare() async throws {}
+    func readiness() async -> BackendReadiness { .ready }
+    func warmForRecording() async throws {
+        warmCalls += 1
+        try await Task.sleep(for: .milliseconds(80))
+        warmSettled = true
+    }
+    func transcribe(_ audio: PCM16k) async throws -> ASRResult {
+        if !warmSettled { finalBeforeWarmSettled = true }
+        return .init(text: "Synthetic words", audioDuration: audio.duration)
+    }
+}
 @MainActor @Suite struct LifecycleTests {
     func fixture(_ config: FakeASRConfiguration = .init()) async throws -> (DictationCoordinator, FakeCapture, FakeInsertion, FakeMedia) {
         let capture = FakeCapture(), insertion = FakeInsertion(), media = FakeMedia()
@@ -163,6 +180,20 @@ struct FailingCleanup: TextCleanup { func clean(_ text: String) throws -> String
         coordinator.press(); coordinator.release()
         try await waitUntil { coordinator.state == .error }
         #expect(coordinator.recoveryText != nil && insertion.texts.isEmpty)
+    }
+    @Test func cancelledPressWarmupSettlesBeforeNextFinalASR() async throws {
+        let backend = WarmupBackend(), capture = FakeCapture(), insertion = FakeInsertion(), media = FakeMedia()
+        let coordinator = DictationCoordinator(capture: capture, insertion: insertion, media: media,
+            pipeline: .init(backend: backend, cleanup: DemoCleanup()))
+        coordinator.ready = true; coordinator.pressWarmupAfter = .zero
+        coordinator.press(); coordinator.cancel()
+        try await waitUntil { coordinator.state == .idle }
+        coordinator.press(); coordinator.release()
+        try await waitUntil { coordinator.state == .idle && insertion.texts.count == 1 }
+        await coordinator.settlePressWarmup()
+        #expect(await backend.warmCalls == 1)
+        #expect(await backend.finalBeforeWarmSettled == false)
+        #expect(insertion.texts == ["Synthetic words"])
     }
 }
 
