@@ -150,6 +150,9 @@ in [CHECKS.md](CHECKS.md), and working conventions in [AGENTS.md](AGENTS.md).
 - [x] Add checked Apple Silicon preview artifacts and a tag/manual release pipeline:
   allowlisted app/setup ZIPs, version/commit/checksums, archive smoke check and draft releases.
   Stable tags require Developer ID/hardened runtime/notarization instead of falling back.
+- [x] Exercise both hosted workflows and create the first `v0.1.0-beta.1` draft prerelease.
+  Full checks, archive verification and uploaded asset/manifest checksums pass from the
+  clean tagged commit; no model downloads, private settings or service installation in CI.
 - [ ] Configure distribution credentials and pass actual notarization plus another-Mac
   installation. The separate cleanup kit still needs Python; native first-run setup is open.
 
