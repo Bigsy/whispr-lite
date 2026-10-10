@@ -29,7 +29,10 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     public var ready = false
     public var onChange: (() -> Void)?
     public var streamingEnabled = false
-    public var pressWarmupAfter: Duration = .seconds(90)
+    /// The Neural Engine and CPU clock down within about a second of idle, and batch ASR has
+    /// nothing to do while the key is held. One small inference this often keeps them up until
+    /// release (147 to 89 ms median on a synthetic 4 s hold); nil disables. Idle is unaffected.
+    public var holdWarmupInterval: Duration? = .milliseconds(500)
     public var prefill: PrefillScheduler?
     public private(set) var partial: PartialSnapshot?
     private var streaming: StreamingPipeline?
@@ -47,7 +50,6 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     private var task: Task<Void, Never>?
     private var pressWarmup: Task<Void, Never>?
     private var pressWarmupSerial: UInt64 = 0
-    private var lastASRActivity = ContinuousClock.now
     private var ceiling: Task<Void, Never>?
     private var finalized = false
     private var activationHeld = false
@@ -80,7 +82,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         let target = insertion.snapshot()
         message = "Recording"; state = .recording
         media.begin(id)
-        startPressWarmupIfIdle()
+        startHoldWarmup()
         if streamingEnabled, pipeline.backend.capabilities.streaming, let chunks = capture.chunks() {
             let streaming = StreamingPipeline(backend: pipeline.backend)
             self.streaming = streaming; streamingFailed = false; partial = nil
@@ -115,6 +117,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     }
     private func finish(_ id: UUID, target: UUID, copyOnly: Bool) {
         guard session == id, !finalized else { return }
+        pressWarmup?.cancel() // No new pass after release; final ASR awaits any pass in flight.
         finalized = true; draining = true; ceiling?.cancel(); ceiling = nil
         message = "Processing"; state = .processing
         let owner = generation
@@ -176,6 +179,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         guard session != nil || state != .idle || draining else { activationHeld = false; insertionSession = nil; return }
         if let session { diagnostics?.record(.init(.cancelled, session: session)) }
         generation &+= 1; activationHeld = false; insertionSession = nil
+        pressWarmup?.cancel()
         let owner = generation
         task?.cancel(); task = nil; ceiling?.cancel(); ceiling = nil
         delivery?.cancel(); delivery = nil
@@ -207,20 +211,22 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         capture.suspend()
     }
     public func settlePressWarmup() async { await pressWarmup?.value }
-    private func startPressWarmupIfIdle() {
-        guard !streamingEnabled, pressWarmup == nil,
-              lastASRActivity.duration(to: .now) >= pressWarmupAfter,
+    private func startHoldWarmup() {
+        guard !streamingEnabled, pressWarmup == nil, let interval = holdWarmupInterval,
               let backend = pipeline.backend as? any PressWarmableASRBackend else { return }
         pressWarmupSerial &+= 1
         let serial = pressWarmupSerial
         pressWarmup = Task { [weak self] in
-            _ = try? await backend.warmForRecording()
-            guard let self else { return }
-            self.lastASRActivity = .now
-            if self.pressWarmupSerial == serial { self.pressWarmup = nil }
+            repeat {
+                // Its own task: cancelling the loop never cancels CoreML mid-inference.
+                await Task { _ = try? await backend.warmForRecording() }.value
+                do { try await Task.sleep(for: interval) } catch { break }
+            } while !Task.isCancelled && self?.state == .recording
+            guard let self, self.pressWarmupSerial == serial else { return }
+            self.pressWarmup = nil
         }
     }
     public func setMessage(_ value: String) { message = value; onChange?() }
-    private func fail(_ error: AppError) { lastASRActivity = .now; diagnostics?.record(.init(.failure, session: session, code: .failure(error))); streaming = nil; delivery = nil; partial = nil; message = error.localizedDescription; state = .error; session = nil }
-    private func complete() { lastASRActivity = .now; if let session { diagnostics?.record(.init(.completed, session: session)) }; streaming = nil; delivery = nil; partial = nil; session = nil; currentTarget = nil; message = ready ? "Ready" : "Not ready"; state = .idle }
+    private func fail(_ error: AppError) { diagnostics?.record(.init(.failure, session: session, code: .failure(error))); streaming = nil; delivery = nil; partial = nil; message = error.localizedDescription; state = .error; session = nil }
+    private func complete() { if let session { diagnostics?.record(.init(.completed, session: session)) }; streaming = nil; delivery = nil; partial = nil; session = nil; currentTarget = nil; message = ready ? "Ready" : "Not ready"; state = .idle }
 }

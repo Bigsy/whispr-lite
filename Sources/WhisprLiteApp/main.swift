@@ -321,16 +321,18 @@ import WhisprLiteCore
     private func recoverCapture(epoch: UUID, preferences: Preferences) {
         guard settingsEpoch == epoch, pipelineReady else { return }
         coordinator?.suspend()
-        let now = ContinuousClock.now
-        captureRecoveries = captureRecoveries.filter { $0.duration(to: now) < .seconds(30) } + [now]
         captureRecovery?.cancel()
-        guard captureRecoveries.count <= 3 else {
-            update("Microphone keeps changing", detail: "Check the microphone, then check readiness.", readiness: .needsAttention); return
-        }
         update("Microphone changed. Reconnecting", readiness: .preparing)
         captureRecovery = Task { [weak self] in
+            // A route change (AirPods connecting) posts several notifications; they coalesce here.
             do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
             guard let self, self.settingsEpoch == epoch, self.pipelineReady else { return }
+            // Count rebuilds, not notifications, so only a rebuild that keeps failing gives up.
+            let now = ContinuousClock.now
+            self.captureRecoveries = self.captureRecoveries.filter { $0.duration(to: now) < .seconds(30) } + [now]
+            guard self.captureRecoveries.count <= 3 else {
+                self.update("Microphone keeps changing", detail: "Check the microphone, then check readiness.", readiness: .needsAttention); return
+            }
             do {
                 try self.audio.prepare(warm: preferences.warmCapture, microphoneUID: preferences.microphoneUID,
                                        streaming: preferences.backend == .demo && preferences.streamingDemo, lowLatency: preferences.lowLatencyCapture)

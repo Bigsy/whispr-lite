@@ -208,6 +208,31 @@ early partial in them. A 2-second streaming initial window, wasted full generati
 same-slot contention outweigh this mock's silent-tail opportunity for common dictation.
 The temporary server stopped on exit; the installed cleanup service was not replaced.
 
+## Hold-time ASR keep-warm
+
+10 October 2026: 48 logged real dictations (old capture path) had median ASR 217 ms and
+127 to 134 ms even for 2 s clips right after the previous dictation, against 59 to 98 ms
+in back-to-back synthetic runs. A temporary release-build probe with the cached Ultra
+model then measured a 2.7 s synthetic clip after varying idle gaps (8 rotated repetitions)
+and a synthetic 4 s hold after 2 s idle, followed by the 4.2 s clip at release (5 rotated
+repetitions per condition). The user's app stayed running; no audio or text was recorded.
+
+| Idle before ASR | Median | p90 |
+|---|---:|---:|
+| 0 / 0.1 / 0.25 / 0.5 s | 78.7 / 79.1 / 85.8 / 87.1 ms | 84.1 / 114.9 / 107.2 / 115.8 ms |
+| 1 / 2 / 4 s | 118.6 / 120.1 / 119.8 ms | 126.2 / 161.4 / 188.1 ms |
+
+| 4 s hold | Release to final ASR median | p90 |
+|---|---:|---:|
+| No passes | 147.3 ms | 151.6 ms |
+| Pass every 0.25 / 0.5 / 1.0 s | 92.2 / 88.9 / 88.9 ms | 93.4 / 161.7 / 114.8 ms |
+
+A held pass (1 s silence) took 76.1 ms median, about the same as transcribing the 2.7 s
+clip, so a pass costs roughly one short transcription. The app now passes every 500 ms
+while held and never between dictations. The probe was removed. Physical release-to-text
+gain and power use remain to be confirmed from debug logs. `make check` passed with 83 Swift
+tests in 24 suites, including a hold that repeats passes and stops them at release.
+
 ## Low-latency capture and read-driven clipboard restore
 
 10 October 2026: a content-free probe on this Mac's default input (44.1 kHz mono) showed

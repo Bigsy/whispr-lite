@@ -225,11 +225,30 @@ private actor WarmupBackend: PressWarmableASRBackend {
         try await waitUntil { coordinator.state == .error }
         #expect(coordinator.recoveryText != nil && insertion.texts.isEmpty)
     }
+    @Test func holdWarmupRepeatsWhileHeldAndStopsAtRelease() async throws {
+        let backend = WarmupBackend(), capture = FakeCapture(), insertion = FakeInsertion(), media = FakeMedia()
+        let coordinator = DictationCoordinator(capture: capture, insertion: insertion, media: media,
+            pipeline: .init(backend: backend, cleanup: DemoCleanup()))
+        coordinator.ready = true; coordinator.holdWarmupInterval = .milliseconds(10)
+        coordinator.press()
+        try await Task.sleep(for: .milliseconds(300))
+        coordinator.release()
+        try await waitUntil { coordinator.state == .idle && insertion.texts.count == 1 }
+        let held = await backend.warmCalls
+        #expect(held >= 2)
+        #expect(await backend.finalBeforeWarmSettled == false)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(await backend.warmCalls == held)
+        coordinator.holdWarmupInterval = nil
+        coordinator.press(); coordinator.release()
+        try await waitUntil { coordinator.state == .idle && insertion.texts.count == 2 }
+        #expect(await backend.warmCalls == held)
+    }
     @Test func cancelledPressWarmupSettlesBeforeNextFinalASR() async throws {
         let backend = WarmupBackend(), capture = FakeCapture(), insertion = FakeInsertion(), media = FakeMedia()
         let coordinator = DictationCoordinator(capture: capture, insertion: insertion, media: media,
             pipeline: .init(backend: backend, cleanup: DemoCleanup()))
-        coordinator.ready = true; coordinator.pressWarmupAfter = .zero
+        coordinator.ready = true
         coordinator.press(); coordinator.cancel()
         try await waitUntil { coordinator.state == .idle }
         coordinator.press(); coordinator.release()
@@ -289,7 +308,7 @@ private actor WarmupBackend: PressWarmableASRBackend {
         try await Task.sleep(for: .milliseconds(20))
         #expect(clipboard.text == "result")
         clipboard.reader?()
-        try await Task.sleep(for: .milliseconds(30))
+        for _ in 0..<200 where clipboard.text != "restored" { try await Task.sleep(for: .milliseconds(5)) }
         #expect(clipboard.content == original && clipboard.text == "restored")
         // A stale read callback from an earlier transaction cannot restore a newer one early.
         let stale = clipboard.reader

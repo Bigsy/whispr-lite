@@ -202,7 +202,8 @@ recording is kept without the unseen tail and debug diagnostics record `capture/
 Capture starts before the AX target snapshot, and AX calls into the target are bounded to
 1 s each; insertion validation reads its four attributes in one AX round trip.
 A microphone route change (for example AirPods becoming the default input) rebuilds only
-capture after 500 ms; more than three changes in 30 s asks for a readiness check. A press
+capture once its notifications have been quiet for 500 ms; more than three rebuilds in
+30 s asks for a readiness check. A press
 while dictation isn't ready shows the error pill instead of being silently swallowed.
 Saving settings, wake, unlock and readiness checks reuse the prepared ASR model unless the
 backend, model, cache directory, downloads or ASR endpoint changed. The 120-second
@@ -398,15 +399,14 @@ models are prepared before timed spans; the normal app should be closed for meas
 Use only synthetic WAVs. A short idle interval is a repeated comparison, while sparse
 90-second idle observations are exploratory and must be labeled as such.
 
-Normal direct Parakeet dictation starts one batch silence inference when push-to-talk
-begins at least 90 seconds after the last ASR activity. It runs on the model's worker
-while the normal capture path records. There is no idle timer or periodic model ping.
-The one-shot task is not cancelled while CoreML may still own the engine: release waits
-for its settlement before final ASR, and settings preparation waits before unloading
-the old model. Cancellation suppresses the old dictation result; an immediate retry
-can await the same pending warm-up. Other ASR backends and demo mode do not warm.
-This is based on a small long-idle synthetic spot check; hardware capture, power and
-longer idle gates remain open in CHECKS.md.
+Batch ASR has nothing to do while the key is held, and the Neural Engine and CPU clock
+down between 0.5 and 1 s of idle. Normal direct Parakeet dictation therefore runs one
+1-second silence inference at press and again 500 ms after each one finishes, only while
+recording (`holdWarmupInterval`). Nothing runs between dictations. Each pass is its own
+task, so release or cancellation stops the loop without cancelling CoreML mid-inference:
+release waits for a pass in flight before final ASR, and settings preparation waits
+before unloading the old model. Other ASR backends and demo mode do not warm. Synthetic
+measurements are in CHECKS.md; physical power use remains open.
 
 For a small model comparison, point the batch command at a directory containing just
 the desired synthetic clips. `--model` selects the speech model; downloads remain off
