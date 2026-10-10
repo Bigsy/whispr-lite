@@ -354,7 +354,8 @@ normal `make check` afterwards to restore the published release's lockfile.
 
 The streaming adapter waits for settlement before switching to retained-audio batch
 fallback. The app exposes streaming only in demo mode pending the broader M7/M8 acceptance;
-the real-model bench exercises the adapter directly. Production prefill is not enabled.
+the real-model bench exercises the adapter directly. Streaming-partial prefill is not
+enabled. Fixed cleanup-prefix warming now runs during app preparation (see below).
 
 ## Checks and benchmarks
 
@@ -413,6 +414,64 @@ non-QWERTY layouts, permissions, sleep/lock, devices and all media/clipboard cas
 PLAN.md. Repeated Ctrl/Fn, cancellation and rapid recording cycles need hardware testing.
 Keep OpenWhispr available with a distinct shortcut; this task did not retire it or change
 its services, settings or login behavior.
+
+### Fixed-prefix prefill prototype
+
+`scripts/bench-prefill.py` is the retained experimental harness. It reads the saved
+cleanup prompt, dictionary vocabulary and framing into RAM, derives the common token
+prefix from two synthetic continuations, evaluates that prefix at mock button press,
+then submits a normal final chat completion at mock release. A configurable hold gives
+prefill time to run; release waits if prefill has not completed. There is no microphone,
+ASR, insertion, capture workload or periodic warm-up task.
+
+```sh
+python3 scripts/bench-prefill.py --isolated-server --repetitions 30 --hold-seconds 0.5
+```
+
+The temporary server uses port 11437, checksum-verified existing Gemma/MTP assets and
+the installed tuning, plus `--cache-ram 0` to prevent restored full-transcript cache
+entries from contaminating a fixed-prefix comparison. It is terminated on completion,
+failure or interruption. It does not install a LaunchAgent or change the service on
+11436. Normal Metal access is required; use permitted escalation if the sandbox denies
+creation of a Metal command queue. Model loading/checksums are outside measured spans.
+
+Four conditions alternate across three synthetic inputs (question, correction and a
+longer request): forced prompt-cache miss and primed warm prefix, each with/without
+prefill. A real synthetic prior cleanup primes every warm observation. Cold conditions
+disable reuse on the baseline request or the prefix-preparation request respectively;
+the final prefilled request enables reuse. Model weights remain loaded. Counters reject
+missing prefix reuse and suspicious full-transcript hits. These controlled misses do
+not simulate model loading, service restart, long idle or memory pressure.
+
+The native token array must include BOS (`add_special: true`); otherwise the final chat
+route starts with a different token and reuses none of the prepared prefix. Final
+token-budget checks also include BOS. On the pinned server `n_predict: 0` still reports
+one prediction and can emit text: the prototype discards it, bounds the result to one
+token, and records the count/boolean without logging its contents. True zero-generation
+semantics are not claimed.
+
+Reports contain numeric timings, counts, synthetic IDs, within-condition repeatability
+and paired exact/word parity; no prompt, dictionary, token arrays, input or output text.
+Exact comparisons precede the app's deterministic dictionary substitutions. Reported
+release time includes unfinished prefill plus template/token checks and final cleanup;
+total request work also includes work hidden during the hold. Additional 0.25/1/3-second
+figures are arithmetic projections from observed durations, not additional paced trials.
+The default report is ignored `bench/results/prefill.json`; use `--repetitions 1` and a
+different `--output` for a smoke check. CHECKS.md records the results and integration decision.
+
+The accepted app change calls `HTTPCleanup.preparePrefix()` during configuration after
+cleanup health/model validation and before capture/hotkey readiness. This covers launch,
+saved settings, wake/session recovery and explicit **Check readiness**. It does not add
+a per-recording request or idle timer. The existing preparation epoch/cancellation gates
+still guard readiness. Preparation is bounded by the configured cleanup timeout; an
+incompatible response or failure leaves the app in its existing recoverable setup-error
+state. Final cleanup retains the final transcript, context cap and dictionary corrections.
+Both preparation and final token counting now include BOS to match the chat endpoint.
+
+`whispr-bench --cleanup-prefill-check` compares three synthetic outputs before/after
+the actual Swift prefix-preparation method using the saved service configuration. It
+prints only the pass count, measures no timing and does not change settings. Physical
+first-dictation and independent service-restart recovery still need separate acceptance.
 
 For the signed native synthetic batch check, launch through Launch Services so macOS
 attributes Accessibility to the app. Direct tool execution can attribute permissions to

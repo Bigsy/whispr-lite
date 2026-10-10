@@ -128,8 +128,27 @@ public struct HTTPCleanup: TextCleanup {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         return request
     }
-    public func clean(_ text: String) async throws -> String {
-        let completion = try request(text)
+    /// Runs only during app preparation, before the hotkey is enabled. The fixed
+    /// prefix is useful on a cache miss; repeating it for warm dictations is not.
+    public func preparePrefix() async throws {
+        let first = try await tokens(for: request("ZZZ synthetic marker"))
+        let second = try await tokens(for: request("aaa different marker"))
+        let prefix = zip(first, second).prefix { $0.0 == $0.1 }.map { $0.0 }
+        guard !prefix.isEmpty, prefix.count + 512 <= 4096 else { throw AppError.contextLimit }
+        try Task.checkCancellation()
+        var request = URLRequest(url: configuration.endpoint.url.appendingPathComponent("completion"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["prompt": prefix,
+            "n_predict": 0, "temperature": 0, "stream": false, "cache_prompt": true])
+        struct Prefill: Decodable { let tokens_predicted: Int; let truncated: Bool }
+        let response = try JSONDecoder().decode(Prefill.self, from: await http.send(request))
+        // The pinned server samples one token even with n_predict: 0. Discard all
+        // response text; preparation must never become a dictation result.
+        guard !response.truncated, (0...1).contains(response.tokens_predicted) else { throw AppError.cleanup }
+        try Task.checkCancellation()
+    }
+    private func tokens(for completion: URLRequest) async throws -> [Int] {
         // Avoid guessing tokens from characters: exported prompts/dictionaries can exceed
         // 4096 bytes while fitting comfortably in the 4096-token slot. Use the pinned
         // server's exact chat template and tokenizer, with generation room reserved.
@@ -144,10 +163,15 @@ public struct HTTPCleanup: TextCleanup {
         var tokens = URLRequest(url: configuration.endpoint.url.appendingPathComponent("tokenize"))
         tokens.httpMethod = "POST"
         tokens.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        tokens.httpBody = try JSONSerialization.data(withJSONObject: ["content": rendered.prompt, "add_special": false, "parse_special": true])
+        // Chat completion adds BOS. Include it in both the budget and the native
+        // prefill token array, or native prefill shares no prefix with chat.
+        tokens.httpBody = try JSONSerialization.data(withJSONObject: ["content": rendered.prompt, "add_special": true, "parse_special": true])
         struct Tokens: Decodable { let tokens: [Int] }
-        let count = try JSONDecoder().decode(Tokens.self, from: await http.send(tokens, limit: 128 * 1024)).tokens.count
-        guard count + 512 <= 4096 else { throw AppError.contextLimit }
+        return try JSONDecoder().decode(Tokens.self, from: await http.send(tokens, limit: 128 * 1024)).tokens
+    }
+    public func clean(_ text: String) async throws -> String {
+        let completion = try request(text)
+        guard try await tokens(for: completion).count + 512 <= 4096 else { throw AppError.contextLimit }
         try Task.checkCancellation()
         let data = try await http.send(completion)
         struct Response: Decodable { struct Choice: Decodable { struct Message: Decodable { let content: String }; let message: Message; let finish_reason: String? }; let choices: [Choice] }

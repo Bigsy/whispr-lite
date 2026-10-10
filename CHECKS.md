@@ -39,6 +39,76 @@ third-party insertion, actual media playback compatibility or release acceptance
 | Generic paste review | Inspected installed OpenWhispr 1.8.3 public clipboard/media helpers (MIT; file hashes recorded). macOS uses generic Command-V. Removed app-specific terminal exceptions and AX write-capability requirements from our Command-V validation; retain saved focus, enabled/secure/readonly checks, keyboard layout, clipboard ownership and one insertion attempt. Ghostty and other destinations still need real-use verification. |
 | Missing insertion retest | All six observed sessions completed ASR and cleanup. One stopped before paste with `modifiersHeld`; five dispatched Command-V, which alone does not prove visible text. The old logs lack modifier categories, so stale synthetic/session state is a hypothesis. The gate now reads HID hardware state; Command-V uses a private event source and session injection, matching the posting level in OpenWhispr v1.10.2's current helper. Five regression tests cover the clear path without clock/sleep, bounded real-held-key waits, cancellation and tagged Command-V events. The 250 ms guard, target/layout/clipboard checks and single insertion remain; no arbitrary paste delay added. Debug-only typed hardware/session categories and wait summary pass privacy checks. Report: `bench/results/missing-paste-retest.json`; physical verification after the change remains pending. |
 
+## Fixed-prefix prefill experiment and integration
+
+10 October 2026: 360 observations, 30 per fixture/condition, rotating condition and
+fixture order. The temporary Metal server used the checksum-verified pinned Gemma/MTP
+stack and existing tuning on port 11437, with `--cache-ram 0` to prevent restoration of
+previous complete transcripts. The installed 11436 service remained running. Three
+synthetic inputs used the saved prompt, projected dictionary vocabulary and framing,
+all held only in RAM. No model downloads, service installation or preference changes.
+
+The mock holds a button for 500 ms, evaluates the fixed prefix at press when enabled,
+then waits for any unfinished prefill before the normal template/token-budget/final-chat
+requests. There is no physical capture, ASR or insertion. All model loading is outside
+the spans; a forced prompt-cache miss is not a model-cold or long-idle measurement.
+
+| Input / prefix state | Baseline release → cleanup median / p95 | Prefill release → cleanup median / p95 | Paired median saving |
+|---|---:|---:|---:|
+| Question / miss | 725.65 / 745.13 ms | 227.07 / 243.32 ms | 498.91 ms |
+| Correction / miss | 720.59 / 732.58 ms | 224.85 / 240.61 ms | 495.43 ms |
+| Long request / miss | 1207.44 / 1236.89 ms | 668.77 / 692.70 ms | 540.32 ms |
+| Question / warm | 175.62 / 207.33 ms | 176.76 / 189.77 ms | -2.45 ms |
+| Correction / warm | 171.08 / 182.89 ms | 172.83 / 181.92 ms | 0.26 ms |
+| Long request / warm | 643.97 / 670.15 ms | 643.20 / 660.64 ms | 2.68 ms |
+
+Exact trimmed model outputs matched across every condition/repetition (180/180 paired
+comparisons); no additional post-cleanup dictionary substitution was needed for this
+comparison. This is parity on three fixtures, not a broader accuracy claim. The 968-token
+fixed prefix was reused in every final prefilled request. Median preparation cost was
+597.55 ms on a forced miss and 12.57 ms when warm. Total request work was approximately
+unchanged (and increased for the short fixtures); most of the benefit moves work before
+release. Longer-lead figures in the raw report are projections, not measured trials.
+
+Two initial probes were excluded. The first omitted BOS when converting the template
+to explicit token IDs: this shared no prefix with chat completion. Automatic full-prompt
+RAM-cache restoration initially masked the mistake by reusing a prior complete input.
+The corrected harness includes BOS and rejects both missing-prefix and excessive cache
+hits. The pinned server also samples/emits one token even at `n_predict: 0`; the harness
+and app discard it. True zero-generated-token behaviour is not claimed. Sandbox Metal
+startup failed before measurements; the successful run used permitted normal GPU access.
+
+Decision: integrate warming once during app preparation, before recording readiness.
+The negligible warm gain does not justify per-button-press prefill. The user's instruction
+authorised integration if the experiment succeeded. The implementation also includes BOS
+in final context-budget checks. Independent service-restart detection, idle/pressure,
+physical first-dictation and release-to-visible-text acceptance remain open.
+
+Report: ignored `bench/results/prefill.json` (metrics/parity only). The temporary server
+stopped on exit and the installed service remained healthy. The report's 360 rows and
+metric-only schema, Python syntax and `git diff --check` passed.
+
+Integration `make check` passed: 69 Swift tests in 22 suites, 14 native broker tests,
+14 setup tests and 4 release-tooling tests; arm64 release build, development signature,
+doctor and bundle/resource smoke check. The focused HTTP regression checks BOS in the
+tokenizer requests, native prefix framing, discarded single-token output and rejection
+of unexpected generation. Its first run exposed the fixture's missing streamed-body
+capture; that test helper was corrected and the complete check rerun successfully.
+The actual Swift `--cleanup-prefill-check` passes all three synthetic exact-output
+comparisons against the installed service, including saved dictionary corrections.
+
+The signed Launch Services probe (`bench/results/readiness-prefill.json`) found a paused
+session: all permissions granted, `ready=false`, pipeline/event tap disabled and status
+“Dictation paused”. It therefore did not exercise unlocked preparation readiness or
+physical dictation. That gate remains open; it is not a prefill failure or a ready claim.
+
+The prior running app was gracefully quit and the newly signed `dist/Whispr Lite.app`
+launched in the background. Its 10 October 2026 startup diagnostics record
+`preparationReady` after 535.9 ms and `readiness=ready` with the media helper ready.
+For the configured local backend, cleanup prefill is awaited before
+`preparationReady`, so this verifies the normal startup path completed. No physical
+push-to-talk, final insertion or release-to-visible-text timing was measured.
+
 ## Small Unified / Ultra comparison
 
 Three existing Samantha synthetic clips, 30 warm runs per clip per model (180 measured
@@ -189,5 +259,6 @@ Open gates: reviewed cleanup/streaming accuracy and historical parity; first-use
 download/default-cache acceptance; physical hotkeys/onset/endings/devices/sleep/lock and
 permission denial/revocation/re-sign; full insertion/layout/clipboard matrix; actual Music,
 Spotify and Safari/Chromium playback/identity/focus; memory/idle/power and daily-use trial;
-fresh-machine installation and rollback acceptance. Real streaming UI and prefill remain
-later work. OpenWhispr stays available for rollback; it was not retired or reconfigured.
+fresh-machine installation and rollback acceptance. Real streaming UI and partial-text
+prefill remain later work; fixed-prefix warming during preparation is recorded above.
+OpenWhispr stays available for rollback; it was not retired or reconfigured.

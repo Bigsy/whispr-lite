@@ -5,14 +5,33 @@ import Testing
 private final class Responses: @unchecked Sendable {
     let lock = NSLock()
     var values: [String: (Int, Data)] = [:]
+    private var requests: [String: [Data]] = [:]
     func set(_ url: URL, status: Int = 200, body: Data) { lock.lock(); values[url.absoluteString] = (status, body); lock.unlock() }
     func get(_ url: URL) -> (Int, Data)? { lock.lock(); defer { lock.unlock() }; return values[url.absoluteString] }
+    func record(_ request: URLRequest) {
+        guard let url = request.url else { return }
+        var body = request.httpBody ?? Data()
+        // URLSession presents POST bodies as streams to a custom URLProtocol.
+        if body.isEmpty, let stream = request.httpBodyStream {
+            stream.open(); defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while body.count < 64 * 1024 {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 { break }
+                body.append(contentsOf: buffer.prefix(count))
+            }
+        }
+        guard !body.isEmpty else { return }
+        lock.lock(); requests[url.absoluteString, default: []].append(body); lock.unlock()
+    }
+    func bodies(_ url: URL) -> [Data] { lock.lock(); defer { lock.unlock() }; return requests[url.absoluteString] ?? [] }
 }
 private final class FixtureProtocol: URLProtocol, @unchecked Sendable {
     static let responses = Responses()
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        Self.responses.record(request)
         guard let url = request.url, let (status, body) = Self.responses.get(url),
               let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": String(body.count)]) else {
             client?.urlProtocol(self, didFailWithError: AppError.inference); return
@@ -62,6 +81,31 @@ private final class FixtureProtocol: URLProtocol, @unchecked Sendable {
         FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("health"), body: Data("{}".utf8))
         FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("v1/models"), body: Data("{\"data\":[{\"id\":\"different-model\"}]}".utf8))
         await #expect(throws: AppError.notReady) { try await http.cleanupReadiness(endpoint) }
+    }
+    @Test func prefixPreparationIncludesBOSAndDiscardsSpeculativeOutput() async throws {
+        let (endpoint, http) = try fixture()
+        let cleanup = HTTPCleanup(.init(endpoint: endpoint, prompt: "Synthetic prompt"), http: http)
+        let template = endpoint.url.appendingPathComponent("apply-template")
+        let tokenizer = endpoint.url.appendingPathComponent("tokenize")
+        let prefill = endpoint.url.appendingPathComponent("completion")
+        FixtureProtocol.responses.set(template, body: Data("{\"prompt\":\"Synthetic template\"}".utf8))
+        FixtureProtocol.responses.set(tokenizer, body: Data("{\"tokens\":[2,3,4]}".utf8))
+        FixtureProtocol.responses.set(prefill, body: Data("{\"tokens_predicted\":1,\"truncated\":false,\"content\":\"Discard this\"}".utf8))
+        try await cleanup.preparePrefix()
+        let tokenBodies = FixtureProtocol.responses.bodies(tokenizer)
+        #expect(tokenBodies.count == 2)
+        for data in tokenBodies {
+            let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(body["add_special"] as? Bool == true)
+        }
+        let data = try #require(FixtureProtocol.responses.bodies(prefill).last)
+        let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(body["prompt"] as? [Int] == [2, 3, 4])
+        #expect(body["n_predict"] as? Int == 0)
+        #expect(body["cache_prompt"] as? Bool == true)
+        #expect(FixtureProtocol.responses.bodies(endpoint.url.appendingPathComponent("v1/chat/completions")).isEmpty)
+        FixtureProtocol.responses.set(prefill, body: Data("{\"tokens_predicted\":2,\"truncated\":false}".utf8))
+        await #expect(throws: AppError.cleanup) { try await cleanup.preparePrefix() }
     }
     @Test func explicitDictionaryAliasesApplyToCompletedCleanup() async throws {
         let (endpoint, http) = try fixture()

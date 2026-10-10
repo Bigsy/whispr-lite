@@ -11,6 +11,10 @@ import WhisprLiteCore
         }
     }
     static func run() async throws {
+        if CommandLine.arguments.contains("--cleanup-prefill-check") {
+            try await cleanupPrefillCheck()
+            return
+        }
         if CommandLine.arguments.contains("--dictionary-check") {
             try await dictionaryCheck()
             return
@@ -65,6 +69,22 @@ import WhisprLiteCore
             "audio_seconds": audio.duration, "raw_ms": samples, "median_ms": sorted[15],
             "p90_ms": sorted[26], "p95_ms": sorted[28], "visible_text_measured": false]
         print(String(data: try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]), encoding: .utf8)!)
+    }
+    @MainActor static func cleanupPrefillCheck() async throws {
+        let store = try SettingsStore()
+        let preferences = store.preferences
+        let cleanup = HTTPCleanup(.init(endpoint: try LocalEndpoint(preferences.cleanupEndpoint),
+            prompt: try store.privateText("prompt.txt") ?? SettingsStore.defaultPrompt,
+            dictionary: try store.privateText("dictionary.txt") ?? "", inputFormat: preferences.cleanupInputFormat,
+            dictionaryPrefix: preferences.cleanupDictionaryPrefix))
+        let fixtures = ["what's the capital of france", "send it by thursday no wait friday period",
+                        "i think it was about fifteen pounds but i'm not sure"]
+        for input in fixtures {
+            let baseline = try await cleanup.clean(input)
+            try await cleanup.preparePrefix()
+            guard try await cleanup.clean(input) == baseline else { throw AppError.cleanup }
+        }
+        print("Cleanup prefill: \(fixtures.count)/\(fixtures.count) synthetic outputs equal; private text not recorded. Timing not measured.")
     }
     @MainActor static func dictionaryCheck() async throws {
         let store = try SettingsStore()

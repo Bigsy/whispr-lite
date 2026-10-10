@@ -159,10 +159,11 @@ import WhisprLiteCore
             cacheRoot: preferences.asrModelDirectory.isEmpty ? nil : URL(fileURLWithPath: preferences.asrModelDirectory, isDirectory: true),
             allowDownloads: preferences.allowASRDownloads, model: preferences.asrModel) }
         catch { update("Check the selected backend settings.", readiness: .needsAttention); return }
+        let cleanup: any TextCleanup
         do {
             let prompt = try store.privateText("prompt.txt") ?? SettingsStore.defaultPrompt
             let dictionary = try store.privateText("dictionary.txt") ?? ""
-            let cleanup: any TextCleanup = preferences.backend == .demo ? DemoCleanup() : HTTPCleanup(.init(endpoint: try LocalEndpoint(preferences.cleanupEndpoint), prompt: prompt, dictionary: dictionary,
+            cleanup = preferences.backend == .demo ? DemoCleanup() : HTTPCleanup(.init(endpoint: try LocalEndpoint(preferences.cleanupEndpoint), prompt: prompt, dictionary: dictionary,
                 inputFormat: preferences.cleanupInputFormat, dictionaryPrefix: preferences.cleanupDictionaryPrefix))
             var pipeline = BatchPipeline(backend: backend, cleanup: cleanup)
             pipeline.asrDeadline = .seconds(preferences.asrTimeoutSeconds)
@@ -216,6 +217,13 @@ import WhisprLiteCore
                     checkingCleanup = true
                     self.update("Checking cleanup service", readiness: .preparing)
                     try await LocalHTTP().cleanupReadiness(LocalEndpoint(preferences.cleanupEndpoint))
+                    guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }
+                    if let cleanup = cleanup as? HTTPCleanup {
+                        self.update("Preparing cleanup", readiness: .preparing)
+                        try await withDeadline(.seconds(preferences.cleanupTimeoutSeconds), stage: "Cleanup preparation") {
+                            try await cleanup.preparePrefix()
+                        }
+                    }
                 }
                 guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }
                 if self.diagnostics?.isEnabled == true {
