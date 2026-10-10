@@ -32,6 +32,18 @@ for English. Add a brief context line for your own work or terminology, conditio
 dictation's context. Fresh installs have an empty dictionary. Saved custom prompts remain
 private and take precedence over the default.
 
+The dictionary accepts ordinary preferred spellings and explicit phrase conversions,
+one rule per line: `happy fire > HAPI FHIR` or `dochler > Doccla`. `=>` is also accepted.
+Plain entries are guidance to Gemma, not guaranteed ASR biasing. Exact conversions run
+once after a successful cleanup, case-insensitively on whole words/phrases; the right side
+keeps its chosen spelling/case. Longer overlapping phrases take precedence. Rules never
+cascade, regex characters are literal, and conflicting spellings for the same alias are
+ignored. Unrelated words such as “doctor” are untouched. Parsing/regex compilation happens
+when preparing settings, with no audio callback work, extra inference or timing collection.
+`whispr-bench --dictionary-check` runs five synthetic inputs through the actual saved
+cleanup configuration (requires the private Doccla conversion); the HAPI FHIR rule is
+added in RAM for that check. It records only the pass count, never private text or outputs.
+
 A compact native floating pill shows Listening, Processing, Inserting or a recoverable
 error with Copy when text is available. It uses a nonactivating panel, hides when idle,
 and never displays transcript text. Its status updates on lifecycle changes; the optional
@@ -50,6 +62,56 @@ exists. Override with `SIGN_IDENTITY='Apple Development: …'` or `SIGN_IDENTITY
 signing needs access from the invoking process; a sandboxed build may need the signing
 step run with that access. Ad-hoc/repeatedly changing signatures may invalidate macOS
 permission grants. This build is not notarized and does not configure login startup.
+
+## Release pipeline
+
+`.github/workflows/ci.yml` runs `make check` on main/PRs and provides downloadable preview
+ZIPs as Actions artifacts. `.github/workflows/release.yml` runs on `v*` tags or manually.
+Both use the Apple Silicon `macos-15` runner and Xcode 26.0.1 (Swift 6.2), with commit-pinned
+checkout/upload actions. No model downloads, ASR benchmarks or service installation run in CI.
+
+Tags such as `v0.1.0-beta.1` produce an explicitly named, ad-hoc-signed preview and a
+draft prerelease. Stable tags such as `v0.1.0` require Developer ID/hardened-runtime signing
+and accepted Apple notarization; missing credentials fail instead of silently producing
+an unsigned stable release. Every tagged release stays a draft for installation review.
+Manual runs produce artifacts without creating a tag/release. Only tag runs have the final
+draft-release step; no pipeline automatically publishes a release.
+
+Configure these repository **Actions secrets** for the notarized channel:
+
+- `DEVELOPER_ID_P12_BASE64`: exported Developer ID Application certificate/private key, Base64 encoded.
+- `DEVELOPER_ID_P12_PASSWORD`: the exported P12 password.
+- `ASC_PRIVATE_KEY`: App Store Connect team API key's P8 contents.
+- `ASC_KEY_ID` and `ASC_ISSUER_ID`: matching team API key identifiers.
+
+The release runner imports the certificate into a temporary keychain and removes it and
+the P8 file in an always-run cleanup step. No personal development certificate is exported.
+`build-app.sh` supports `APP_VERSION`, `APP_BUILD_NUMBER`, `SIGN_KEYCHAIN` and
+`DISTRIBUTION_SIGNING=1`. The app gets the audio-input hardened-runtime entitlement;
+the bundled framework is signed before the app. Distribution acceptance remains unmeasured
+until actual credentials are configured and notarization succeeds.
+
+For a local preview after `make check`:
+
+```sh
+python3 scripts/package-release.py --version 0.1.0 --channel preview
+```
+
+For a notarized local build, set the matching numeric `APP_VERSION`, a Developer ID
+`SIGN_IDENTITY` and `DISTRIBUTION_SIGNING=1` when running `make check`, then package with
+`--channel notarized --notary-profile YOUR_KEYCHAIN_PROFILE`. Use an empty output directory
+for each invocation; existing assets are never overwritten.
+
+Packaging validates the bundle version/arm64 signature, notarizes and staples when requested,
+then extracts the actual final ZIP and repeats signing/resource smoke checks. Outputs are an
+app ZIP, allowlisted cleanup setup ZIP, version/commit/hash manifest and SHA256SUMS. The kit
+contains only the existing setup script, pinned public asset lock and installation guide;
+it still requires Python 3.9+. Models, personal settings/dictionaries/prompts and raw results
+are excluded. Native first-run cleanup provisioning and another-Mac installation remain open.
+
+References: [GitHub runner image/toolchain inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md),
+[GitHub certificate setup](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications)
+and [Apple notarization requirements](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution).
 
 The menu exposes microphone, Accessibility and Input Monitoring guidance. It requests
 microphone permission only from the explicit menu action. After granting permissions,

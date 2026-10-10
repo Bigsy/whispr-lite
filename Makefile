@@ -5,6 +5,7 @@ test:
 	CLANG_MODULE_CACHE_PATH=$(CURDIR)/.build/clang-cache SWIFTPM_MODULECACHE_OVERRIDE=$(CURDIR)/.build/swift-cache swift test --disable-sandbox --cache-path .build/package-cache --manifest-cache none --disable-keychain
 	./scripts/test-media.py
 	python3 scripts/test-setup.py
+	python3 scripts/test-release.py
 install: build
 	./scripts/install-app.sh
 uninstall:

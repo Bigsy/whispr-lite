@@ -109,9 +109,13 @@ public struct CleanupConfiguration: Sendable {
 public struct HTTPCleanup: TextCleanup {
     public let configuration: CleanupConfiguration
     private let http: LocalHTTP
-    public init(_ configuration: CleanupConfiguration, http: LocalHTTP = .init()) { self.configuration = configuration; self.http = http }
+    private let dictionary: DictionaryCorrections
+    public init(_ configuration: CleanupConfiguration, http: LocalHTTP = .init()) {
+        self.configuration = configuration; self.http = http
+        dictionary = DictionaryCorrections(configuration.dictionary)
+    }
     public func request(_ text: String) throws -> URLRequest {
-        let system = configuration.prompt + (configuration.dictionary.isEmpty ? "" : configuration.dictionaryPrefix + configuration.dictionary)
+        let system = configuration.prompt + (dictionary.vocabulary.isEmpty ? "" : configuration.dictionaryPrefix + dictionary.vocabulary)
         let user = configuration.inputFormat == .openWhispr ? "<transcript>\n\(text)\n</transcript>\n\nOutput only the cleaned transcript." : text
         // Bound the request allocation; the exact templated token count is checked before inference.
         guard system.utf8.count + user.utf8.count <= 16_384 else { throw AppError.contextLimit }
@@ -149,6 +153,6 @@ public struct HTTPCleanup: TextCleanup {
         struct Response: Decodable { struct Choice: Decodable { struct Message: Decodable { let content: String }; let message: Message; let finish_reason: String? }; let choices: [Choice] }
         let result = try JSONDecoder().decode(Response.self, from: data)
         guard let choice = result.choices.first, choice.finish_reason == "stop" else { throw AppError.cleanup }
-        return choice.message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        return dictionary.apply(to: choice.message.content.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }

@@ -63,6 +63,18 @@ private final class FixtureProtocol: URLProtocol, @unchecked Sendable {
         FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("v1/models"), body: Data("{\"data\":[{\"id\":\"different-model\"}]}".utf8))
         await #expect(throws: AppError.notReady) { try await http.cleanupReadiness(endpoint) }
     }
+    @Test func explicitDictionaryAliasesApplyToCompletedCleanup() async throws {
+        let (endpoint, http) = try fixture()
+        let cleanup = HTTPCleanup(.init(endpoint: endpoint, prompt: "Synthetic prompt",
+            dictionary: "dochler => Doccla", inputFormat: .openWhispr), http: http)
+        let body = try #require(JSONSerialization.jsonObject(with: cleanup.request("dochler").httpBody!) as? [String: Any])
+        let messages = try #require(body["messages"] as? [[String: String]])
+        #expect(messages[0]["content"] == "Synthetic prompt\nCustom dictionary:\nDoccla")
+        FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("apply-template"), body: Data("{\"prompt\":\"Synthetic template\"}".utf8))
+        FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("tokenize"), body: Data("{\"tokens\":[1,2,3]}".utf8))
+        FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("v1/chat/completions"), body: Data("{\"choices\":[{\"message\":{\"content\":\" Dochler spoke to the doctor. \"},\"finish_reason\":\"stop\"}]}".utf8))
+        #expect(try await cleanup.clean("dochler spoke to the doctor") == "Doccla spoke to the doctor.")
+    }
     @Test func unhealthyStatusAndOversizedBodiesFailBeforeDecode() async throws {
         let (endpoint, http) = try fixture()
         FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("health"), status: 503, body: Data("{}".utf8))

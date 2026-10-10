@@ -11,6 +11,10 @@ import WhisprLiteCore
         }
     }
     static func run() async throws {
+        if CommandLine.arguments.contains("--dictionary-check") {
+            try await dictionaryCheck()
+            return
+        }
         #if PARAKEET_STREAMING_CANDIDATE
         if let index = CommandLine.arguments.firstIndex(of: "--streaming-check"), CommandLine.arguments.count > index + 3 {
             try await realStreaming(cache: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true),
@@ -61,6 +65,32 @@ import WhisprLiteCore
             "audio_seconds": audio.duration, "raw_ms": samples, "median_ms": sorted[15],
             "p90_ms": sorted[26], "p95_ms": sorted[28], "visible_text_measured": false]
         print(String(data: try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]), encoding: .utf8)!)
+    }
+    @MainActor static func dictionaryCheck() async throws {
+        let store = try SettingsStore()
+        let preferences = store.preferences
+        let dictionary = try store.privateText("dictionary.txt") ?? ""
+        guard DictionaryCorrections(dictionary).apply(to: "dochler") == "Doccla" else { throw AppError.notReady }
+        let cleanup = HTTPCleanup(.init(endpoint: try LocalEndpoint(preferences.cleanupEndpoint),
+            prompt: try store.privateText("prompt.txt") ?? SettingsStore.defaultPrompt,
+            dictionary: dictionary + "\nhappy fire > hapi fhir", inputFormat: preferences.cleanupInputFormat,
+            dictionaryPrefix: preferences.cleanupDictionaryPrefix))
+        let fixtures = ["i work at dochler", "send the report to dochler", "dochler", "the doctor called me", "we use happy fire"]
+        var passed = 0
+        for (index, input) in fixtures.enumerated() {
+            let output = try await cleanup.clean(input)
+            let correct: Bool
+            if index == 3 {
+                correct = output.localizedCaseInsensitiveContains("doctor") && !output.contains("Doccla")
+            } else if index == 4 {
+                correct = output.contains("hapi fhir") && !output.localizedCaseInsensitiveContains("happy fire")
+            } else {
+                correct = output.contains("Doccla") && !output.localizedCaseInsensitiveContains("dochler")
+            }
+            guard correct else { throw AppError.cleanup }
+            passed += 1
+        }
+        print("Dictionary check: \(passed)/\(fixtures.count) synthetic cases passed; private text not recorded.")
     }
     static func readPCM(_ file: URL) throws -> PCM16k {
         let input = try AVAudioFile(forReading: file, commonFormat: .pcmFormatFloat32, interleaved: false)

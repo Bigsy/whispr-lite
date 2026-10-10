@@ -15,7 +15,8 @@ MTP speculative decoding. Dictation runs on your Apple Silicon Mac without a clo
 - **Clear recording feedback.** A small floating pill shows listening and processing,
   with optional microphone-level feedback.
 - **Custom cleanup.** Start with the general default prompt, add your own context, and
-  use a private dictionary for names and technical terms.
+  use a private dictionary for names and technical terms. Add exact phrase conversions
+  such as `spoken phrase > Written phrase`, one per line.
 - **Paste where you're working.** Uses the current keyboard layout and restores the
   previous clipboard if you haven't changed it in the meantime.
 - **Optional media control.** Pauses supported active media while recording and resumes
@@ -28,6 +29,11 @@ MTP speculative decoding. Dictation runs on your Apple Silicon Mac without a clo
 The app is built with Swift, AppKit and SwiftUI. It uses no Electron runtime.
 
 ## Getting started
+
+Prebuilt app ZIPs are produced by the repository's **Checks** workflow. Version tags
+produce draft [GitHub releases](https://github.com/Bigsy/whispr-lite/releases), with the
+app and a separate cleanup setup kit. See the [download installation guide](Resources/RELEASE-INSTALL.md)
+for setup without compiling. Preview builds are not notarized.
 
 Requires **Apple Silicon**, **macOS 14 or later**, **Swift 6.2+** to build, and **Python 3.9+**
 for the cleanup setup scripts.

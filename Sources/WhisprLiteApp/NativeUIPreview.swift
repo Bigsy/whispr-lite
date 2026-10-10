@@ -10,6 +10,8 @@ import Darwin
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("whispr-ui-\(UUID())")
         defer { try? FileManager.default.removeItem(at: temporary) }
         let store = try SettingsStore(directory: temporary)
+        try store.save(Preferences(), prompt: SettingsStore.defaultPrompt,
+                       dictionary: "Parakeet\nhappy fire > HAPI FHIR\ndochler > Doccla")
         app.status = "Cleanup service unavailable"
         app.statusDetail = "Start your cleanup service and check its address in Advanced. Your speech models are ready."
         app.readinessState = .needsAttention

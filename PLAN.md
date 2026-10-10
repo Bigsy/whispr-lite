@@ -10,7 +10,7 @@ in [CHECKS.md](CHECKS.md), and working conventions in [AGENTS.md](AGENTS.md).
 - Native Apple Silicon/macOS 14+ app; Swift 6.2+, AppKit/SwiftUI, no Electron runtime.
 - ParakeetCore exact 0.2.0 through SwiftPM with `Package.resolved`; direct local Unified
   batch ASR is the default for new settings. Saved HTTP settings remain selectable.
-- 63 Swift tests, 14 native broker tests and 14 setup tests pass. Six synthetic batch fixtures have
+- 68 Swift tests, 14 native broker tests, 14 setup tests and 4 release-tooling tests pass. Six synthetic batch fixtures have
   180 warm observations; signed-bundle model preparation, cancellation/reuse and unload pass.
 - The real streaming adapter is exercised by the bench. Five of six fixtures have equal
   normalized words to batch; the long fixture differs. Normal app dictation remains batch.
@@ -65,6 +65,9 @@ in [CHECKS.md](CHECKS.md), and working conventions in [AGENTS.md](AGENTS.md).
   keep personal context optional and preserve existing private overrides. Compare the
   default with the saved prompt on 18 synthetic cases and 720 real cleanup observations,
   separating reused prefixes from prompt-cache-disabled evaluation. See CHECKS.md.
+- [x] Diagnose dictionary transmission versus actual spelling correction. Add explicit
+  whole-phrase conversions (`spoken phrase > Written phrase`) after cleanup; preserve
+  ordinary vocabulary and private overrides, with no extra inference or callback work.
 - [ ] Review/freeze synthetic expected outputs. The installed provider differs from the
   historical tuned stack, so historical output parity remains unverified. The 512-token
   app cap matches the installed reference's larger output budget on 24 synthetic inputs.
@@ -143,6 +146,12 @@ in [CHECKS.md](CHECKS.md), and working conventions in [AGENTS.md](AGENTS.md).
   a later clipboard copy or resume playback owned by another session.
 
 ## 4. Measure and trial the batch release
+
+- [x] Add checked Apple Silicon preview artifacts and a tag/manual release pipeline:
+  allowlisted app/setup ZIPs, version/commit/checksums, archive smoke check and draft releases.
+  Stable tags require Developer ID/hardened runtime/notarization instead of falling back.
+- [ ] Configure distribution credentials and pass actual notarization plus another-Mac
+  installation. The separate cleanup kit still needs Python; native first-run setup is open.
 
 - [ ] Measure real release-to-visible-text, with separate capture drain, ASR, cleanup,
   result-to-insertion and clipboard restoration spans. Use monotonic/session timing.

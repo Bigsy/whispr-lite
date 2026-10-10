@@ -170,8 +170,8 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
                 Button("Use default prompt") { prompt = SettingsStore.defaultPrompt }
                     .help("Replace the editor text with the default. Changes apply when saved.")
             }
-            card("Dictionary") {
-                help("Add names, spellings and technical terms to preserve. This text stays on your Mac and is sent only to your local cleanup service.")
+            card("Dictionary and phrases") {
+                help("Names and terms guide the local model. For an exact conversion, add spoken phrase > Written phrase on its own line. Conversions ignore case and keep your chosen spelling.")
                 editor("Dictionary", text: $dictionary, height: 110)
             }
             help("The cleanup service address and response deadlines are in Advanced.")

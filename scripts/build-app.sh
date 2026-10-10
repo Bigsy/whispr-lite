@@ -16,6 +16,14 @@ rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
 cp "$binary_dir/WhisprLite" "$app/Contents/MacOS/WhisprLite"
 cp Resources/Info.plist "$app/Contents/Info.plist"
+if [[ -n "${APP_VERSION:-}" ]]; then
+  [[ "$APP_VERSION" =~ '^[0-9]+\.[0-9]+\.[0-9]+$' ]] || { print -u2 'Invalid APP_VERSION'; exit 1; }
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$app/Contents/Info.plist"
+fi
+if [[ -n "${APP_BUILD_NUMBER:-}" ]]; then
+  [[ "$APP_BUILD_NUMBER" =~ '^[0-9]+$' ]] || { print -u2 'Invalid APP_BUILD_NUMBER'; exit 1; }
+  /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_BUILD_NUMBER" "$app/Contents/Info.plist"
+fi
 cp Resources/*.txt "$app/Contents/Resources/"
 cp Vendor/mediaremote-adapter/patches/broker.pl "$app/Contents/Resources/"
 cp Vendor/mediaremote-adapter/bin/mediaremote-adapter.pl "$app/Contents/Resources/"
@@ -37,7 +45,13 @@ if [[ -z "$identity" ]]; then
   identity=$(security find-identity -v -p codesigning | sed -n 's/.*"\(Apple Development:.*\)".*/\1/p' | head -1)
 fi
 [[ -n "$identity" ]] || identity=-
-codesign --force --sign "$identity" "$app/Contents/Frameworks/MediaRemoteAdapter.framework"
-codesign --force --sign "$identity" "$app"
+sign_options=()
+if [[ "${DISTRIBUTION_SIGNING:-0}" == 1 ]]; then
+  [[ "$identity" != - ]] || { print -u2 'Distribution requires a Developer ID identity'; exit 1; }
+  sign_options+=(--options runtime --timestamp)
+fi
+if [[ -n "${SIGN_KEYCHAIN:-}" ]]; then sign_options+=(--keychain "$SIGN_KEYCHAIN"); fi
+codesign --force --sign "$identity" "${sign_options[@]}" "$app/Contents/Frameworks/MediaRemoteAdapter.framework"
+codesign --force --sign "$identity" "${sign_options[@]}" --entitlements Resources/App.entitlements "$app"
 codesign --verify --deep --strict "$app"
 print "Built $app (signature: $identity)"
