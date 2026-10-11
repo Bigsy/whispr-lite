@@ -44,6 +44,57 @@ import WhisprLiteCore
     private static let shutdownGrace: Duration = .milliseconds(700)
     private var shutdownStarted = false
     private var terminationReply: Task<Void, Never>?
+    private enum PipelineSetupFailure: Error { case backend, cleanup }
+    private struct PipelineParts {
+        let backend: any ASRBackend
+        let httpCleanup: HTTPCleanup?
+        let coordinator: DictationCoordinator
+    }
+    private func makePipeline(store: SettingsStore, preferences: Preferences,
+                              reused: (any ASRBackend)?, debug: Bool) throws -> PipelineParts {
+        let backend: any ASRBackend
+        do {
+            backend = try reused ?? BackendFactory.make(mode: preferences.backend, endpoint: preferences.asrEndpoint,
+                cacheRoot: preferences.asrModelDirectory.isEmpty ? nil
+                    : URL(fileURLWithPath: preferences.asrModelDirectory, isDirectory: true),
+                allowDownloads: preferences.allowASRDownloads, model: preferences.asrModel)
+        } catch { throw PipelineSetupFailure.backend }
+        let prompt: String
+        let cleanup: any TextCleanup
+        let httpCleanup: HTTPCleanup?
+        do {
+            prompt = try store.prompt()
+            let dictionary = try store.dictionary()
+            if preferences.backend == .demo {
+                cleanup = DemoCleanup(); httpCleanup = nil
+            } else {
+                let http = HTTPCleanup(try .init(preferences: preferences, prompt: prompt, dictionary: dictionary))
+                cleanup = http; httpCleanup = http
+            }
+        } catch { throw PipelineSetupFailure.cleanup }
+        var pipeline = BatchPipeline(backend: backend, cleanup: cleanup)
+        pipeline.asrDeadline = .seconds(preferences.asrTimeoutSeconds)
+        pipeline.cleanupDeadline = .seconds(preferences.cleanupTimeoutSeconds)
+        let coordinator = DictationCoordinator(capture: audio, insertion: insertion, media: media, pipeline: pipeline)
+        coordinator.diagnostics = debug ? diagnostics : nil
+        history?.configure(enabled: preferences.saveDictationHistory && preferences.backend != .demo && historyAllowed,
+            asr: preferences.backend == .parakeet ? "parakeet-\(preferences.asrModel.rawValue)" : preferences.backend.rawValue,
+            prompt: prompt)
+        coordinator.history = history
+        let timings = coordinator.timings
+        timings.setEnabled(debug)
+        insertion.timings = debug ? timings : nil
+        if debug {
+            timings.onEvent = { [weak self] event in
+                self?.diagnostics?.record(.init(.timing, session: event.session, stage: event.stage,
+                    milliseconds: event.seconds * 1000))
+            }
+        }
+        coordinator.streamingEnabled = preferences.usesStreamingDemo
+        coordinator.safetyDuration = .seconds(PCM16k.maximumDuration - (preferences.warmCapture ? 0.2 : 0.05))
+        coordinator.onChange = { [weak self] in self?.refresh() }
+        return .init(backend: backend, httpCleanup: httpCleanup, coordinator: coordinator)
+    }
     private func isCurrent(_ epoch: UUID) -> Bool {
         settingsEpoch == epoch && sessionAvailable && !Task.isCancelled
     }
@@ -98,6 +149,7 @@ import WhisprLiteCore
         if let coordinator { coordinator.suspend() }
         else { audio.suspend() }
         if clearCoordinator { coordinator = nil }
+        insertion.timings = nil
         pipelineReady = false; tapReady = false
         indicator.hide()
         if settleClipboard { insertion.clipboard.settle() }
@@ -225,38 +277,16 @@ import WhisprLiteCore
         // Saving unrelated settings, wake, unlock and readiness checks keep a loaded model.
         let asrConfiguration = ASRConfiguration(preferences)
         let reused = preparedASR.flatMap { $0.configuration == asrConfiguration ? $0.backend : nil }
-        let backend: any ASRBackend
-        do { backend = try reused ?? BackendFactory.make(mode: preferences.backend, endpoint: preferences.asrEndpoint,
-            cacheRoot: preferences.asrModelDirectory.isEmpty ? nil : URL(fileURLWithPath: preferences.asrModelDirectory, isDirectory: true),
-            allowDownloads: preferences.allowASRDownloads, model: preferences.asrModel) }
-        catch { update("Check the selected backend settings.", readiness: .needsAttention); return }
-        let cleanup: any TextCleanup
+        let parts: PipelineParts
         do {
-            let prompt = try store.prompt()
-            let dictionary = try store.dictionary()
-            cleanup = preferences.backend == .demo ? DemoCleanup() : HTTPCleanup(try .init(preferences: preferences, prompt: prompt, dictionary: dictionary))
-            var pipeline = BatchPipeline(backend: backend, cleanup: cleanup)
-            pipeline.asrDeadline = .seconds(preferences.asrTimeoutSeconds)
-            pipeline.cleanupDeadline = .seconds(preferences.cleanupTimeoutSeconds)
-            coordinator = DictationCoordinator(capture: audio, insertion: insertion, media: media, pipeline: pipeline)
-            coordinator?.diagnostics = debug ? diagnostics : nil
-            history?.configure(enabled: preferences.saveDictationHistory && preferences.backend != .demo && historyAllowed,
-                asr: preferences.backend == .parakeet ? "parakeet-\(preferences.asrModel.rawValue)" : preferences.backend.rawValue,
-                prompt: prompt)
-            coordinator?.history = history
-            if let timings = coordinator?.timings {
-                timings.setEnabled(debug)
-                insertion.timings = debug ? timings : nil
-                if debug {
-                    timings.onEvent = { [weak self] event in
-                        self?.diagnostics?.record(.init(.timing, session: event.session, stage: event.stage, milliseconds: event.seconds * 1000))
-                    }
-                }
-            }
-            coordinator?.streamingEnabled = preferences.usesStreamingDemo
-            coordinator?.safetyDuration = .seconds(PCM16k.maximumDuration - (preferences.warmCapture ? 0.2 : 0.05))
-        } catch { update("Check private prompt and local endpoint settings", readiness: .needsAttention); return }
-        coordinator?.onChange = { [weak self] in self?.refresh() }
+            parts = try makePipeline(store: store, preferences: preferences, reused: reused, debug: debug)
+        } catch PipelineSetupFailure.backend {
+            update("Check the selected backend settings.", readiness: .needsAttention); return
+        } catch {
+            update("Check private prompt and local endpoint settings", readiness: .needsAttention); return
+        }
+        coordinator = parts.coordinator
+        let backend = parts.backend
         audio.onFailure = { [weak self] in self?.recoverCapture(epoch: epoch, preferences: preferences) }
         media.onChange = { [weak self] in self?.mediaStatus = self?.media.status ?? "" }
         setupTask = Task { [weak self] in
@@ -291,10 +321,9 @@ import WhisprLiteCore
                     }
                 }
                 self.preparedASR = (backend, asrConfiguration)
-                if preferences.backend != .demo {
+                if let httpCleanup = parts.httpCleanup {
                     checkingCleanup = true
                     self.update("Checking cleanup service", readiness: .preparing)
-                    guard let httpCleanup = cleanup as? HTTPCleanup else { throw AppError.unsupported }
                     // The service may still be loading (login, restart); wait about 15 s before asking the user.
                     for attempt in 1... {
                         do { try await httpCleanup.checkReadiness(); break }
