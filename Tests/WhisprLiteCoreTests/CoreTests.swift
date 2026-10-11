@@ -294,6 +294,22 @@ private actor WarmupBackend: PressWarmableASRBackend {
         #expect(insertion.texts.isEmpty)
         #expect(coordinator.recoveryText != nil)
     }
+    @Test func copyOnlyWithEarlyChunksDismissesStraightToIdle() async throws {
+        let capture = EarlyCapture(), insertion = FakeInsertion(), media = FakeMedia()
+        let coordinator = DictationCoordinator(capture: capture, insertion: insertion, media: media,
+            pipeline: .init(backend: EarlyBackend(), cleanup: DemoCleanup()))
+        coordinator.ready = true; coordinator.holdWarmupInterval = nil
+        coordinator.safetyDuration = .milliseconds(30)
+        coordinator.press()
+        try capture.publish()
+        try await waitUntil { coordinator.state == .error }
+        #expect(coordinator.message.contains("Copy the result"))
+        #expect(coordinator.recoveryText != nil && insertion.texts.isEmpty)
+        coordinator.cancel()
+        #expect(coordinator.state == .idle)
+        #expect(coordinator.message == "Ready")
+        #expect(media.ends.count == 1)
+    }
     @Test func notReadyPressExplainsInsteadOfSilentlySwallowing() async throws {
         let (coordinator, capture, _, _) = try await fixture()
         coordinator.ready = false

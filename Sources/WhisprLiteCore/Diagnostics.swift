@@ -15,7 +15,7 @@ public enum DiagnosticCode: String, Codable, Sendable {
     case accessibilityDenied, noTarget, appChanged, elementChanged, disabledTarget, secureTarget, unsupportedRole, readonlyTarget
     case modifiersHeld, clipboard, capture, drainTimeout, overflow, deadline, inference, cleanup, contextLimit, unsupported, invalidAudio, audioLimit, protocolViolation, targetChanged
     case nativeAX, commandPaste, restored, userClipboardChanged, restoreFailed
-    case missingCache, downloadFailed, preparationFailed, busy, queueFull, cancelled
+    case missingCache, downloadFailed, preparationFailed, busy, queueFull, cancelled, copyOnly
     public static func failure(_ error: AppError) -> Self {
         switch error {
         case .deadline: .deadline

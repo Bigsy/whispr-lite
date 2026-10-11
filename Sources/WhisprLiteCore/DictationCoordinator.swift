@@ -82,7 +82,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         timings.mark(.press, session: id)
         (insertion as? TextInserter)?.diagnosticSession = id
         do { try capture.begin() }
-        catch { diagnostics?.record(.init(.failure, session: id, code: .capture)); message = AppError.capture.localizedDescription; state = .error; session = nil; return }
+        catch { fail(AppError.capture); return }
         // After capture starts: the snapshot is synchronous AX IPC into the target app and can be slow.
         let target = insertion.snapshot()
         message = "Recording"; state = .recording
@@ -199,7 +199,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                 self.timings.mark(.resultReady, session: id)
                 guard let text else { self.complete(); return }
                 self.recoveryText = String(text.prefix(32_768))
-                if copyOnly { self.streaming = nil; self.delivery = nil; self.partial = nil; self.message = "Recording limit reached. Copy the result."; self.state = .error; self.session = nil; return }
+                if copyOnly { self.endSession(.copyOnly); return }
                 self.insertionSession = id
                 (self.insertion as? TextInserter)?.diagnosticSession = id
                 self.message = "Inserting"; self.state = .inserting
@@ -277,11 +277,29 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         }
     }
     public func setMessage(_ value: String) { message = value; onChange?() }
-    private func fail(_ error: any Error) {
-        diagnostics?.record(.init(.failure, session: session, code: .failure(error)))
+    private enum SessionEnd { case completed, failed(any Error), copyOnly }
+    private func endSession(_ result: SessionEnd) {
+        if let session {
+            switch result {
+            case .completed: diagnostics?.record(.init(.completed, session: session))
+            case .failed(let error): diagnostics?.record(.init(.failure, session: session, code: .failure(error)))
+            case .copyOnly: diagnostics?.record(.init(.completed, session: session, code: .copyOnly))
+            }
+        }
         streaming = nil; delivery = nil; earlyDelivery = nil; partial = nil
-        message = (error as? AppError ?? .inference).localizedDescription
-        state = .error; session = nil
+        session = nil; currentTarget = nil; draining = false
+        switch result {
+        case .completed:
+            message = ready ? "Ready" : "Not ready"
+            state = .idle
+        case .failed(let error):
+            message = (error as? AppError ?? .inference).localizedDescription
+            state = .error
+        case .copyOnly:
+            message = "Recording limit reached. Copy the result."
+            state = .error
+        }
     }
-    private func complete() { if let session { diagnostics?.record(.init(.completed, session: session)) }; streaming = nil; delivery = nil; earlyDelivery = nil; partial = nil; session = nil; currentTarget = nil; message = ready ? "Ready" : "Not ready"; state = .idle }
+    private func fail(_ error: any Error) { endSession(.failed(error)) }
+    private func complete() { endSession(.completed) }
 }
