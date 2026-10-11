@@ -316,7 +316,9 @@ again on the visible-text path. The clipboard restore observer is configured whe
 diagnostics or timings change. This checks HID hardware state, since combined session state
 also reflects synthetic events. Clear hardware state passes immediately. AX selected-range
 writes are restricted to the controlled native benchmark field; other editable fields use
-layout-aware Command-V from a private event source at the session tap. Both events carry
+layout-aware Command-V from a private event source at the session tap. Key lookup reuses
+one translation buffer and compares the single UTF-16 unit without allocating a String
+for each virtual key. Both events carry
 only Command and our injected-event marker. A held-key failure retains the result for Copy.
 Unsupported/secure,
 readonly or changed targets offer Copy. Clipboard snapshots reject promised or oversized

@@ -258,11 +258,14 @@ private final class PromisedText: NSObject, NSPasteboardItemDataProvider, @unche
         let data = Unmanaged<CFData>.fromOpaque(raw).takeUnretainedValue()
         guard let bytes = CFDataGetBytePtr(data) else { return nil }
         let layout = UnsafeRawPointer(bytes).assumingMemoryBound(to: UCKeyboardLayout.self)
+        var chars = [UniChar](repeating: 0, count: 8)
         for code: UInt16 in 0..<128 {
             var dead: UInt32 = 0; var length = 0
-            var chars = [UniChar](repeating: 0, count: 8)
             let result = UCKeyTranslate(layout, code, UInt16(kUCKeyActionDown), UInt32(cmdKey >> 8), UInt32(LMGetKbdType()), OptionBits(kUCKeyTranslateNoDeadKeysMask), &dead, 8, &length, &chars)
-            if result == noErr, length == 1, String(utf16CodeUnits: chars, count: length).lowercased() == "v" { return code }
+            // A one-unit translated Command-V is ASCII v or V; no String is needed per key.
+            if result == noErr && length == 1 && (chars[0] == 0x76 || chars[0] == 0x56) {
+                return code
+            }
         }
         return nil
     }
