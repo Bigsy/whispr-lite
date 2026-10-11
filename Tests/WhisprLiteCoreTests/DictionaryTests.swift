@@ -1,7 +1,27 @@
+import Foundation
 import Testing
 @testable import WhisprLiteCore
 
 @Suite struct DictionaryTests {
+    @Test func sharedPythonAndSwiftCases() throws {
+        struct Case: Decodable {
+            let id: String
+            let dictionary: String
+            let vocabulary: String
+            let input: String
+            let output: String
+        }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let cases = try JSONDecoder().decode([Case].self,
+            from: Data(contentsOf: root.appendingPathComponent("bench/dictionary-cases.json")))
+        for item in cases {
+            let corrections = DictionaryCorrections(item.dictionary)
+            #expect(corrections.vocabulary == item.vocabulary, "\(item.id) vocabulary")
+            #expect(corrections.apply(to: item.input) == item.output, "\(item.id) output")
+        }
+    }
+
     @Test func explicitSpellingCorrectsOnlyWholeAliases() {
         let dictionary = DictionaryCorrections("Parakeet\ndochler => Doccla\nmap vee => mapv")
         #expect(dictionary.vocabulary == "Parakeet\nDoccla\nmapv")

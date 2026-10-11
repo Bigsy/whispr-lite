@@ -6,8 +6,10 @@ from functools import lru_cache
 from importlib.util import module_from_spec, spec_from_file_location
 import json
 from pathlib import Path
+import re
 import subprocess
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from urllib.parse import urlparse
@@ -152,6 +154,56 @@ class SavedCleanup:
     @property
     def dictionary_prefix(self):
         return self.preferences.get('cleanupDictionaryPrefix', '\nCustom dictionary:\n')
+
+
+class DictionaryCorrections:
+    """Mirror Swift's vocabulary projection and non-cascading whole-phrase aliases."""
+
+    def __init__(self, dictionary):
+        self.vocabulary = dictionary
+        self._aliases = []
+        if '>' not in dictionary:
+            return
+        words, aliases, conflicts = [], {}, set()
+        for line in re.split(r'[\n\r\v\f\x85\u2028\u2029]', dictionary):
+            parts = line.split('=>' if '=>' in line else '>')
+            if len(parts) != 2 or not all(part.strip() for part in parts):
+                words.append(line)
+                continue
+            alias, spelling = (part.strip() for part in parts)
+            key = alias.lower()
+            if key in aliases and aliases[key] != spelling:
+                conflicts.add(key)
+            aliases[key] = spelling
+            words.append(spelling)
+        self.vocabulary = '\n'.join(words)
+        self._aliases = [(re.compile(re.escape(key), re.I), spelling)
+                         for key, spelling in sorted(aliases.items(), key=lambda item: (-len(item[0]), item[0]))
+                         if key not in conflicts]
+
+    @staticmethod
+    def _word_character(char):
+        return bool(char) and (char == '_' or unicodedata.category(char)[0] in 'LMN')
+
+    def apply(self, text):
+        if not self._aliases:
+            return text
+        pieces = []
+        start = position = 0
+        while position < len(text):
+            if position and self._word_character(text[position - 1]):
+                position += 1
+                continue
+            for expression, spelling in self._aliases:
+                match = expression.match(text, position)
+                if match and (match.end() == len(text) or not self._word_character(text[match.end()])):
+                    pieces.extend((text[start:position], spelling))
+                    position = start = match.end()
+                    break
+            else:
+                position += 1
+        pieces.append(text[start:])
+        return ''.join(pieces)
 
 
 def _private_text(directory, name, fallback):

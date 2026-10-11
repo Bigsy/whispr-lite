@@ -6,14 +6,13 @@ import collections
 import difflib
 import json
 import pathlib
-import re
 import sqlite3
 import statistics
 import subprocess
 import time
-import unicodedata
 import urllib.error
-from cleanup_bench import DEFAULT_PROMPT, LOCK, LocalHTTP, isolated_server, load_saved_cleanup, loopback_url
+from cleanup_bench import (DEFAULT_PROMPT, LOCK, DictionaryCorrections, LocalHTTP,
+                           isolated_server, load_saved_cleanup, loopback_url)
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -33,40 +32,8 @@ def local_endpoint(value):
     return loopback_url(value)
 
 
-def vocabulary_and_rules(dictionary):
-    if '>' not in dictionary:
-        return dictionary, []
-    words, aliases, conflicts = [], {}, set()
-    for line in dictionary.splitlines():
-        parts = line.split('=>' if '=>' in line else '>')
-        if len(parts) != 2 or not all(part.strip() for part in parts):
-            words.append(line)
-            continue
-        alias, spelling = (part.strip() for part in parts)
-        key = alias.lower()
-        if key in aliases and aliases[key] != spelling:
-            conflicts.add(key)
-        aliases[key] = spelling
-        words.append(spelling)
-    return '\n'.join(words), [(key, value) for key, value in aliases.items() if key not in conflicts]
-
-
-def apply_rules(text, rules):
-    if not rules:
-        return text
-    lookup = dict(rules)
-    expression = re.compile('|'.join(re.escape(key) for key, _ in sorted(rules, key=lambda x: -len(x[0]))), re.I)
-    def word_character(char):
-        return bool(char) and (char == '_' or unicodedata.category(char)[:1] in 'LMN')
-    matches = [match for match in expression.finditer(text)
-               if not word_character(text[match.start() - 1] if match.start() else '')
-               and not word_character(text[match.end()] if match.end() < len(text) else '')]
-    for match in reversed(matches):
-        text = text[:match.start()] + lookup[match.group().lower()] + text[match.end():]
-    return text
-
-
 def words(text):
+    import re
     return re.findall(r'\w+', text.casefold())
 
 
@@ -98,7 +65,7 @@ def load_history(path):
     return [(raw, cleaned) for raw, cleaned in rows if raw and raw.strip() and cleaned is not None]
 
 
-def clean(endpoint, alias, system, raw, framing, rules):
+def clean(endpoint, alias, system, raw, framing, corrections):
     user = (f'<transcript>\n{raw}\n</transcript>\n\nOutput only the cleaned transcript.'
             if framing == 'openWhispr' else raw)
     limit = min(1024, max(128, len(raw.encode()) // 2 + 64))
@@ -111,18 +78,18 @@ def clean(endpoint, alias, system, raw, framing, rules):
         choice = response['choices'][0]
         if choice.get('finish_reason') != 'stop' or not isinstance(choice['message'].get('content'), str):
             return None, (time.monotonic() - start) * 1000, 'incomplete'
-        output = apply_rules(choice['message']['content'].strip(), rules)
+        output = corrections.apply(choice['message']['content'].strip())
         return output, (time.monotonic() - start) * 1000, None
     except (OSError, ValueError, KeyError, IndexError, TypeError, urllib.error.URLError):
         return None, (time.monotonic() - start) * 1000, 'request_failed'
 
 
-def run_model(label, endpoint, alias, system, synthetic_system, framing, rules, samples, fixtures):
+def run_model(label, endpoint, alias, system, synthetic_system, framing, corrections, samples, fixtures):
     # Prime the fixed prefix before measuring; all inputs and outputs stay in RAM.
-    clean(endpoint, alias, system, 'synthetic warmup', framing, rules)
+    clean(endpoint, alias, system, 'synthetic warmup', framing, corrections)
     actual, latency, errors = [], [], collections.Counter()
     for raw, _ in samples:
-        output, elapsed, error = clean(endpoint, alias, system, raw, framing, rules)
+        output, elapsed, error = clean(endpoint, alias, system, raw, framing, corrections)
         actual.append(output)
         if error:
             errors[error] += 1
@@ -130,7 +97,7 @@ def run_model(label, endpoint, alias, system, synthetic_system, framing, rules, 
             latency.append(elapsed)
     synthetic_failed = []
     for fixture in fixtures:
-        output, _, error = clean(endpoint, alias, synthetic_system, fixture['raw'], framing, [])
+        output, _, error = clean(endpoint, alias, synthetic_system, fixture['raw'], framing, DictionaryCorrections(''))
         if error or not matches_synthetic(fixture, output):
             synthetic_failed.append(fixture['id'])
     metrics = {'real_count': len(samples), 'real_errors': dict(errors),
@@ -154,7 +121,8 @@ def main():
     saved = load_saved_cleanup(args.support)
     prompt = saved.prompt
     dictionary = saved.dictionary
-    vocabulary, rules = vocabulary_and_rules(dictionary)
+    corrections = DictionaryCorrections(dictionary)
+    vocabulary = corrections.vocabulary
     dictionary_suffix = saved.dictionary_prefix + vocabulary if vocabulary else ''
     system = prompt + dictionary_suffix
     candidate_prompts = {label: pathlib.Path(path).read_text().strip() for label, path in args.candidate_prompt}
@@ -171,7 +139,7 @@ def main():
     print('real_samples', len(samples), 'synthetic_samples', len(fixtures), flush=True)
     historical = [cleaned for _, cleaned in samples]
     baseline, baseline_metrics = run_model('gemma4-e2b', endpoint, baseline_alias, system,
-                                           synthetic_prompt + synthetic_dictionary, framing, rules, samples, fixtures)
+                                           synthetic_prompt + synthetic_dictionary, framing, corrections, samples, fixtures)
     baseline_metrics['versus_historical'] = describe(historical, baseline)
     report = {'schema': 1, 'method': 'local-real-history-and-synthetic',
               'real_source': 'OpenWhispr completed raw/cleaned pairs, immutable SQLite read',
@@ -187,7 +155,7 @@ def main():
             model_system = candidate_prompts.get(label, prompt) + dictionary_suffix
             model_synthetic = candidate_prompts.get(label, synthetic_prompt) + synthetic_dictionary
             output, metrics = run_model(label, server_endpoint, alias, model_system,
-                                        model_synthetic, framing, rules, samples, fixtures)
+                                        model_synthetic, framing, corrections, samples, fixtures)
             metrics['prompt_profile'] = 'candidate' if label in candidate_prompts else 'saved'
             metrics['versus_historical'] = describe(historical, output)
             metrics['versus_gemma'] = describe(baseline, output)

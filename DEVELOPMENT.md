@@ -646,6 +646,9 @@ lifecycle for this and the candidate cleanup-model screen. It verifies the pinne
 runtime once per run, frees the isolated port, checks health and model alias, and
 terminates the process on exit. The candidate screen accepts only that verified
 server binary; model paths may differ for a candidate comparison.
+The same module projects dictionary vocabulary and applies literal whole-phrase
+corrections for the candidate screen. Swift and Python check the shared synthetic
+`bench/dictionary-cases.json` vectors, including overlapping aliases and boundaries.
 
 ```sh
 python3 scripts/bench-prefill.py --isolated-server --repetitions 30 --hold-seconds 0.5

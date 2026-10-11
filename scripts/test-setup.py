@@ -43,6 +43,14 @@ def batch(sequence, operations):
 
 
 class SetupTests(unittest.TestCase):
+    def test_shared_dictionary_cases(self):
+        cases = json.loads((Path(__file__).resolve().parent.parent / 'bench/dictionary-cases.json').read_text())
+        for item in cases:
+            with self.subTest(item['id']):
+                corrections = bench_common.DictionaryCorrections(item['dictionary'])
+                self.assertEqual(corrections.vocabulary, item['vocabulary'])
+                self.assertEqual(corrections.apply(item['input']), item['output'])
+
     def test_benchmark_url_accepts_only_loopback_with_port(self):
         self.assertEqual(bench_common.loopback_url('http://localhost:11436/'),
                          'http://localhost:11436')

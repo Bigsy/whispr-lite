@@ -7,24 +7,13 @@ from pathlib import Path
 import time
 
 from importlib.util import spec_from_file_location, module_from_spec
-from cleanup_bench import ALIAS, LocalHTTP, isolated_server, load_saved_cleanup, loopback_url
+from cleanup_bench import (ALIAS, DictionaryCorrections, LocalHTTP, isolated_server,
+                           load_saved_cleanup, loopback_url)
 
 ROOT = Path(__file__).resolve().parent.parent
 spec = spec_from_file_location('prompt_bench', ROOT / 'scripts/bench-prompts.py')
 helpers = module_from_spec(spec)
 spec.loader.exec_module(helpers)
-
-
-def vocabulary(text):
-    # Match the app's dictionary vocabulary projection; post-cleanup substitutions
-    # are outside this experiment. Compare stricter, pre-substitution outputs.
-    if '>' not in text:
-        return text
-    lines = []
-    for line in text.split('\n'):
-        parts = line.split('=>' if '=>' in line else '>')
-        lines.append(parts[1].strip(' \t') if len(parts) == 2 and all(p.strip(' \t') for p in parts) else line)
-    return '\n'.join(lines)
 
 
 def run(args):
@@ -35,7 +24,8 @@ def run(args):
     prefs = saved.preferences
     if not args.isolated_server and saved.endpoint.rstrip('/') != args.endpoint.rstrip('/'):
         raise ValueError('Endpoint differs from saved configuration')
-    dictionary = vocabulary(saved.dictionary)
+    # Post-cleanup substitutions are outside this experiment.
+    dictionary = DictionaryCorrections(saved.dictionary).vocabulary
     system = saved.prompt + (saved.dictionary_prefix + dictionary if dictionary else '')
     http = LocalHTTP(endpoint)
 
