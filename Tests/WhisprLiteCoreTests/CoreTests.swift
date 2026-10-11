@@ -835,6 +835,8 @@ private actor FinishGatedSession: ASRSession {
         #expect(media.begins == media.ends)
     }
     @Test func privatePreferencesVersionAndOldConfigDefaultSafely() throws {
+        let defaults = try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))
+        #expect(defaults == Preferences())
         let old = try JSONDecoder().decode(Preferences.self, from: Data("{\"version\":1,\"backend\":\"http\"}".utf8))
         #expect(!old.streamingDemo && old.warmCapture && old.pauseMedia)
         #expect(old.cleanupInputFormat == .plain)

@@ -17,7 +17,7 @@ public struct HotkeyConfiguration: Codable, Sendable, Equatable {
     public var modifiers: UInt64 = 0
     public init(keyCode: UInt16? = nil, modifiers: UInt64 = 0) { self.keyCode = keyCode; self.modifiers = modifiers }
 }
-public struct Preferences: Codable, Sendable {
+public struct Preferences: Codable, Sendable, Equatable {
     public var version = 1
     public var backend: BackendMode = .parakeet
     public var asrModel: ParakeetModel = .unified
@@ -41,33 +41,32 @@ public struct Preferences: Codable, Sendable {
     public var cleanupTimeoutSeconds = 10.0
     public var usesStreamingDemo: Bool { backend == .demo && streamingDemo }
     public init() {}
-    private enum CodingKeys: String, CodingKey {
-        case version, backend, asrModel, allowASRDownloads, asrModelDirectory, hotkey, warmCapture, lowLatencyCapture, pauseMedia, streamingDemo, showAudioActivity, debugLogging, saveDictationHistory, microphoneUID
-        case asrEndpoint, cleanupEndpoint, cleanupInputFormat, cleanupDictionaryPrefix, asrTimeoutSeconds, cleanupTimeoutSeconds
-    }
     public init(from decoder: Decoder) throws {
         self.init()
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
-        backend = try container.decodeIfPresent(BackendMode.self, forKey: .backend) ?? .parakeet
-        asrModel = try container.decodeIfPresent(ParakeetModel.self, forKey: .asrModel) ?? .unified
-        allowASRDownloads = try container.decodeIfPresent(Bool.self, forKey: .allowASRDownloads) ?? false
-        asrModelDirectory = try container.decodeIfPresent(String.self, forKey: .asrModelDirectory) ?? ""
-        hotkey = try container.decodeIfPresent(HotkeyConfiguration.self, forKey: .hotkey) ?? .init()
-        warmCapture = try container.decodeIfPresent(Bool.self, forKey: .warmCapture) ?? true
-        lowLatencyCapture = try container.decodeIfPresent(Bool.self, forKey: .lowLatencyCapture) ?? true
-        pauseMedia = try container.decodeIfPresent(Bool.self, forKey: .pauseMedia) ?? true
-        streamingDemo = try container.decodeIfPresent(Bool.self, forKey: .streamingDemo) ?? false
-        showAudioActivity = try container.decodeIfPresent(Bool.self, forKey: .showAudioActivity) ?? true
-        debugLogging = try container.decodeIfPresent(Bool.self, forKey: .debugLogging) ?? false
-        saveDictationHistory = try container.decodeIfPresent(Bool.self, forKey: .saveDictationHistory) ?? true
-        microphoneUID = try container.decodeIfPresent(String.self, forKey: .microphoneUID) ?? ""
-        asrEndpoint = try container.decodeIfPresent(String.self, forKey: .asrEndpoint) ?? asrEndpoint
-        cleanupEndpoint = try container.decodeIfPresent(String.self, forKey: .cleanupEndpoint) ?? cleanupEndpoint
-        cleanupInputFormat = try container.decodeIfPresent(CleanupInputFormat.self, forKey: .cleanupInputFormat) ?? .plain
-        cleanupDictionaryPrefix = try container.decodeIfPresent(String.self, forKey: .cleanupDictionaryPrefix) ?? cleanupDictionaryPrefix
-        asrTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .asrTimeoutSeconds) ?? 10
-        cleanupTimeoutSeconds = try container.decodeIfPresent(Double.self, forKey: .cleanupTimeoutSeconds) ?? 10
+        func fill<Value: Decodable>(_ value: inout Value, _ key: CodingKeys) throws {
+            if let decoded = try container.decodeIfPresent(Value.self, forKey: key) { value = decoded }
+        }
+        try fill(&version, .version)
+        try fill(&backend, .backend)
+        try fill(&asrModel, .asrModel)
+        try fill(&allowASRDownloads, .allowASRDownloads)
+        try fill(&asrModelDirectory, .asrModelDirectory)
+        try fill(&hotkey, .hotkey)
+        try fill(&warmCapture, .warmCapture)
+        try fill(&lowLatencyCapture, .lowLatencyCapture)
+        try fill(&pauseMedia, .pauseMedia)
+        try fill(&streamingDemo, .streamingDemo)
+        try fill(&showAudioActivity, .showAudioActivity)
+        try fill(&debugLogging, .debugLogging)
+        try fill(&saveDictationHistory, .saveDictationHistory)
+        try fill(&microphoneUID, .microphoneUID)
+        try fill(&asrEndpoint, .asrEndpoint)
+        try fill(&cleanupEndpoint, .cleanupEndpoint)
+        try fill(&cleanupInputFormat, .cleanupInputFormat)
+        try fill(&cleanupDictionaryPrefix, .cleanupDictionaryPrefix)
+        try fill(&asrTimeoutSeconds, .asrTimeoutSeconds)
+        try fill(&cleanupTimeoutSeconds, .cleanupTimeoutSeconds)
     }
 }
 @MainActor public final class SettingsStore {
