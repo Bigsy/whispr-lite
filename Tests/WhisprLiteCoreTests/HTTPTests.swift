@@ -67,7 +67,7 @@ private final class FixtureProtocol: URLProtocol, @unchecked Sendable {
         let (endpoint, http) = try fixture()
         let cleanup = HTTPCleanup(.init(endpoint: endpoint, prompt: "Synthetic prompt", dictionary: "Whispr Lite, Parakeet",
             inputFormat: .openWhispr, dictionaryPrefix: "\n\nSynthetic dictionary: "), http: http)
-        let body = try #require(JSONSerialization.jsonObject(with: cleanup.request("hello").httpBody!) as? [String: Any])
+        let body = try #require(JSONSerialization.jsonObject(with: cleanup.request("hello", maxTokens: 512).httpBody!) as? [String: Any])
         let messages = try #require(body["messages"] as? [[String: String]])
         #expect(messages[0]["content"] == "Synthetic prompt\n\nSynthetic dictionary: Whispr Lite, Parakeet")
         #expect(messages[1]["content"] == "<transcript>\nhello\n</transcript>\n\nOutput only the cleaned transcript.")
@@ -137,7 +137,7 @@ private final class FixtureProtocol: URLProtocol, @unchecked Sendable {
         let (endpoint, http) = try fixture()
         let cleanup = HTTPCleanup(.init(endpoint: endpoint, prompt: "Synthetic prompt",
             dictionary: "dochler => Doccla", inputFormat: .openWhispr), http: http)
-        let body = try #require(JSONSerialization.jsonObject(with: cleanup.request("dochler").httpBody!) as? [String: Any])
+        let body = try #require(JSONSerialization.jsonObject(with: cleanup.request("dochler", maxTokens: 128).httpBody!) as? [String: Any])
         let messages = try #require(body["messages"] as? [[String: String]])
         #expect(messages[0]["content"] == "Synthetic prompt\nCustom dictionary:\nDoccla")
         FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("apply-template"), body: Data("{\"prompt\":\"Synthetic template\"}".utf8))

@@ -39,7 +39,7 @@ import AVFoundation
     }
     @Test func cleanupRequestIsDeterministicAndRejectsOverflow() throws {
         let cleanup = HTTPCleanup(.init(endpoint: try LocalEndpoint("http://127.0.0.1:11434"), prompt: "Synthetic prompt", dictionary: "Parakeet"))
-        let request = try cleanup.request("hello")
+        let request = try cleanup.request("hello", maxTokens: 512)
         let body = try #require(JSONSerialization.jsonObject(with: request.httpBody!) as? [String: Any])
         #expect(body["temperature"] as? Int == 0)
         #expect(body["max_tokens"] as? Int == 512)
@@ -51,7 +51,7 @@ import AVFoundation
         #expect(HTTPCleanup.outputLimit(for: String(repeating: "x", count: 4000)) == 1024)
         #expect(body["stream"] as? Bool == false)
         #expect((body["chat_template_kwargs"] as? [String: Bool])?["enable_thinking"] == false)
-        #expect(throws: AppError.contextLimit) { try cleanup.request(String(repeating: "x", count: 16_384)) }
+        #expect(throws: AppError.contextLimit) { try cleanup.request(String(repeating: "x", count: 16_384), maxTokens: 512) }
         #expect(throws: AppError.unsupported) { try LocalEndpoint("https://example.org") }
         #expect(throws: AppError.unsupported) { try LocalEndpoint("http://user:secret@localhost:11434") }
     }

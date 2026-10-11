@@ -5,6 +5,10 @@ replacement for OpenWhispr yet. A configured local stack and private import from
 OpenWhispr 1.8.3 are available on the development machine. Synthetic native integration
 passes; physical capture, other destinations, playback and daily-use acceptance remain open.
 
+Cleanup prepares its fixed system prompt once per configuration. Chat, template and
+tokenizer requests share bounded message construction and JSON POST framing, while
+the prepared prefix retains its exact server token budget and BOS handling.
+
 ## Build and run
 
 Requires Apple Silicon, macOS 14+ and Swift 6.2. `make build` assembles

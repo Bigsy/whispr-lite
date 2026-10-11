@@ -135,6 +135,7 @@ public struct HTTPCleanup: TextCleanup {
     public let configuration: CleanupConfiguration
     private let http: LocalHTTP
     private let dictionary: DictionaryCorrections
+    private let systemPrompt: String
     private let budget = PromptBudget()
     private func send(_ request: URLRequest, limit: Int = 256 * 1024) async throws -> Data {
         do { return try await http.send(request, limit: limit) }
@@ -142,37 +143,46 @@ public struct HTTPCleanup: TextCleanup {
     }
     public init(_ configuration: CleanupConfiguration, http: LocalHTTP = .shared) {
         self.configuration = configuration; self.http = http
-        dictionary = DictionaryCorrections(configuration.dictionary)
+        let corrections = DictionaryCorrections(configuration.dictionary)
+        dictionary = corrections
+        systemPrompt = configuration.prompt + (corrections.vocabulary.isEmpty
+            ? "" : configuration.dictionaryPrefix + corrections.vocabulary)
     }
     /// Cleanup output is about as long as its input. A fixed 512 cut off long fast dictations,
     /// and let a short input the model answers instead of cleans run on for hundreds of tokens.
     public static func outputLimit(for text: String) -> Int { min(1024, max(128, text.utf8.count / 2 + 64)) }
-    public func request(_ text: String, maxTokens: Int = 512) throws -> URLRequest {
-        let system = configuration.prompt + (dictionary.vocabulary.isEmpty ? "" : configuration.dictionaryPrefix + dictionary.vocabulary)
+    private func messages(_ text: String) throws -> [[String: String]] {
         let user = configuration.inputFormat == .openWhispr ? "<transcript>\n\(text)\n</transcript>\n\nOutput only the cleaned transcript." : text
         // Bound the request allocation; the exact templated token count is checked before inference.
-        guard system.utf8.count + user.utf8.count <= 16_384 else { throw AppError.contextLimit }
-        let body: [String: Any] = ["model": configuration.model,
-            "messages": [["role": "system", "content": system], ["role": "user", "content": user]],
-            "temperature": 0, "max_tokens": maxTokens, "stream": false,
-            "chat_template_kwargs": ["enable_thinking": false]]
-        var request = URLRequest(url: configuration.endpoint.url.appendingPathComponent("v1/chat/completions"))
-        request.httpMethod = "POST"; request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        guard systemPrompt.utf8.count + user.utf8.count <= 16_384 else { throw AppError.contextLimit }
+        return [["role": "system", "content": systemPrompt], ["role": "user", "content": user]]
+    }
+    private func post(_ path: String, json: [String: Any]) throws -> URLRequest {
+        var request = URLRequest(url: configuration.endpoint.url.appendingPathComponent(path))
+        request.httpMethod = "POST"
+        request.httpBody = try JSONSerialization.data(withJSONObject: json)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         return request
+    }
+    private func request(messages: [[String: String]], maxTokens: Int) throws -> URLRequest {
+        let body: [String: Any] = ["model": configuration.model,
+            "messages": messages,
+            "temperature": 0, "max_tokens": maxTokens, "stream": false,
+            "chat_template_kwargs": ["enable_thinking": false]]
+        return try post("v1/chat/completions", json: body)
+    }
+    public func request(_ text: String, maxTokens: Int) throws -> URLRequest {
+        try request(messages: messages(text), maxTokens: maxTokens)
     }
     /// Runs only during app preparation, before the hotkey is enabled. The fixed
     /// prefix is useful on a cache miss; repeating it for warm dictations is not.
     public func preparePrefix() async throws {
-        let first = try await tokens(for: request("ZZZ synthetic marker"))
-        let second = try await tokens(for: request("aaa different marker"))
+        let first = try await tokens(for: messages("ZZZ synthetic marker"))
+        let second = try await tokens(for: messages("aaa different marker"))
         let prefix = zip(first, second).prefix { $0.0 == $0.1 }.map { $0.0 }
         guard !prefix.isEmpty, prefix.count + 512 <= Self.contextTokens else { throw AppError.contextLimit }
         try Task.checkCancellation()
-        var request = URLRequest(url: configuration.endpoint.url.appendingPathComponent("completion"))
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["prompt": prefix,
+        let request = try post("completion", json: ["prompt": prefix,
             "n_predict": 0, "temperature": 0, "stream": false, "cache_prompt": true])
         struct Prefill: Decodable { let tokens_predicted: Int; let truncated: Bool }
         let response = try JSONDecoder().decode(Prefill.self, from: await send(request))
@@ -180,31 +190,26 @@ public struct HTTPCleanup: TextCleanup {
         // response text; preparation must never become a dictation result.
         guard !response.truncated, (0...1).contains(response.tokens_predicted) else { throw AppError.cleanup }
         try Task.checkCancellation()
-        // Everything but the marker text: the system prompt, dictionary and template framing.
+        // Conservative fixed framing estimate: this also includes the synthetic marker tokens.
         budget.store(max(first.count, second.count))
     }
-    private func tokens(for completion: URLRequest) async throws -> [Int] {
+    private func tokens(for messages: [[String: String]]) async throws -> [Int] {
         // Avoid guessing tokens from characters: exported prompts/dictionaries can exceed
         // 4096 bytes while fitting comfortably in the 4096-token slot. Use the pinned
         // server's exact chat template and tokenizer, with generation room reserved.
-        let body = try JSONSerialization.jsonObject(with: completion.httpBody!) as! [String: Any]
-        var template = URLRequest(url: configuration.endpoint.url.appendingPathComponent("apply-template"))
-        template.httpMethod = "POST"
-        template.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        template.httpBody = try JSONSerialization.data(withJSONObject: ["messages": body["messages"]!,
+        let template = try post("apply-template", json: ["messages": messages,
             "chat_template_kwargs": ["enable_thinking": false]])
         struct Template: Decodable { let prompt: String }
         let rendered = try JSONDecoder().decode(Template.self, from: await send(template, limit: 128 * 1024))
-        var tokens = URLRequest(url: configuration.endpoint.url.appendingPathComponent("tokenize"))
-        tokens.httpMethod = "POST"
-        tokens.setValue("application/json", forHTTPHeaderField: "Content-Type")
         // Chat completion adds BOS. Include it in both the budget and the native
         // prefill token array, or native prefill shares no prefix with chat.
-        tokens.httpBody = try JSONSerialization.data(withJSONObject: ["content": rendered.prompt, "add_special": true, "parse_special": true])
+        let tokens = try post("tokenize", json: ["content": rendered.prompt,
+            "add_special": true, "parse_special": true])
         struct Tokens: Decodable { let tokens: [Int] }
         return try JSONDecoder().decode(Tokens.self, from: await send(tokens, limit: 128 * 1024)).tokens
     }
     public func clean(_ text: String) async throws -> String {
+        let chatMessages = try messages(text)
         let limit = Self.outputLimit(for: text)
         let maxTokens: Int
         // Every token covers at least one UTF-8 byte, so the measured framing plus the transcript's
@@ -212,13 +217,13 @@ public struct HTTPCleanup: TextCleanup {
         if let fixed = budget.fixedTokens, fixed + text.utf8.count + 8 + limit <= Self.contextTokens {
             maxTokens = limit
         } else {
-            let room = Self.contextTokens - (try await tokens(for: request(text)).count)
+            let room = Self.contextTokens - (try await tokens(for: chatMessages).count)
             // Never stricter than the former fixed 512-token reservation.
             guard room >= min(limit, 512) else { throw AppError.contextLimit }
             maxTokens = min(limit, room)
         }
         try Task.checkCancellation()
-        let data = try await send(try request(text, maxTokens: maxTokens))
+        let data = try await send(try request(messages: chatMessages, maxTokens: maxTokens))
         struct Response: Decodable { struct Choice: Decodable { struct Message: Decodable { let content: String }; let message: Message; let finish_reason: String? }; let choices: [Choice] }
         let result = try JSONDecoder().decode(Response.self, from: data)
         guard let choice = result.choices.first, choice.finish_reason == "stop" else { throw AppError.cleanup }
