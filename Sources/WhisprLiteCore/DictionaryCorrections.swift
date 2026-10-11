@@ -4,7 +4,7 @@ import Foundation
 /// replacements, compiled once when settings prepare the cleanup adapter.
 public struct DictionaryCorrections: Sendable {
     private static let posixLocale = Locale(identifier: "en_US_POSIX")
-    public let vocabulary: String
+    let vocabulary: String
     private let expression: NSRegularExpression?
     private let replacements: [String: String]
 

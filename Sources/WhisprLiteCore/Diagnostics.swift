@@ -163,7 +163,7 @@ public final class DiagnosticLogger: @unchecked Sendable {
     }
     public var isEnabled: Bool { lock.withLock { enabled && !failed } }
     public var hasFailed: Bool { lock.withLock { failed } }
-    public var droppedEvents: Int { lock.withLock { dropped } }
+    var droppedEvents: Int { lock.withLock { dropped } }
     public func setEnabled(_ value: Bool) {
         lock.lock()
         guard enabled != value else { lock.unlock(); return }

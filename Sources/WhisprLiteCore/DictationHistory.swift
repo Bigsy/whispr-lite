@@ -8,18 +8,18 @@ public final class DictationHistory: @unchecked Sendable {
     public static let maximumTextCharacters = 32_768
     public static let defaultMaximumBytes = 16 * 1024 * 1024
     public static let maximumStorageBytes = 2 * defaultMaximumBytes
-    public struct Entry: Codable, Sendable, Equatable {
-        public var schema = 1
-        public let timestamp: Date
-        public let raw: String
-        public let cleaned: String
+    struct Entry: Codable, Sendable, Equatable {
+        var schema = 1
+        let timestamp: Date
+        let raw: String
+        let cleaned: String
         /// Which speech model and prompt produced the pair; the prompt itself is not stored.
-        public let asr: String
-        public let promptSHA256: String
+        let asr: String
+        let promptSHA256: String
         enum CodingKeys: String, CodingKey { case schema, timestamp, raw, cleaned, asr, promptSHA256 = "prompt_sha256" }
     }
-    public static let fileName = "dictations.jsonl"
-    public static let previousFileName = "dictations.previous.jsonl"
+    static let fileName = "dictations.jsonl"
+    static let previousFileName = "dictations.previous.jsonl"
     public let directory: URL
     private let queue = DispatchQueue(label: "WhisprLite.history", qos: .utility)
     private let lock = NSLock()

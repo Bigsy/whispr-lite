@@ -25,7 +25,7 @@ public final class LocalHTTP: Sendable {
         config.urlCache = nil
         session = URLSession(configuration: config)
     }
-    public func send(_ request: URLRequest, limit: Int = 256 * 1024) async throws -> Data {
+    func send(_ request: URLRequest, limit: Int = 256 * 1024) async throws -> Data {
         let (bytes, response) = try await session.bytes(for: request)
         guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode)
         else { throw HTTPFailure.status }
@@ -38,7 +38,7 @@ public final class LocalHTTP: Sendable {
         }
         return result
     }
-    public func health(_ endpoint: LocalEndpoint) async throws {
+    func health(_ endpoint: LocalEndpoint) async throws {
         do {
             _ = try await withDeadline(.seconds(2), stage: "Health") {
                 try await self.send(URLRequest(url: endpoint.url.appendingPathComponent("health")), limit: 16_384)
@@ -46,8 +46,8 @@ public final class LocalHTTP: Sendable {
         } catch is HTTPFailure { throw AppError.notReady }
     }
 }
-public enum WAVEncoder {
-    public static func encode(_ audio: PCM16k) -> Data {
+enum WAVEncoder {
+    static func encode(_ audio: PCM16k) -> Data {
         var data = Data()
         data.reserveCapacity(44 + audio.samples.count * MemoryLayout<Int16>.size)
         func word<T: FixedWidthInteger>(_ value: T) {
@@ -79,7 +79,7 @@ public actor HTTPASRBackend: ASRBackend {
         do { try await http.health(endpoint); state = .ready }
         catch { state = .failed; throw error }
     }
-    public static func request(audio: PCM16k, endpoint: LocalEndpoint, boundary: String) -> URLRequest {
+    static func request(audio: PCM16k, endpoint: LocalEndpoint, boundary: String) -> URLRequest {
         var body = Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nparakeet\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"dictation.wav\"\r\nContent-Type: audio/wav\r\n\r\n".utf8)
         body.append(WAVEncoder.encode(audio)); body.append(Data("\r\n--\(boundary)--\r\n".utf8))
         var request = URLRequest(url: endpoint.url.appendingPathComponent("v1/audio/transcriptions"))
@@ -126,7 +126,7 @@ private final class PromptBudget: @unchecked Sendable {
 }
 public struct HTTPCleanup: TextCleanup {
     public typealias Configuration = CleanupConfiguration
-    public static let contextTokens = 4096
+    static let contextTokens = 4096
     public let configuration: CleanupConfiguration
     private let http: LocalHTTP
     private let dictionary: DictionaryCorrections
@@ -157,7 +157,7 @@ public struct HTTPCleanup: TextCleanup {
     }
     /// Cleanup output is about as long as its input. A fixed 512 cut off long fast dictations,
     /// and let a short input the model answers instead of cleans run on for hundreds of tokens.
-    public static func outputLimit(for text: String) -> Int { min(1024, max(128, text.utf8.count / 2 + 64)) }
+    static func outputLimit(for text: String) -> Int { min(1024, max(128, text.utf8.count / 2 + 64)) }
     private func messages(_ text: String) throws -> [[String: String]] {
         let user = configuration.inputFormat == .openWhispr ? "<transcript>\n\(text)\n</transcript>\n\nOutput only the cleaned transcript." : text
         // Bound the request allocation; the exact templated token count is checked before inference.
@@ -178,7 +178,7 @@ public struct HTTPCleanup: TextCleanup {
             "chat_template_kwargs": ["enable_thinking": false]]
         return try post("v1/chat/completions", json: body)
     }
-    public func request(_ text: String, maxTokens: Int) throws -> URLRequest {
+    func request(_ text: String, maxTokens: Int) throws -> URLRequest {
         try request(messages: messages(text), maxTokens: maxTokens)
     }
     /// Runs only during app preparation, before the hotkey is enabled. The fixed

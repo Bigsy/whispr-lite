@@ -807,6 +807,10 @@ The package exposes the app and bench executables. `WhisprLiteCore` remains an i
 target shared by those executables and the tests. Shortcut recording passes the event's
 source marker into `HotkeyInput`, which compares it inside Core; the marker constant and
 the hotkey state machine instance methods are not part of the module's public API.
+HTTP request builders, WAV encoding, clipboard snapshots/system access, history entry
+schema/file names and internal diagnostic counters likewise stay inside Core. The app
+constructs `TextInserter()` and can settle its clipboard transaction; tests retain
+injected clipboard access through `@testable`.
 
 `whispr-bench --cleanup-prefill-check` compares three synthetic outputs before/after
 the actual Swift prefix-preparation method using the saved service configuration. It
