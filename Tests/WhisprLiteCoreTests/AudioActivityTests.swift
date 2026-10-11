@@ -25,10 +25,9 @@ import AVFoundation
         #expect(publications == 10)
     }
     @Test func feedbackPreservesCapturedPCMAndResetsBetweenRecordings() async throws {
-        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false))
+        let format = try monoFormat()
         let worker = try AudioWorker(format: format)
-        let packet = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1600)); packet.frameLength = 1600
-        for i in 0..<1600 { packet.floatChannelData![0][i] = 0.1 }
+        let packet = try filledBuffer(format: format, frames: 1600, value: 0.1)
         try worker.begin(warm: false, activity: true, timings: true)
         worker.receive(packet); worker.queue.sync {}
         #expect(worker.activity.read() == 1)

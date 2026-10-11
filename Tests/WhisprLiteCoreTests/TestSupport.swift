@@ -11,6 +11,21 @@ final class LockedCounter: @unchecked Sendable {
     var value: Int { lock.withLock { count } }
 }
 
+func monoFormat(rate: Double = 16_000) throws -> AVAudioFormat {
+    try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate,
+        channels: 1, interleaved: false))
+}
+
+func filledBuffer(format: AVAudioFormat, frames: AVAudioFrameCount,
+                  value: Float) throws -> AVAudioPCMBuffer {
+    let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames))
+    buffer.frameLength = frames
+    for channel in 0..<Int(format.channelCount) {
+        for index in 0..<Int(frames) { buffer.floatChannelData![channel][index] = value }
+    }
+    return buffer
+}
+
 actor CountingCleanup: TextCleanup {
     var calls = 0
     func clean(_ text: String) -> String { calls += 1; return text }
