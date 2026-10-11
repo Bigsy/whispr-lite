@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,6 +24,15 @@ class BenchCLITests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2)
                 self.assertIn('Check failed:', result.stderr)
                 self.assertNotIn('Preparing ', result.stdout)
+
+    def test_missing_vad_model_reports_benchmark_error(self):
+        with tempfile.TemporaryDirectory() as cache:
+            result = subprocess.run([str(BINARY), '--vad-trim-prototype', cache, cache,
+                                     cache, str(Path(cache) / 'report.json')],
+                                    capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('Silero VAD is not cached', result.stderr)
+        self.assertIn('Add --allow-model-downloads', result.stderr)
 
 
 if __name__ == '__main__':

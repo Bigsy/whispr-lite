@@ -26,7 +26,7 @@ public actor ParakeetStreamingBackend: ASRBackend {
         }
     }
     private func select(_ desired: EngineMode) async throws {
-        guard !switching else { throw AppError.notReady }
+        guard !switching else { throw BenchFailure("Streaming ASR mode switch is still in progress") }
         switching = true; defer { switching = false }
         if let active { await active.cancel(); await active.waitForSettlement(); self.active = nil }
         if mode != desired {

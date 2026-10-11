@@ -491,6 +491,8 @@ The bench accepts one mode as its first argument, validates each mode's paths an
 options before loading a model, and exits with status 2 for malformed arguments.
 Its report builder represents a missing first partial as JSON null and lets unexpected
 cancellation errors propagate to the check failure handler.
+Benchmark expectation failures use specific, content-free messages and exit with status 1;
+for example, a missing local VAD cache reports the model path and download opt-in.
 
 `--streaming-prototype CACHE WAV_DIRECTORY OUTPUT_JSON --repetitions 30` compares
 the pinned Unified adapter with batch on the same synthetic files. It feeds 640-sample

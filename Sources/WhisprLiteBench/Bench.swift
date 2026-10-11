@@ -76,7 +76,9 @@ import WhisprLiteCore
         for input in fixtures {
             let baseline = try await cleanup.clean(input)
             try await cleanup.preparePrefix()
-            guard try await cleanup.clean(input) == baseline else { throw AppError.cleanup }
+            guard try await cleanup.clean(input) == baseline else {
+                throw BenchFailure("Cleanup prefill changed a synthetic output")
+            }
         }
         print("Cleanup prefill: \(fixtures.count)/\(fixtures.count) synthetic outputs equal; private text not recorded. Timing not measured.")
     }
@@ -84,7 +86,9 @@ import WhisprLiteCore
         let store = try SettingsStore()
         let preferences = store.preferences
         let dictionary = try store.dictionary()
-        guard DictionaryCorrections(dictionary).apply(to: "dochler") == "Doccla" else { throw AppError.notReady }
+        guard DictionaryCorrections(dictionary).apply(to: "dochler") == "Doccla" else {
+            throw BenchFailure("The saved dictionary has no Doccla rule")
+        }
         let cleanup = HTTPCleanup(try .init(preferences: preferences, prompt: store.prompt(),
                                             dictionary: dictionary + "\nhappy fire > hapi fhir"))
         let doccla: (String) -> Bool = {
@@ -100,7 +104,7 @@ import WhisprLiteCore
         var passed = 0
         for fixture in fixtures {
             let output = try await cleanup.clean(fixture.input)
-            guard fixture.accepts(output) else { throw AppError.cleanup }
+            guard fixture.accepts(output) else { throw BenchFailure("Synthetic dictionary output did not match") }
             passed += 1
         }
         print("Dictionary check: \(passed)/\(fixtures.count) synthetic cases passed; private text not recorded.")
@@ -115,12 +119,12 @@ import WhisprLiteCore
         let started = ContinuousClock.now
         try await backend.prepare()
         let preparation = milliseconds(started.duration(to: .now))
-        guard await backend.readiness() == .ready else { throw AppError.notReady }
+        guard await backend.readiness() == .ready else { throw BenchFailure("ASR model did not become ready") }
         try await backend.prepare() // Repeated preparation must remain ready.
         let empty = try await backend.transcribe(PCM16k([]))
-        guard empty.text.isEmpty, empty.audioDuration == 0 else { throw AppError.inference }
+        guard empty.text.isEmpty, empty.audioDuration == 0 else { throw BenchFailure("Empty audio check failed") }
         let silence = try await backend.transcribe(PCM16k([Float](repeating: 0, count: PCM16k.rate)))
-        guard silence.text.isEmpty else { throw AppError.inference }
+        guard silence.text.isEmpty else { throw BenchFailure("Silence check failed") }
         let files = try PCM16k.corpus(in: corpus)
         var observations: [[String: Any]] = []
         var longest: PCM16k?
@@ -130,14 +134,16 @@ import WhisprLiteCore
             let audio = try PCM16k(contentsOfWAV: file)
             if longest == nil || audio.duration > longest!.duration { longest = audio }
             let expected = try await backend.transcribe(audio)
-            guard !expected.text.isEmpty, expected.audioDuration == audio.duration else { throw AppError.inference }
+            guard !expected.text.isEmpty, expected.audioDuration == audio.duration else {
+                throw BenchFailure("Synthetic fixture output or duration was invalid")
+            }
             if shortest == nil || audio.duration < shortest!.duration { shortest = audio; shortestText = expected.text }
             var raw: [Double] = []
             for _ in 0..<repetitions {
                 let start = ContinuousClock.now
                 let result = try await backend.transcribe(audio)
                 raw.append(milliseconds(start.duration(to: .now)))
-                guard result == expected else { throw AppError.inference }
+                guard result == expected else { throw BenchFailure("Repeated ASR output changed") }
             }
             let median = ReportStatistics.median(raw)!
             observations.append(["fixture": file.lastPathComponent, "audio_seconds": audio.duration,
@@ -148,18 +154,22 @@ import WhisprLiteCore
                                  "repeat_text_parity": true])
             print("\(model.rawValue): \(file.lastPathComponent) median-ms=\(median)")
         }
-        guard let longest, let shortest else { throw AppError.invalidAudio }
+        guard let longest, let shortest else { throw BenchFailure("No synthetic audio fixtures were found") }
         let cancelled = Task { try await backend.transcribe(longest) }
         try await Task.sleep(for: .milliseconds(10))
         cancelled.cancel()
-        do { _ = try await cancelled.value; throw AppError.inference }
+        do { _ = try await cancelled.value; throw BenchFailure("Cancelled ASR task returned a result") }
         catch is CancellationError {}
         // The library must retain model ownership until cancelled work settles, then admit reuse.
-        guard try await backend.transcribe(shortest).text == shortestText else { throw AppError.inference }
+        guard try await backend.transcribe(shortest).text == shortestText else {
+            throw BenchFailure("ASR output changed after cancellation")
+        }
         try await backend.unload()
-        guard await backend.readiness() == .unloaded else { throw AppError.inference }
+        guard await backend.readiness() == .unloaded else { throw BenchFailure("ASR model did not unload") }
         try await backend.prepare()
-        guard try await backend.transcribe(shortest).text == shortestText else { throw AppError.inference }
+        guard try await backend.transcribe(shortest).text == shortestText else {
+            throw BenchFailure("ASR output changed after reload")
+        }
         try await backend.unload()
         let result: [String: Any] = ["schema": 1, "mode": "real-parakeet-batch-synthetic", "preparation_ms": preparation,
             "repetitions": repetitions,
@@ -216,7 +226,7 @@ import WhisprLiteCore
         let cancelled = try await backend.makeSession()
         try await cancelled.append(PCM16k([Float](repeating: 0, count: streamingChunkSamples)), startingAt: 0)
         await cancelled.cancel()
-        do { _ = try await cancelled.finish(); throw AppError.inference }
+        do { _ = try await cancelled.finish(); throw BenchFailure("Cancelled streaming session returned a result") }
         catch is CancellationError {}
         let fallbackStarted = ContinuousClock.now
         let result = try await backend.transcribe(audio)
@@ -225,7 +235,7 @@ import WhisprLiteCore
         let reset = try await backend.makeSession()
         let resetMS = resetStarted.duration(to: .now).milliseconds
         let empty = try await reset.finish()
-        guard empty.text.isEmpty, empty.audioDuration == 0 else { throw AppError.inference }
+        guard empty.text.isEmpty, empty.audioDuration == 0 else { throw BenchFailure("Empty streaming session check failed") }
         return (result, fallbackMS, resetMS)
     }
     static func streamingPrototype(cache: URL, corpus: URL, output: URL, repetitions: Int,
@@ -244,7 +254,7 @@ import WhisprLiteCore
                 let started = ContinuousClock.now
                 let result = try await backend.transcribe(audio)
                 batchMS.append(milliseconds(started.duration(to: .now)))
-                guard result == reference else { throw AppError.inference }
+                guard result == reference else { throw BenchFailure("Repeated batch output changed") }
             }
             // This switch and the first session are outside measured capture/release spans.
             let warm = try await backend.makeSession()
@@ -261,7 +271,7 @@ import WhisprLiteCore
                 let finishStarted = ContinuousClock.now
                 let final = try await session.finish()
                 let totalMS = milliseconds(started.duration(to: .now))
-                guard final.audioDuration == audio.duration else { throw AppError.inference }
+                guard final.audioDuration == audio.duration else { throw BenchFailure("Streaming audio duration changed") }
                 streaming.append(["total_ms": totalMS, "residual_after_release_ms": max(0, totalMS - releaseMS),
                     "finish_call_ms": milliseconds(finishStarted.duration(to: .now)),
                     "maximum_append_lag_ms": feed.maximumAppendLagMS,
@@ -275,7 +285,7 @@ import WhisprLiteCore
                 let started = ContinuousClock.now
                 let result = try await backend.transcribe(audio)
                 batchMS.append(milliseconds(started.duration(to: .now)))
-                guard result == reference else { throw AppError.inference }
+                guard result == reference else { throw BenchFailure("Repeated batch output changed") }
             }
             observations.append(["fixture": file.lastPathComponent, "audio_seconds": audio.duration,
                 "batch_text": reference.text, "batch_ms": batchMS, "streaming": streaming])
@@ -308,7 +318,9 @@ import WhisprLiteCore
             let start = ContinuousClock.now
             let final = try await session.finish()
             let finishMS = milliseconds(start.duration(to: .now))
-            guard final.audioDuration == audio.duration, !final.text.isEmpty else { throw AppError.inference }
+            guard final.audioDuration == audio.duration, !final.text.isEmpty else {
+                throw BenchFailure("Streaming synthetic output or duration was invalid")
+            }
             let reference = references[file.lastPathComponent]!
             observations.append(["fixture": file.lastPathComponent, "audio_seconds": audio.duration,
                 "synthetic_transcript": final.text, "batch_text_equal": final.text == reference.text,
@@ -319,7 +331,9 @@ import WhisprLiteCore
         // Switching to retained-audio batch fallback must settle the cancelled session first.
         let audio = try PCM16k(contentsOfWAV: files[0])
         let (fallback, _, _) = try await cancelFallbackAndReset(backend, audio: audio)
-        guard fallback == references[files[0].lastPathComponent] else { throw AppError.inference }
+        guard fallback == references[files[0].lastPathComponent] else {
+            throw BenchFailure("Streaming fallback output changed")
+        }
         let result: [String: Any] = ["schema": 1, "mode": "real-parakeet-streaming-synthetic",
             "cancel_settle_batch_fallback": "passed", "batch_to_streaming_reset": "passed",
             "capture_paced": false, "ground_truth_accuracy_measured": false, "fixtures": observations]

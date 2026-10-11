@@ -7,9 +7,6 @@ import WhisprLiteCore
 /// Unified pads each recording to a fixed 15 s encoder window, so trimming saves only decoder
 /// frames unless it removes a whole window. Synthetic audio only; the app is unchanged.
 extension Bench {
-    struct VadPrototypeError: LocalizedError {
-        let errorDescription: String?
-    }
     static let vadSegmentation = VadSegmentationConfig(minSpeechDuration: 0.25, minSilenceDuration: 0.75,
         maxSpeechDuration: .infinity, speechPadding: 0.25)
 
@@ -71,7 +68,7 @@ extension Bench {
                     let started = ContinuousClock.now
                     let text = try await backend.transcribe(variant.audio).text
                     asrMS[variant.id, default: []].append(milliseconds(started.duration(to: .now)))
-                    guard text == texts[variant.id] else { throw AppError.inference }
+                    guard text == texts[variant.id] else { throw BenchFailure("Repeated VAD variant output changed") }
                 }
             }
             let original = asrMS["original"] ?? []
@@ -139,12 +136,12 @@ extension Bench {
             return try MLModel(contentsOf: bundle, configuration: configuration)
         }
         guard allowDownloads else {
-            throw VadPrototypeError(errorDescription: "Silero VAD is not cached at \(bundle.path). Add --allow-model-downloads.")
+            throw BenchFailure("Silero VAD is not cached at \(bundle.path). Add --allow-model-downloads.")
         }
         let models = try await ModelHub.loadModels(.vad, modelNames: Array(ModelNames.VAD.requiredModels),
                                                    directory: cache, computeUnits: .cpuOnly)
         guard let model = models[ModelNames.VAD.sileroVadFile] else {
-            throw VadPrototypeError(errorDescription: "Silero VAD download did not produce \(ModelNames.VAD.sileroVadFile).")
+            throw BenchFailure("Silero VAD download did not produce \(ModelNames.VAD.sileroVadFile).")
         }
         return model
     }
