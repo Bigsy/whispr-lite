@@ -1,0 +1,5 @@
+[
+  {"input": "It's ready; it’s here.", "words": ["it's", "ready", "it's", "here"]},
+  {"input": "one_two 42two élan", "words": ["one", "two", "42two", "élan"]},
+  {"input": "a.b C++ mapv", "words": ["a", "b", "c", "mapv"]}
+]

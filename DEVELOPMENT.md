@@ -651,6 +651,9 @@ server binary; model paths may differ for a candidate comparison.
 The same module projects dictionary vocabulary and applies literal whole-phrase
 corrections for the candidate screen. Swift and Python check the shared synthetic
 `bench/dictionary-cases.json` vectors, including overlapping aliases and boundaries.
+Word parity uses Core's `WordTokens` in the app and Swift benches, with matching Python
+scoring and shared `bench/word-cases.json` vectors. Both apostrophe styles are treated
+as the same contraction; the benchmark scripts share synthetic fixture loading.
 
 ```sh
 python3 scripts/bench-prefill.py --isolated-server --repetitions 30 --hold-seconds 0.5

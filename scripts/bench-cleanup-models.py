@@ -11,8 +11,9 @@ import statistics
 import subprocess
 import time
 import urllib.error
-from cleanup_bench import (DEFAULT_PROMPT, LOCK, DictionaryCorrections, LocalHTTP,
-                           app_request, isolated_server, load_saved_cleanup, loopback_url, messages)
+from cleanup_bench import (DEFAULT_PROMPT, LOCK, SYNTHETIC_DICTIONARY, DictionaryCorrections,
+                           LocalHTTP, app_request, isolated_server, load_fixtures,
+                           load_saved_cleanup, loopback_url, matches_synthetic, messages, words)
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -26,19 +27,6 @@ def get(endpoint, path, timeout=2):
 
 def local_endpoint(value):
     return loopback_url(value)
-
-
-def words(text):
-    import re
-    return re.findall(r'\w+', text.casefold())
-
-
-def matches_synthetic(fixture, output):
-    if fixture['expected'] == ['']:
-        return output == ''
-    return (any(words(output) == words(expected) for expected in fixture['expected'])
-            and output.count('\n') >= fixture.get('minimum_line_breaks', 0)
-            and output.endswith(fixture.get('required_suffix', '')))
 
 
 def describe(reference, output):
@@ -119,11 +107,10 @@ def main():
     system = prompt + dictionary_suffix
     candidate_prompts = {label: pathlib.Path(path).read_text().strip() for label, path in args.candidate_prompt}
     synthetic_prompt = DEFAULT_PROMPT
-    synthetic_dictionary = '\nCustom dictionary:\nClojure, mapv, Parakeet, Gemma, Whispr Lite'
+    synthetic_dictionary = SYNTHETIC_DICTIONARY
     framing = saved.input_format
     samples = load_history(args.history)
-    fixtures = (json.loads((ROOT / 'bench/prompt-fixtures.json').read_text())
-                + json.loads((ROOT / 'bench/model-cleanup-fixtures.json').read_text()))
+    fixtures = load_fixtures('prompt-fixtures.json', 'model-cleanup-fixtures.json')
     endpoint = local_endpoint(saved.endpoint)
     baseline_alias = LOCK['alias']
     if baseline_alias not in [item['id'] for item in get(endpoint, '/v1/models')['data']]:

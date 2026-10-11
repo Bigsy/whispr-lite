@@ -320,10 +320,9 @@ import WhisprLiteCore
             let finishMS = milliseconds(start.duration(to: .now))
             guard final.audioDuration == audio.duration, !final.text.isEmpty else { throw AppError.inference }
             let reference = references[file.lastPathComponent]!
-            let words: (String) -> [String] = { $0.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init) }
             observations.append(["fixture": file.lastPathComponent, "audio_seconds": audio.duration,
                 "synthetic_transcript": final.text, "batch_text_equal": final.text == reference.text,
-                "batch_words_equal": words(final.text) == words(reference.text),
+                "batch_words_equal": WordTokens.words(final.text) == WordTokens.words(reference.text),
                 "partial_revisions": feed.partialRevisions,
                 "adapter_finish_ms": finishMS])
         }

@@ -3,6 +3,15 @@ import Testing
 @testable import WhisprLiteCore
 
 @Suite struct DictionaryTests {
+    @Test func sharedWordScoringCases() throws {
+        struct Case: Decodable { let input: String; let words: [String] }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let cases = try JSONDecoder().decode([Case].self,
+            from: Data(contentsOf: root.appendingPathComponent("bench/word-cases.json")))
+        for item in cases { #expect(WordTokens.words(item.input) == item.words) }
+    }
+
     @Test func sharedPythonAndSwiftCases() throws {
         struct Case: Decodable {
             let id: String

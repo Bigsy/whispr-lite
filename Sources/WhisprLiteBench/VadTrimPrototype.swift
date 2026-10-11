@@ -74,7 +74,6 @@ extension Bench {
                     guard text == texts[variant.id] else { throw AppError.inference }
                 }
             }
-            let words: (String) -> [String] = { $0.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init) }
             let original = asrMS["original"] ?? []
             let vadPass = percentile(passMS, 0.5)
             let vadChunk = percentile(chunkMS, 0.5)
@@ -90,7 +89,7 @@ extension Bench {
                     let saving = original.indices.map { original[$0] - (timings.isEmpty ? 0 : timings[$0]) }
                     let pairedSaving = percentile(saving, 0.5)
                     entry["text_equal_to_original"] = text == texts["original"]
-                    entry["words_equal_to_original"] = words(text) == words(texts["original"] ?? "")
+                    entry["words_equal_to_original"] = WordTokens.words(text) == WordTokens.words(texts["original"] ?? "")
                     entry["paired_asr_saving_median_ms"] = pairedSaving
                     // Projections: separately measured VAD cost subtracted from the paired ASR saving.
                     entry["projected_release_saving_vad_at_release_ms"] = pairedSaving - vadPass

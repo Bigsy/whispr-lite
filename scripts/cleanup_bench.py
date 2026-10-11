@@ -120,6 +120,35 @@ def fixed_prefix(http, system, framing='plain'):
     return prefix, max(len(first), len(second))
 
 
+def words(value):
+    """The app's Unicode word scoring, with both apostrophe styles normalized."""
+    result, current = [], []
+    for index, char in enumerate(value):
+        if char and unicodedata.category(char)[0] in 'LMN':
+            current.append(char.lower())
+        elif (char in "'’" and current and index + 1 < len(value)
+              and unicodedata.category(value[index + 1])[0] in 'LMN'):
+            current.append("'")
+        elif current:
+            result.append(''.join(current))
+            current = []
+    if current:
+        result.append(''.join(current))
+    return result
+
+
+def matches_synthetic(fixture, output):
+    if fixture['expected'] == ['']:
+        return output == ''
+    return (any(words(output) == words(expected) for expected in fixture['expected'])
+            and output.count('\n') >= fixture.get('minimum_line_breaks', 0)
+            and output.endswith(fixture.get('required_suffix', '')))
+
+
+def load_fixtures(*names):
+    return [fixture for name in names for fixture in json.loads((ROOT / 'bench' / name).read_text())]
+
+
 @lru_cache(maxsize=1)
 def _verified_arguments():
     pinned = service()

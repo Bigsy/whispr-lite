@@ -43,6 +43,11 @@ def batch(sequence, operations):
 
 
 class SetupTests(unittest.TestCase):
+    def test_shared_word_scoring_cases(self):
+        cases = json.loads((Path(__file__).resolve().parent.parent / 'bench/word-cases.json').read_text())
+        for item in cases:
+            self.assertEqual(bench_common.words(item['input']), item['words'])
+
     def test_app_request_framing_and_budget(self):
         class SyntheticHTTP:
             def __init__(self): self.calls = []

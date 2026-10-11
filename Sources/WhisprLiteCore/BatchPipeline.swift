@@ -21,7 +21,6 @@ public struct PipelineFailure: Error, Sendable {
     public let rawText: String?
 }
 public struct BatchPipeline: Sendable {
-    private static let wordPattern = try! NSRegularExpression(pattern: #"[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}\p{N}]+)*"#)
     public let backend: any ASRBackend
     public let cleanup: any TextCleanup
     public var asrDeadline: Duration = .seconds(10)
@@ -70,22 +69,16 @@ public struct BatchPipeline: Sendable {
     }
     private static func reusablePrefix(in full: String, chunks: [DictationText]) -> (cleaned: String, tail: String)? {
         guard !chunks.isEmpty else { return nil }
-        func words(_ text: String) -> [String] {
-            let range = NSRange(text.startIndex..<text.endIndex, in: text)
-            return wordPattern.matches(in: text, range: range).compactMap { match in
-                Range(match.range, in: text).map { String(text[$0]).lowercased() }
-            }
-        }
-        let fullMatches = wordPattern.matches(in: full, range: NSRange(full.startIndex..<full.endIndex, in: full))
+        let fullMatches = WordTokens.pattern.matches(in: full, range: NSRange(full.startIndex..<full.endIndex, in: full))
         let fullWords = fullMatches.compactMap { match in
-            Range(match.range, in: full).map { String(full[$0]).lowercased() }
+            Range(match.range, in: full).map { WordTokens.normalize(String(full[$0])) }
         }
         var prefix: [String] = []
         for chunk in chunks {
             let raw = chunk.raw.trimmingCharacters(in: .whitespacesAndNewlines)
             let clean = chunk.cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
             guard raw.endsSentence, clean.endsSentence else { return nil }
-            let chunkWords = words(raw)
+            let chunkWords = WordTokens.words(raw)
             guard !chunkWords.isEmpty else { return nil }
             prefix.append(contentsOf: chunkWords)
         }

@@ -4,23 +4,12 @@ import argparse
 import json
 import math
 from pathlib import Path
-import re
 import statistics
 import time
-from cleanup_bench import ALIAS, LocalHTTP, SYNTHETIC_DICTIONARY, app_request, loopback_url, messages
+from cleanup_bench import (ALIAS, LocalHTTP, SYNTHETIC_DICTIONARY, app_request,
+                           load_fixtures, loopback_url, matches_synthetic, messages)
 
 ROOT = Path(__file__).resolve().parent.parent
-
-
-def words(text):
-    return re.findall(r"\w+(?:'\w+)*", text.replace('’', "'").casefold())
-
-
-def matches(fixture, output):
-    if fixture['expected'] == ['']: return output == ''
-    return (any(words(output) == words(expected) for expected in fixture['expected'])
-            and output.count('\n') >= fixture.get('minimum_line_breaks', 0)
-            and output.endswith(fixture.get('required_suffix', '')))
 
 
 def summary(values):
@@ -34,7 +23,7 @@ def run(args, extra_context=''):
     http = LocalHTTP(loopback_url(args.endpoint))
     if not args.quality_only and args.repetitions < 30:
         raise ValueError('At least 30 observations per performance condition are required')
-    fixtures = json.loads((ROOT / 'bench/prompt-fixtures.json').read_text())
+    fixtures = load_fixtures('prompt-fixtures.json')
     prompts = {'baseline': args.baseline_prompt.read_text().strip(),
                'default': args.candidate_prompt.read_text().strip()}
     context = extra_context or (args.candidate_context_file.read_text().strip() if args.candidate_context_file else '')
@@ -62,7 +51,7 @@ def run(args, extra_context=''):
             for fixture in fixtures:
                 chat_messages = messages(prompt + SYNTHETIC_DICTIONARY, fixture['raw'], framing)
                 text = output(complete(chat_messages, fixture['raw'], True)[0])
-                (passed if matches(fixture, text) else failed).append(fixture['id'])
+                (passed if matches_synthetic(fixture, text) else failed).append(fixture['id'])
             quality.append(dict(condition=condition, framing=framing, passed=len(passed), total=len(fixtures), failed=failed))
             print(json.dumps(quality[-1]), flush=True)
 

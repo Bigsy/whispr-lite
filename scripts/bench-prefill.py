@@ -8,7 +8,7 @@ import time
 
 from importlib.util import spec_from_file_location, module_from_spec
 from cleanup_bench import (ALIAS, DictionaryCorrections, LocalHTTP, isolated_server,
-                           load_saved_cleanup, loopback_url)
+                           load_fixtures, load_saved_cleanup, loopback_url, words)
 
 ROOT = Path(__file__).resolve().parent.parent
 spec = spec_from_file_location('prompt_bench', ROOT / 'scripts/bench-prompts.py')
@@ -74,7 +74,7 @@ def run(args):
         prefix.append(left)
     if not prefix:
         raise ValueError('No common prefix')
-    fixtures = [f for f in json.loads((ROOT / 'bench/prompt-fixtures.json').read_text()) if f['id'] in ('question', 'correction')]
+    fixtures = [f for f in load_fixtures('prompt-fixtures.json') if f['id'] in ('question', 'correction')]
     fixtures.append(dict(id='long', raw=' '.join([
         'please send the updated report to the team on thursday no wait friday',
         'the first section should explain the microphone issue and the second should cover the clipboard',
@@ -130,7 +130,7 @@ def run(args):
                 previous_condition = condition_variants.setdefault((fixture['id'], condition), output)
                 paired_outputs[fixture['id'], repetition+1, condition] = output
                 item = dict(fixture=fixture['id'], condition=condition, round=repetition + 1,
-                    exact_output_equal=output == previous, words_equal=helpers.words(output) == helpers.words(previous),
+                    exact_output_equal=output == previous, words_equal=words(output) == words(previous),
                     condition_repeat_equal=output == previous_condition,
                     prefill_ms=prefill_ms, release_to_clean_ms=(end-release)*1000,
                     release_wait_ms=(final_start-release)*1000, final_cleanup_ms=(end-final_start)*1000,
@@ -172,7 +172,7 @@ def run(args):
                      for i in range(1, args.repetitions+1)]
             paired.append(dict(fixture=fixture['id'], cache=cache, saved_release_ms=helpers.summary(gains),
                                exact_equal_pairs=sum(a == b for a, b in pairs),
-                               words_equal_pairs=sum(helpers.words(a) == helpers.words(b) for a, b in pairs)))
+                               words_equal_pairs=sum(words(a) == words(b) for a, b in pairs)))
     report = dict(schema=1, experiment='fixed-prefix-prefill', created_utc=datetime.now(timezone.utc).isoformat(),
                   request_framing='legacy-512',
                   repetitions=args.repetitions, exploratory=args.repetitions < 30, hold_seconds=args.hold_seconds,
