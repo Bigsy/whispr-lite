@@ -80,7 +80,12 @@ public actor HTTPASRBackend: ASRBackend {
         catch { state = .failed; throw error }
     }
     static func request(audio: PCM16k, endpoint: LocalEndpoint, boundary: String) -> URLRequest {
-        var body = Data("--\(boundary)\r\nContent-Disposition: form-data; name=\"model\"\r\n\r\nparakeet\r\n--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"dictation.wav\"\r\nContent-Type: audio/wav\r\n\r\n".utf8)
+        let header = "--\(boundary)\r\n"
+            + "Content-Disposition: form-data; name=\"model\"\r\n\r\nparakeet\r\n"
+            + "--\(boundary)\r\n"
+            + "Content-Disposition: form-data; name=\"file\"; filename=\"dictation.wav\"\r\n"
+            + "Content-Type: audio/wav\r\n\r\n"
+        var body = Data(header.utf8)
         body.append(WAVEncoder.encode(audio)); body.append(Data("\r\n--\(boundary)--\r\n".utf8))
         var request = URLRequest(url: endpoint.url.appendingPathComponent("v1/audio/transcriptions"))
         request.httpMethod = "POST"; request.httpBody = body
@@ -231,7 +236,14 @@ public struct HTTPCleanup: TextCleanup {
         }
         try Task.checkCancellation()
         let data = try await send(try request(messages: chatMessages, maxTokens: maxTokens))
-        struct Response: Decodable { struct Choice: Decodable { struct Message: Decodable { let content: String }; let message: Message; let finish_reason: String? }; let choices: [Choice] }
+        struct Response: Decodable {
+            struct Choice: Decodable {
+                struct Message: Decodable { let content: String }
+                let message: Message
+                let finish_reason: String?
+            }
+            let choices: [Choice]
+        }
         let result = try JSONDecoder().decode(Response.self, from: data)
         guard let choice = result.choices.first, choice.finish_reason == "stop" else { throw AppError.cleanup }
         return dictionary.apply(to: choice.message.content.trimmingCharacters(in: .whitespacesAndNewlines))

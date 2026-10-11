@@ -837,6 +837,9 @@ early or streaming consumer has terminated, it stops producing that stream's chu
 the final owned PCM still goes through the existing batch handoff.
 Warm pre-roll is replayed from its ring in chronological order by `appendPreRoll()`;
 pipeline timing callbacks use the shared `StageMark` function type.
+The HTTP ASR multipart preamble is composed as named lines with the same CRLF
+framing; cleanup response decoding declares its nested message and choice types
+on separate lines.
 HTTP request builders, WAV encoding, clipboard snapshots/system access, history entry
 schema/file names and internal diagnostic counters likewise stay inside Core. The app
 constructs `TextInserter()` and can settle its clipboard transaction; tests retain
