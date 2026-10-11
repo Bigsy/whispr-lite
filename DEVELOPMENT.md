@@ -478,7 +478,8 @@ An optional model argument selects another cached stack, for example
 `WhisprLite --asr-check /absolute/path/to/Models ultra`.
 
 The release bench executable accepts `--parakeet-check CACHE WAV_DIRECTORY OUTPUT_JSON`:
-validated 16 kHz mono synthetic WAVs, 30 warm repetitions each, empty/silence, cancellation,
+validated 16 kHz mono synthetic WAVs, 30 warm repetitions each by default (override with
+`--repetitions N`), empty/silence, cancellation,
 reuse and unload/reprepare. `--streaming-check` uses the same arguments and checks ordered
 640-sample input, partial revisions, final text versus batch, cancellation/settlement,
 batch fallback and returning to streaming. It sends audio without capture pacing and
@@ -486,6 +487,8 @@ does not measure physical partial lag, visible insertion, cleanup or ground-trut
 The Parakeet streaming adapter lives only in the bench target; the signed app uses
 the batch adapter. Published builds include streaming bench modes. Local candidate
 builds enable them with `PARAKEET_STREAMING=1` when that candidate supports sessions.
+The bench accepts one mode as its first argument, validates each mode's paths and
+options before loading a model, and exits with status 2 for malformed arguments.
 
 `--streaming-prototype CACHE WAV_DIRECTORY OUTPUT_JSON --repetitions 30` compares
 the pinned Unified adapter with batch on the same synthetic files. It feeds 640-sample

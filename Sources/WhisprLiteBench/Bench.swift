@@ -4,71 +4,58 @@ import WhisprLiteCore
 @main struct Bench {
     static func main() async {
         do { try await run() }
+        catch let failure as BenchFailure {
+            fputs("Check failed: \(failure.message)\n", stderr)
+            exit(failure.exitCode)
+        }
         catch {
             print("Check failed: " + error.localizedDescription)
             exit(1)
         }
     }
     static func run() async throws {
-        guard CommandLine.arguments.count > 1 else {
-            fputs("Specify a benchmark or check mode; see DEVELOPMENT.md.\n", stderr)
-            exit(2)
-        }
-        if CommandLine.arguments.contains("--cleanup-prefill-check") {
+        let args = try BenchArguments(Array(CommandLine.arguments.dropFirst()))
+        switch args.mode {
+        case "--cleanup-prefill-check":
             try await cleanupPrefillCheck()
-            return
-        }
-        if CommandLine.arguments.contains("--dictionary-check") {
+        case "--dictionary-check":
             try await dictionaryCheck()
-            return
-        }
-        if let index = CommandLine.arguments.firstIndex(of: "--vad-trim-prototype"), CommandLine.arguments.count > index + 4 {
-            let repeatIndex = CommandLine.arguments.firstIndex(of: "--repetitions")
-            let thresholdIndex = CommandLine.arguments.firstIndex(of: "--vad-threshold")
-            let repetitions = repeatIndex.flatMap { CommandLine.arguments.indices.contains($0 + 1) ? Int(CommandLine.arguments[$0 + 1]) : nil } ?? 30
-            let threshold = thresholdIndex.flatMap { CommandLine.arguments.indices.contains($0 + 1) ? Float(CommandLine.arguments[$0 + 1]) : nil } ?? 0.5
-            guard repetitions > 0, (0.05...0.95).contains(threshold) else { throw AppError.invalidAudio }
-            try await vadTrimPrototype(asrCache: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true),
-                vadCache: URL(fileURLWithPath: CommandLine.arguments[index + 2], isDirectory: true),
-                corpus: URL(fileURLWithPath: CommandLine.arguments[index + 3], isDirectory: true),
-                output: URL(fileURLWithPath: CommandLine.arguments[index + 4]), repetitions: repetitions,
-                threshold: threshold, allowDownloads: CommandLine.arguments.contains("--allow-model-downloads"))
-            return
-        }
+        case "--vad-trim-prototype":
+            let repetitions = try args.int("--repetitions", default: 30)
+            let threshold = try args.float("--vad-threshold", default: 0.5)
+            guard repetitions > 0, (0.05...0.95).contains(threshold) else {
+                throw BenchFailure("Invalid VAD benchmark bounds", exitCode: 2)
+            }
+            try await vadTrimPrototype(asrCache: args.path(0, directory: true),
+                vadCache: args.path(1, directory: true), corpus: args.path(2, directory: true),
+                output: args.path(3), repetitions: repetitions, threshold: threshold,
+                allowDownloads: args.has("--allow-model-downloads"))
         #if PARAKEET_STREAMING
-        if let index = CommandLine.arguments.firstIndex(of: "--streaming-prototype"), CommandLine.arguments.count > index + 3 {
-            let repeatIndex = CommandLine.arguments.firstIndex(of: "--repetitions")
-            let repetitions = repeatIndex.flatMap { CommandLine.arguments.indices.contains($0 + 1) ? Int(CommandLine.arguments[$0 + 1]) : nil } ?? 30
-            guard repetitions > 0 else { throw AppError.invalidAudio }
-            try await streamingPrototype(cache: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true),
-                corpus: URL(fileURLWithPath: CommandLine.arguments[index + 2], isDirectory: true),
-                output: URL(fileURLWithPath: CommandLine.arguments[index + 3]), repetitions: repetitions,
-                recordPartials: CommandLine.arguments.contains("--record-partials"))
-            return
-        }
-        if let index = CommandLine.arguments.firstIndex(of: "--streaming-check"), CommandLine.arguments.count > index + 3 {
-            try await realStreaming(cache: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true),
-                corpus: URL(fileURLWithPath: CommandLine.arguments[index + 2], isDirectory: true),
-                output: URL(fileURLWithPath: CommandLine.arguments[index + 3]))
-            return
-        }
+        case "--streaming-prototype":
+            let repetitions = try args.int("--repetitions", default: 30)
+            guard repetitions > 0 else { throw BenchFailure("Invalid repetition count", exitCode: 2) }
+            try await streamingPrototype(cache: args.path(0, directory: true),
+                corpus: args.path(1, directory: true), output: args.path(2),
+                repetitions: repetitions, recordPartials: args.has("--record-partials"))
+        case "--streaming-check":
+            try await realStreaming(cache: args.path(0, directory: true),
+                                    corpus: args.path(1, directory: true), output: args.path(2))
         #endif
-        if let index = CommandLine.arguments.firstIndex(of: "--parakeet-check"),
-           CommandLine.arguments.count > index + 3 {
-            let modelIndex = CommandLine.arguments.firstIndex(of: "--model")
+        case "--parakeet-check":
             let model: ParakeetModel
-            if let modelIndex {
-                guard CommandLine.arguments.count > modelIndex + 1,
-                      let selected = ParakeetModel(rawValue: CommandLine.arguments[modelIndex + 1]) else { throw AppError.unsupported }
-                model = selected
+            if let selected = args.string("--model") {
+                guard let parsed = ParakeetModel(rawValue: selected) else {
+                    throw BenchFailure("Unsupported ASR model", exitCode: 2)
+                }
+                model = parsed
             } else { model = .unified }
-            try await realBatch(cache: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true),
-                                corpus: URL(fileURLWithPath: CommandLine.arguments[index + 2], isDirectory: true),
-                                output: URL(fileURLWithPath: CommandLine.arguments[index + 3]), model: model,
-                                allowDownloads: CommandLine.arguments.contains("--allow-model-downloads"))
-            return
-        }
-        if CommandLine.arguments.contains("--candidate-check") {
+            let repetitions = try args.int("--repetitions", default: 30)
+            guard repetitions > 0 else { throw BenchFailure("Invalid repetition count", exitCode: 2) }
+            try await parakeetCheck(cache: args.path(0, directory: true),
+                                    corpus: args.path(1, directory: true), output: args.path(2),
+                                    model: model, repetitions: repetitions,
+                                    allowDownloads: args.has("--allow-model-downloads"))
+        case "--candidate-check":
             let cache = ProcessInfo.processInfo.environment["PARAKEET_MODEL_CACHE"].map {
                 URL(fileURLWithPath: $0, isDirectory: true)
             }
@@ -76,10 +63,9 @@ import WhisprLiteCore
             try await backend.prepare()
             let result = try await backend.transcribe(PCM16k([Float](repeating: 0, count: PCM16k.rate)))
             print("candidate ready=\(await backend.readiness() == .ready) audio-seconds=\(result.audioDuration)")
-            return
+        default:
+            throw BenchFailure("Unsupported benchmark mode", exitCode: 2)
         }
-        fputs("Unknown or incomplete benchmark mode; see DEVELOPMENT.md.\n", stderr)
-        exit(2)
     }
     @MainActor static func cleanupPrefillCheck() async throws {
         let store = try SettingsStore()
@@ -122,7 +108,8 @@ import WhisprLiteCore
     static func milliseconds(_ duration: Duration) -> Double {
         duration.milliseconds
     }
-    static func realBatch(cache: URL, corpus: URL, output: URL, model: ParakeetModel = .unified, allowDownloads: Bool = false) async throws {
+    static func parakeetCheck(cache: URL, corpus: URL, output: URL, model: ParakeetModel,
+                              repetitions: Int, allowDownloads: Bool) async throws {
         let backend = ParakeetCoreBackend(cacheRoot: cache, allowDownloads: allowDownloads, model: model)
         print("Preparing \(backend.modelID); downloads=\(allowDownloads)", terminator: "\n")
         let started = ContinuousClock.now
@@ -146,7 +133,7 @@ import WhisprLiteCore
             guard !expected.text.isEmpty, expected.audioDuration == audio.duration else { throw AppError.inference }
             if shortest == nil || audio.duration < shortest!.duration { shortest = audio; shortestText = expected.text }
             var raw: [Double] = []
-            for _ in 0..<30 {
+            for _ in 0..<repetitions {
                 let start = ContinuousClock.now
                 let result = try await backend.transcribe(audio)
                 raw.append(milliseconds(start.duration(to: .now)))
@@ -176,11 +163,12 @@ import WhisprLiteCore
         guard try await backend.transcribe(shortest).text == shortestText else { throw AppError.inference }
         try await backend.unload()
         let result: [String: Any] = ["schema": 1, "mode": "real-parakeet-batch-synthetic", "preparation_ms": preparation,
+            "repetitions": repetitions,
             "model": model.rawValue, "model_id": backend.modelID, "downloads_allowed": allowDownloads,
             "empty_and_silence": "passed", "cancel_settle_reuse": "passed", "unload_reprepare": "passed",
             "visible_text_measured": false, "ground_truth_accuracy_measured": false, "fixtures": observations]
         try JSONReport.write(result, to: output)
-        print("real-batch fixtures=\(files.count) warm-observations=\(files.count * 30) cancellation=ok unload=ok")
+        print("real-batch fixtures=\(files.count) warm-observations=\(files.count * repetitions) cancellation=ok unload=ok")
     }
     #if PARAKEET_STREAMING
     private static let streamingChunkSamples = PCM16k.streamingChunkSamples

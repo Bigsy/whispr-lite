@@ -6,6 +6,7 @@ build:
 test:
 	python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("scripts").glob("*.py")]'
 	$(SWIFT_ENV) swift test $(SWIFT_FLAGS)
+	python3 scripts/test-bench-cli.py
 	./scripts/test-media.py
 	python3 scripts/test-setup.py
 	python3 scripts/test-release.py
