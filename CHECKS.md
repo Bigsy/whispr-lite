@@ -264,12 +264,15 @@ dictation into the real history file and training use remain unverified.
 11 October 2026: settings no longer need scrolling. The window is 640 points wide and its
 height follows each page with the top edge fixed; rows are grouped with captions on the
 left and controls on the right; the prompt and dictionary editors scroll inside and resize
-by a drag grip. Synthetic `--ui-preview` renders fit every page between 635 and 751 points:
-General 683 (635 for HTTP), Cleanup 738, Advanced 751 (661 for HTTP), in light and dark.
-At a 560-point short screen the content scrolls and Save stays visible. A real titled
-window fitted its content to the 661-point HTTP Advanced page with its top edge unchanged.
-Permission buttons are no longer truncated. Live tab switching, editor dragging and
-accessibility in the running app still need a manual look.
+by a drag grip. Demo output no longer has a Settings switch; it remains a visibly marked
+`preferences.json` development mode. Synthetic `--ui-preview` renders, isolated from the
+user's saved editor heights, fit every page between 613 and 738 points: General 683 (635
+for HTTP), Cleanup 738, Advanced 703 (613 for HTTP), in light and dark. At a 560-point
+short screen the content scrolls and Save stays visible. A real titled window fitted its
+content to the 613-point HTTP Advanced page with its top edge unchanged. Permission buttons
+are no longer truncated. In the installed app the user resized the dictionary editor, which
+persisted at 292.5 points. Live tab switching and accessibility in the running app still
+need a manual look.
 
 ## Low-latency capture and read-driven clipboard restore
 

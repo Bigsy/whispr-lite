@@ -17,8 +17,13 @@ import Darwin
         app.readinessState = .needsAttention
         // Pages render at the height the settings window gives them; short-screen renders
         // check the scroll fallback when a page is taller than the display.
+        // Editor heights live in UserDefaults; keep the user's real values out of the renders.
+        let suite = "whispr-ui-preview-\(UUID())"
+        guard let previewDefaults = UserDefaults(suiteName: suite) else { throw AppError.unsupported }
+        defer { previewDefaults.removePersistentDomain(forName: suite) }
         func settings(_ name: String, _ page: SettingsPage, _ scheme: ColorScheme, height: CGFloat? = nil) throws {
-            let view = SettingsView(store: store, app: app, page: page, enumerateMicrophones: false, saved: {}).environment(\.colorScheme, scheme)
+            let view = SettingsView(store: store, app: app, page: page, enumerateMicrophones: false, saved: {})
+                .environment(\.colorScheme, scheme).defaultAppStorage(previewDefaults)
             let file = directory.appendingPathComponent("\(name).png")
             if let height { try snapshot(view, size: NSSize(width: SettingsView.width, height: height), to: file); return }
             app.preferredSettingsHeight = 0
@@ -49,7 +54,7 @@ import Darwin
         try settings("general-right-control", .general, .dark)
         // A real titled window must fit its content to the page height with the top edge fixed.
         let window = AppDelegate.makeSettingsWindow(NSHostingView(rootView:
-            SettingsView(store: store, app: app, page: .advanced, enumerateMicrophones: false, saved: {})))
+            SettingsView(store: store, app: app, page: .advanced, enumerateMicrophones: false, saved: {}).defaultAppStorage(previewDefaults)))
         window.setFrameTopLeftPoint(NSPoint(x: -10_000, y: 10_000))
         let top = window.frame.maxY
         app.settingsWindow = window

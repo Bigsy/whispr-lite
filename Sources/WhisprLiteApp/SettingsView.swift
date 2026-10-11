@@ -188,7 +188,7 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
             editorSection("Dictionary and phrases", "Names and terms guide the local model. For an exact conversion, write spoken phrase > Written phrase on its own line; case is ignored.",
                           text: $dictionary, height: $dictionaryHeight) { EmptyView() }
             section("Dictation history") {
-                toggleRow("Keep dictation history on this Mac", "Saves each transcript and its cleaned text in a private file on this Mac, so a better local cleanup model can be trained on your own dictation. Never uploaded or shared. Audio, demo output and cancelled dictations are not kept.",
+                toggleRow("Keep dictation history on this Mac", "Saves each transcript and its cleaned text in a private file on this Mac, so a better local cleanup model can be trained on your own dictation. Never uploaded or shared. Audio and cancelled dictations are not kept.",
                           isOn: $preferences.saveDictationHistory)
                 Divider()
                 row("Saved history", historyMessage.isEmpty ? "Excluded from Time Machine. Keeps up to 32 MB, removing the oldest entries first." : historyMessage) {
@@ -256,7 +256,8 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
                     Text("s").foregroundStyle(.secondary)
                 }
             }
-            section("Diagnostics and development") {
+            // Demo output is a development mode set in preferences.json, not a user setting.
+            section("Diagnostics") {
                 row("Record debug timings", "Timing, readiness, paste checks and media replies only; never audio, dictated text, prompts or titles. Up to 4 MB.") {
                     Button("Show logs", action: app.showDiagnosticLogs)
                         .help("~/Library/Application Support/WhisprLite/Diagnostics · Enable logging and save first.")
@@ -264,13 +265,6 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
                 }
                 if app.diagnosticLogFailed {
                     warning("Logging stopped after a file error. Check free space and folder permissions, then turn logging off and on.")
-                }
-                Divider()
-                toggleRow("Use demo output", "Fabricates text and bypasses real speech recognition and cleanup. It is visibly marked while on.",
-                          isOn: Binding(get: { preferences.backend == .demo }, set: { preferences.backend = $0 ? .demo : .parakeet }))
-                if preferences.backend == .demo {
-                    Divider()
-                    toggleRow("Exercise streaming in demo mode", isOn: $preferences.streamingDemo)
                 }
             }
         }

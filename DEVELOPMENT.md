@@ -12,8 +12,10 @@ Requires Apple Silicon, macOS 14+ and Swift 6.2. `make build` assembles
 restart or reconfigure model services or login items. The app's SwiftPM dependency is
 ParakeetCore, pinned to exact 0.2.0 with `Package.resolved` retained.
 New settings default to direct local Unified ASR, with real Gemma
-cleanup. Select **DEMO** explicitly in Settings to test fabricated output without services;
-demo bypasses real ASR and cleanup and remains visibly marked. Demo streaming is optional.
+cleanup. Demo output is a development mode with no Settings switch: to test fabricated
+output without services, quit the app and set `"backend": "demo"` (optionally
+`"streamingDemo": true`) in `preferences.json`. Demo bypasses real ASR and cleanup and remains
+visibly marked; choosing a speech recognizer on the General page leaves it.
 Saved HTTP settings remain HTTP. For local ASR, select a complete model cache in Settings,
 or enable **Download missing ASR models when preparing** before saving. Downloads are off
 by default. A blank cache path uses `~/Library/Application Support/FluidAudio/Models`.
@@ -22,10 +24,10 @@ Preparation shows cache/load/warm-up/download stages and explicit library errors
 Settings are split into **General**, **Cleanup** and **Advanced**. General holds recording,
 microphone, media and permission controls; Cleanup holds the private prompt/dictionary and
 dictation history; Advanced holds relevant model paths/downloads, local service URLs,
-capture/deadlines, diagnostics and explicit demo controls. Rows are grouped with the label
+capture/deadlines and diagnostics. Rows are grouped with the label
 and a short caption on the left and the control on the right; longer detail is in tooltips.
 The window is 640 points wide and not user-resizable: its height follows the selected page
-with the top edge fixed, so ordinary settings fit without scrolling (635 to 751 points in
+with the top edge fixed, so ordinary settings fit without scrolling (613 to 738 points in
 the synthetic renders). A page taller than the screen is capped and scrolls, with Save still
 visible. The prompt and dictionary editors scroll inside; drag the grip under each to
 resize it, and the window follows. Editor heights are remembered. Help/errors wrap.
