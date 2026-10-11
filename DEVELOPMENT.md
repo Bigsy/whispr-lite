@@ -214,6 +214,9 @@ real hardware events in the release matrix.
 In **General → Hold shortcut**, select **Record…**, press and release your key or
 combination, then **Save settings**. Bare Left/Right Control, Shift, Option and Command
 retain their physical side; Globe/Fn and regular key combinations are supported too.
+Opening the recorder invalidates queued hotkey callbacks, stops only the event tap and
+cancels an active dictation. Closing it restarts the saved tap without preparing ASR or
+cleanup again; Save applies the new shortcut through the normal configuration path once.
 The sheet pauses dictation, captures only its local key-window events and removes its
 monitor on dismissal. Escape, Cancel or losing focus discards the candidate. Caps Lock
 is a toggle and is rejected as a hold key. For a standalone modifier, adding another

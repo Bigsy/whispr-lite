@@ -37,8 +37,10 @@ import WhisprLiteCore
     private var pipelineReady = false
     private var sessionAvailable = true
     private var recordingShortcut = false
+    private var shortcutPreviousStatus: (text: String, detail: String, readiness: SetupReadiness)?
     private var observers: [NSObjectProtocol] = []
     private var settingsEpoch = UUID()
+    private var hotkeyEpoch = UUID()
     private static let shutdownGrace: Duration = .milliseconds(700)
     private var shutdownStarted = false
     private var terminationReply: Task<Void, Never>?
@@ -57,10 +59,39 @@ import WhisprLiteCore
                    readiness: .needsAttention)
         }
     }
+    private func startHotkey(configuration: HotkeyConfiguration, epoch: UUID) {
+        guard sessionAvailable, pipelineReady, !recordingShortcut, settingsEpoch == epoch else { return }
+        hotkeyEpoch = UUID(); let tapEpoch = hotkeyEpoch
+        hotkey?.stop()
+        hotkey = GlobalHotkey(configuration: configuration, callback: { [weak self] action in
+            // The event-tap thread emits in order; FIFO dispatch keeps press/release in that order.
+            DispatchQueue.main.async {
+                guard let self, self.settingsEpoch == epoch, self.hotkeyEpoch == tapEpoch,
+                      !self.recordingShortcut else { return }
+                let code: DiagnosticCode = switch action {
+                case .press: .press
+                case .release: .release
+                case .cancel: .cancel
+                }
+                self.diagnostics?.record(.init(.hotkey, code: code))
+                switch action {
+                case .press: self.coordinator?.press()
+                case .release: self.coordinator?.release()
+                case .cancel: self.coordinator?.cancel()
+                }
+            }
+        }, readiness: { [weak self] ready in DispatchQueue.main.async {
+            guard let self, self.settingsEpoch == epoch, self.hotkeyEpoch == tapEpoch,
+                  !self.recordingShortcut else { return }
+            self.updateTapReadiness(ready)
+        } })
+        hotkey?.start()
+    }
     private func tearDownPipeline(bumpEpoch: Bool, clearCoordinator: Bool = false,
                                   settleClipboard: Bool = false) {
         // Invalidate queued tap callbacks before stopping the tap or cancelling preparation.
         if bumpEpoch { settingsEpoch = UUID() }
+        hotkeyEpoch = UUID()
         captureRecovery?.cancel(); captureRecovery = nil
         setupTask?.cancel(); setupTask = nil
         hotkey?.stop(); hotkey = nil
@@ -298,32 +329,12 @@ import WhisprLiteCore
                 }
                 self.pipelineReady = true
                 self.diagnostics?.record(.init(.preparationReady, milliseconds: preparationStart.map { Self.milliseconds($0.duration(to: .now)) }))
-                self.hotkey = GlobalHotkey(configuration: preferences.hotkey, callback: { [weak self] action in
-                    // The event-tap thread emits in order; FIFO dispatch keeps press/release in that order.
-                    DispatchQueue.main.async {
-                        guard let self, self.settingsEpoch == epoch else { return }
-                        let code: DiagnosticCode = switch action {
-                        case .press: .press
-                        case .release: .release
-                        case .cancel: .cancel
-                        }
-                        self.diagnostics?.record(.init(.hotkey, code: code))
-                        switch action {
-                        case .press: self.coordinator?.press()
-                        case .release: self.coordinator?.release()
-                        case .cancel: self.coordinator?.cancel()
-                        }
-                    }
-                }, readiness: { [weak self] ready in DispatchQueue.main.async {
-                    guard let self, self.settingsEpoch == epoch else { return }
-                    self.updateTapReadiness(ready)
-                } })
                 if preferences.pauseMedia,
                    let resources = Bundle.main.resourceURL {
                     self.media.start(script: resources.appendingPathComponent("broker.pl"),
                         framework: Bundle.main.bundleURL.appendingPathComponent("Contents/Frameworks/MediaRemoteAdapter.framework/MediaRemoteAdapter"))
                 }
-                self.hotkey?.start()
+                self.startHotkey(configuration: preferences.hotkey, epoch: epoch)
             } catch is CancellationError {}
             catch {
                 if self.settingsEpoch == epoch {
@@ -414,13 +425,26 @@ import WhisprLiteCore
     private func resumeSession() { sessionAvailable = true; configure() }
     func beginShortcutRecording() {
         guard !recordingShortcut else { return }
+        shortcutPreviousStatus = (status, statusDetail, readinessState)
         recordingShortcut = true
-        tearDownPipeline(bumpEpoch: true)
+        hotkeyEpoch = UUID()
+        hotkey?.stop(); hotkey = nil
+        tapReady = false; coordinator?.ready = false
+        coordinator?.cancel()
         update("Choosing a shortcut", detail: "Dictation is paused while you record the shortcut.", readiness: .needsAttention)
     }
     func endShortcutRecording() {
         guard recordingShortcut else { return }
-        recordingShortcut = false; resumeSession()
+        recordingShortcut = false
+        let previous = shortcutPreviousStatus; shortcutPreviousStatus = nil
+        guard sessionAvailable else { return }
+        if pipelineReady, let store {
+            startHotkey(configuration: store.preferences.hotkey, epoch: settingsEpoch)
+        } else if status.contains("Choosing a shortcut"), let previous {
+            status = previous.text; statusDetail = previous.detail; readinessState = previous.readiness
+            statusMenuItem?.title = status
+            item?.button?.toolTip = "Whispr Lite: \(status)"
+        }
     }
     @objc private func locked() { suspendSession() }
     @objc func retry() { resumeSession() }
