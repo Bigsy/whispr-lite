@@ -1,0 +1,126 @@
+import Testing
+import Foundation
+import CoreGraphics
+import AVFoundation
+@testable import WhisprLiteCore
+
+actor CountingCleanup: TextCleanup {
+    var calls = 0
+    func clean(_ text: String) -> String { calls += 1; return text }
+}
+actor RecordingCleanup: TextCleanup {
+    var inputs: [String] = []
+    func clean(_ text: String) -> String { inputs.append(text); return text }
+}
+actor SlowRecordingCleanup: TextCleanup {
+    var started = false
+    func clean(_ text: String) async throws -> String {
+        started = true
+        try await Task.sleep(for: .milliseconds(80))
+        return text
+    }
+}
+struct FailingCleanup: TextCleanup { func clean(_ text: String) throws -> String { throw AppError.cleanup } }
+
+@MainActor final class FakeCapture: CaptureDriver {
+    var begins = 0; var ends = 0; var suspended = 0
+    var boundaryValue: Double?
+    var endBoundary: Double?
+    var onBoundary: (() -> Void)?
+    func begin() { begins += 1 }
+    func end() async throws -> PCM16k { ends += 1; return try PCM16k([0.1]) }
+    func end(at boundary: Double?) async throws -> PCM16k {
+        endBoundary = boundary
+        return try await end()
+    }
+    func releaseBoundary() -> Double? { onBoundary?(); return boundaryValue }
+    func suspend() { suspended += 1 }
+}
+@MainActor final class EarlyCapture: CaptureDriver {
+    var ends = 0
+    private var stream: AsyncThrowingStream<PCM16k, any Error>?
+    private var continuation: AsyncThrowingStream<PCM16k, any Error>.Continuation?
+    func begin() {
+        let pair = AsyncThrowingStream<PCM16k, any Error>.makeStream()
+        stream = pair.stream; continuation = pair.continuation
+    }
+    func completedChunks() -> AsyncThrowingStream<PCM16k, any Error>? { stream }
+    func publish() throws { continuation?.yield(try PCM16k([0.1])) }
+    func end() throws -> PCM16k { ends += 1; continuation?.finish(); return try PCM16k([0.1, 0.2]) }
+    func suspend() {}
+}
+actor EarlyBackend: ASRBackend {
+    nonisolated let capabilities = ASRCapabilities()
+    func prepare() async throws {}
+    func readiness() async -> BackendReadiness { .ready }
+    func transcribe(_ audio: PCM16k) async throws -> ASRResult {
+        .init(text: audio.samples.count == 1 ? "First sentence." : "First sentence. Second sentence.", audioDuration: audio.duration)
+    }
+}
+@MainActor final class FakeInsertion: InsertionDriver {
+    var texts: [String] = []; var shouldFail = false
+    var snapshots: [(session: UUID, target: UUID)] = []
+    var insertedTargets: [UUID] = []
+    func snapshot(session: UUID) -> UUID {
+        let target = UUID()
+        snapshots.append((session, target))
+        return target
+    }
+    func insert(_ text: String, target: UUID) throws {
+        try Task.checkCancellation()
+        guard snapshots.contains(where: { $0.target == target }) else { throw AppError.targetChanged }
+        if shouldFail { throw AppError.targetChanged }
+        insertedTargets.append(target); texts.append(text)
+    }
+}
+@MainActor final class OrderedInsertion: InsertionDriver {
+    let capture: FakeCapture; var beginsAtSnapshot: [Int] = []
+    init(_ capture: FakeCapture) { self.capture = capture }
+    func snapshot(session: UUID) -> UUID { beginsAtSnapshot.append(capture.begins); return UUID() }
+    func insert(_ text: String, target: UUID) throws {}
+}
+@MainActor final class FakeMedia: MediaDriver {
+    var begins: [UUID] = []; var ends: [UUID] = []
+    func begin(_ session: UUID) { begins.append(session) }
+    func end(_ session: UUID) { ends.append(session) }
+}
+actor AsyncGate {
+    private var entered = false
+    private var entryWaiter: CheckedContinuation<Void, Never>?
+    private var exitWaiter: CheckedContinuation<Void, Never>?
+    func waitUntilEntered() async {
+        if entered { return }
+        await withCheckedContinuation { entryWaiter = $0 }
+    }
+    func enterAndWait() async {
+        entered = true
+        entryWaiter?.resume(); entryWaiter = nil
+        await withCheckedContinuation { exitWaiter = $0 }
+    }
+    func open() { exitWaiter?.resume(); exitWaiter = nil }
+}
+actor WarmupBackend: HoldWarmableASRBackend {
+    nonisolated let capabilities = ASRCapabilities()
+    private let warmGate: AsyncGate?
+    private(set) var warmCalls = 0
+    private(set) var finalBeforeWarmSettled = false
+    private(set) var transcribedWhileWarming = false
+    private var warmSettled = false
+    private var warming = false
+    init(warmGate: AsyncGate? = nil) { self.warmGate = warmGate }
+    func prepare() async throws {}
+    func readiness() async -> BackendReadiness { .ready }
+    func warmForRecording() async throws {
+        warmCalls += 1
+        warming = true
+        if let warmGate { await warmGate.enterAndWait() }
+        else { try await Task.sleep(for: .milliseconds(80)) }
+        warming = false
+        warmSettled = true
+    }
+    func transcribe(_ audio: PCM16k) async throws -> ASRResult {
+        if !warmSettled { finalBeforeWarmSettled = true }
+        if warming { transcribedWhileWarming = true }
+        return .init(text: "Synthetic words", audioDuration: audio.duration)
+    }
+}

@@ -812,6 +812,11 @@ schema/file names and internal diagnostic counters likewise stay inside Core. Th
 constructs `TextInserter()` and can settle its clipboard transaction; tests retain
 injected clipboard access through `@testable`.
 
+Core tests are split by backend, coordinator, pipeline, streaming, audio worker,
+clipboard, hotkey and broker protocol, with shared fakes in `TestSupport.swift`.
+Suite and test names are unchanged, so existing `swift test --filter` commands still
+target the same checks.
+
 `whispr-bench --cleanup-prefill-check` compares three synthetic outputs before/after
 the actual Swift prefix-preparation method using the saved service configuration. It
 prints only the pass count, measures no timing and does not change settings. Physical
