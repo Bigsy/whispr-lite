@@ -154,8 +154,7 @@ import WhisprLiteCore
                 "physical_hotkey_or_dictation_tested": false, "private_content_recorded": false]
             var success = ready
             do {
-                try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: output, options: .atomic)
+                try JSONReport.write(report, to: output)
                 print("readiness-check ready=\(ready) event-tap=\(tapReady)")
             } catch { success = false; print("readiness report could not be written") }
             setupTask?.cancel(); hotkey?.stop(); coordinator?.suspend(); audio.suspend(); media.shutdown()
@@ -644,8 +643,7 @@ import WhisprLiteCore
             "microphone_capture_measured": true,
             "native_text_update_measured": true, "physical_hotkey_measured": false,
             "display_compositor_latency_measured": false, "private_content_recorded": false]
-        try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: output, options: .atomic)
+        try JSONReport.write(report, to: output)
     }
     @objc private func quit() {
         setupTask?.cancel(); hotkey?.stop(); coordinator?.suspend(); audio.suspend()

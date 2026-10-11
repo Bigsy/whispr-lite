@@ -122,8 +122,7 @@ extension Bench {
             "projections_not_observed": true, "cleanup_measured": false,
             "physical_capture_or_insertion_measured": false, "ground_truth_accuracy_measured": false,
             "fixtures": observations]
-        try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: output, options: .atomic)
+        try JSONReport.write(report, to: output)
         try await backend.unload()
         print("vad-trim result=\(output.path)")
     }

@@ -68,8 +68,8 @@ import Darwin
         app.settingsWindow = nil; window.close()
         guard app.preferredSettingsHeight > 0, abs(fitted - app.preferredSettingsHeight) < 1, abs(window.frame.maxY - top) < 1 else { throw AppError.overflow }
         heights["window-fit-advanced-http"] = fitted
-        try JSONSerialization.data(withJSONObject: heights.mapValues { Double($0) }, options: [.prettyPrinted, .sortedKeys])
-            .write(to: directory.appendingPathComponent("settings-heights.json"), options: .atomic)
+        try JSONReport.write(heights.mapValues { Double($0) },
+                             to: directory.appendingPathComponent("settings-heights.json"))
         try snapshot(ShortcutRecordingSheet(captureEvents: false, recorded: { _ in }, cancelled: {}).environment(\.colorScheme, .dark),
             size: NSSize(width: 478, height: 300), to: directory.appendingPathComponent("shortcut-recorder.png"))
         for state in [DictationState.recording, .processing, .error] {
@@ -135,6 +135,6 @@ import Darwin
         }
         let value: [String: Any] = ["schema": 1, "mode": "synthetic-hosting-view-draw", "count_per_condition": 30, "draws_per_observation": 10,
                                   "production_update_limit_hz": 10, "compositor_gpu_or_asr_measured": false, "observations": observations]
-        try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]).write(to: file, options: .atomic)
+        try JSONReport.write(value, to: file)
     }
 }

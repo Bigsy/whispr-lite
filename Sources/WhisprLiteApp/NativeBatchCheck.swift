@@ -95,7 +95,6 @@ import WhisprLiteCore
             "empty_silence": "passed", "repeat_output_parity": true, "native_text_update_and_draw": true,
             "physical_release_capture_measured": false, "display_compositor_latency_measured": false,
             "third_party_insertion_measured": false, "private_content_recorded": false]
-        try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: output, options: .atomic)
+        try JSONReport.write(report, to: output)
     }
 }

@@ -67,6 +67,6 @@ import AVFoundation
         let data: [String: Any] = ["schema": 1, "mode": "synthetic-capture-worker-only", "audio_seconds_per_run": 2,
                                   "count_per_condition": 30, "enabled_ms": enabled, "disabled_ms": disabled,
                                   "physical_capture_or_asr_measured": false]
-        try JSONSerialization.data(withJSONObject: data, options: [.prettyPrinted, .sortedKeys]).write(to: URL(fileURLWithPath: path), options: .atomic)
+        try JSONReport.write(data, to: URL(fileURLWithPath: path))
     }
 }

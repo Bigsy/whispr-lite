@@ -181,8 +181,7 @@ import WhisprLiteCore
             "model": model.rawValue, "model_id": backend.modelID, "downloads_allowed": allowDownloads,
             "empty_and_silence": "passed", "cancel_settle_reuse": "passed", "unload_reprepare": "passed",
             "visible_text_measured": false, "ground_truth_accuracy_measured": false, "fixtures": observations]
-        try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]).write(to: output, options: .atomic)
+        try JSONReport.write(result, to: output)
         print("real-batch fixtures=\(files.count) warm-observations=\(files.count * 30) cancellation=ok unload=ok")
     }
     #if PARAKEET_STREAMING
@@ -304,8 +303,7 @@ import WhisprLiteCore
             "visible_text_measured": false, "ground_truth_accuracy_measured": false,
             "fallback_switch_and_batch_ms": fallbackMS, "batch_to_streaming_reset_ms": resetMS,
             "fixtures": observations]
-        try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]).write(to: output, options: .atomic)
+        try JSONReport.write(result, to: output)
         print("paced-streaming result=\(output.path)")
     }
     static func realStreaming(cache: URL, corpus: URL, output: URL) async throws {
@@ -341,8 +339,7 @@ import WhisprLiteCore
         let result: [String: Any] = ["schema": 1, "mode": "real-parakeet-streaming-synthetic",
             "cancel_settle_batch_fallback": "passed", "batch_to_streaming_reset": "passed",
             "capture_paced": false, "ground_truth_accuracy_measured": false, "fixtures": observations]
-        try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]).write(to: output, options: .atomic)
+        try JSONReport.write(result, to: output)
         print("real-streaming fixtures=\(files.count) cancellation-fallback-reset=ok")
     }
     #endif
