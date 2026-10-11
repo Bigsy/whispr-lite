@@ -6,6 +6,7 @@ third-party insertion, actual media playback compatibility or release acceptance
 
 | Check | Result |
 |---|---|
+| 11 October core API narrowing, Apple M1 Max | `make test` passed with 108 registered Swift tests (one optional skip), 17 native broker, 27 synthetic setup and 6 release tests. The coordinator pipeline is immutable, insertion-session state is private, demo ASR knobs/session are internal, and unused media timing stages were removed. No live dictation was run. |
 | 11 October dictionary locale reuse, Apple M1 Max | `make test` passed with 108 registered Swift tests (one optional skip), 17 native broker, 27 synthetic setup and 6 release tests. Existing Swift/Python correction vectors remained green; no live dictation or model request was run. |
 | 11 October dictionary bench case table, Apple M1 Max | `whispr-bench` compiled after replacing fixture-index expectations with per-case predicates. The live cleanup check was not rerun because it uses saved private dictionary settings. Existing shared synthetic correction tests remain the behavior gate. |
 | 11 October synthetic speech script structure, Apple M1 Max | The generator imported without running `say` or writing audio; Python AST and diff checks passed. PCM rate, channels and sample width now use named constants. Speech fixture generation was not rerun. |

@@ -1,7 +1,7 @@
 import Foundation
 
 public enum TimingStage: String, Codable, Sendable {
-    case press, firstAudio, release, captureFinalized, mediaPause, mediaResume
+    case press, firstAudio, release, captureFinalized
     case asrStart, asrEnd, cleanupStart, cleanupEnd, resultReady, insertionDispatched, visibleText, clipboardRestored
 }
 public struct TimingEvent: Codable, Sendable {

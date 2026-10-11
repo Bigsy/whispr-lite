@@ -85,13 +85,13 @@ public extension ASRBackend {
 }
 
 public struct FakeASRConfiguration: Sendable {
-    public var text = "Demo dictation. This is fabricated text."
-    public var preparationDelay: Duration = .milliseconds(10)
-    public var inferenceDelay: Duration = .milliseconds(20)
-    public var fails = false
-    public var preparationFails = false
-    public var ignoresCancellation = false
-    public var partials = ["Thursday", "Friday."]
+    var text = "Demo dictation. This is fabricated text."
+    var preparationDelay: Duration = .milliseconds(10)
+    var inferenceDelay: Duration = .milliseconds(20)
+    var fails = false
+    var preparationFails = false
+    var ignoresCancellation = false
+    var partials = ["Thursday", "Friday."]
     public init() {}
 }
 /// Only selected by explicit demo settings or synthetic test/benchmark code.
@@ -123,25 +123,25 @@ public actor FakeASRBackend: ASRBackend {
         return FakeASRSession(configuration)
     }
 }
-public actor FakeASRSession: ASRSession {
+actor FakeASRSession: ASRSession {
     private let configuration: FakeASRConfiguration
     private var count = 0
     private var revision = 0
     private var ended = false
     private var cancelled = false
-    public init(_ configuration: FakeASRConfiguration) { self.configuration = configuration }
-    public func append(_ audio: PCM16k, startingAt offset: Int) throws {
+    init(_ configuration: FakeASRConfiguration) { self.configuration = configuration }
+    func append(_ audio: PCM16k, startingAt offset: Int) throws {
         guard !ended, offset == count, audio.samples.count <= PCM16k.rate else { throw AppError.protocolViolation }
         guard audio.samples.count <= PCM16k.maximumSamples - count else { throw AppError.audioLimit }
         count += audio.samples.count
         revision += 1
     }
-    public func partial() throws -> PartialSnapshot? {
+    func partial() throws -> PartialSnapshot? {
         guard !ended else { throw AppError.protocolViolation }
         guard revision > 0, !configuration.partials.isEmpty else { return nil }
         return .init(revision: revision, text: configuration.partials[min(revision - 1, configuration.partials.count - 1)])
     }
-    public func finish() async throws -> ASRResult {
+    func finish() async throws -> ASRResult {
         guard !ended else { throw AppError.protocolViolation }
         ended = true
         if configuration.ignoresCancellation {
@@ -153,5 +153,5 @@ public actor FakeASRSession: ASRSession {
         if configuration.fails { throw AppError.inference }
         return .init(text: count == 0 ? "" : configuration.text, audioDuration: Double(count) / Double(PCM16k.rate))
     }
-    public func cancel() { cancelled = true; ended = true }
+    func cancel() { cancelled = true; ended = true }
 }

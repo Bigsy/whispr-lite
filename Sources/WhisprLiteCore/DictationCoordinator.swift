@@ -52,7 +52,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     private let capture: any CaptureDriver
     private let insertion: any InsertionDriver
     private let media: any MediaDriver
-    private var pipeline: BatchPipeline
+    private let pipeline: BatchPipeline
     private var session: UUID?
     private var generation: UInt64 = 0
     private var task: Task<Void, Never>?
@@ -61,7 +61,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     private var finalized = false
     private var activationHeld = false
     private var draining = false
-    public private(set) var insertionSession: UUID?
+    private var insertionSession: UUID?
     public init(capture: any CaptureDriver, insertion: any InsertionDriver, media: any MediaDriver,
                 pipeline: BatchPipeline, timings: LatencyRecorder = .init()) {
         self.capture = capture; self.insertion = insertion; self.media = media
