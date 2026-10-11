@@ -465,6 +465,10 @@ built app's `Contents/MacOS`, prepares real models, transcribes short silence an
 Explicit development and synthetic check commands report content-free `CheckFailure`
 messages for failed expectations, such as an unknown model, a missing native update or
 a Settings window that does not fit.
+`LaunchCommand` parses startup arguments once. Missing or malformed probe arguments exit
+with status 2 before normal setup; probe settings load failures exit with status 1.
+The capture-flow command disables history through its parsed mode, and exit-only probes
+run from `DevelopmentCommands` before loading saved settings.
 The build requires ParakeetCore and FluidAudio licence files and the smoke check verifies
 they are present and nonempty in the signed bundle. The app media framework compiles only
 the upstream files needed by the broker; `scripts/build-media-upstream.sh` creates a

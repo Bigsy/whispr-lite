@@ -21,7 +21,7 @@ import WhisprLiteCore
     private var diagnostics: DiagnosticLogger?
     private var history: DictationHistory?
     /// Synthetic acoustic benchmark runs never become dictation history.
-    private static let historyAllowed = !CommandLine.arguments.contains("--capture-flow-check")
+    private var historyAllowed = true
     private let audio = AudioCapture()
     private let insertion = TextInserter()
     private let media = MediaBroker()
@@ -41,101 +41,49 @@ import WhisprLiteCore
     private var observers: [NSObjectProtocol] = []
     private var settingsEpoch = UUID()
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let command: LaunchCommand
+        do { command = try LaunchCommand.parse(Array(CommandLine.arguments.dropFirst())) }
+        catch {
+            fputs("Launch arguments: \(error.localizedDescription)\n", stderr)
+            exit(2)
+        }
         NSApp.setActivationPolicy(.accessory)
-        if let index = CommandLine.arguments.firstIndex(of: "--ui-preview"), CommandLine.arguments.count > index + 1 {
-            do { try NativeUIPreview.render(to: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true), app: self); exit(0) }
-            catch { print("Native UI preview failed: \(error.localizedDescription)"); exit(1) }
-        }
-        if CommandLine.arguments.contains("--smoke-test") {
-            let bundle = Bundle.main
-            let resourcesValid = bundle.resourceURL.flatMap {
-                Bundle(url: $0.appendingPathComponent("FluidAudio_FluidAudio.bundle"))
-            } != nil
-            let noticesValid = bundle.resourceURL.map { resources in
-                let required = [
-                    "MediaRemoteAdapter-LICENSE", "THIRD_PARTY_NOTICES.md",
-                    "Licenses/ParakeetCore-MIT.txt", "Licenses/ParakeetCore-NOTICES.md",
-                    "Licenses/FluidAudio/Apache-2.0.txt"
-                ]
-                return required.allSatisfy {
-                    let path = resources.appendingPathComponent($0).path
-                    return (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int).map { $0 > 0 } ?? false
-                } && FileManager.default.fileExists(atPath: resources.appendingPathComponent("Licenses/FluidAudio/ThirdPartyLicenses").path)
-            } ?? false
-            #if arch(arm64)
-            let architecture = "arm64"
-            let architectureValid = true
-            #else
-            let architecture = "unsupported"
-            let architectureValid = false
-            #endif
-            let valid = architectureValid && resourcesValid && noticesValid && bundle.bundleIdentifier == "com.hedworth.whispr-lite" && bundle.object(forInfoDictionaryKey: "LSUIElement") as? Bool == true
-            print("bundle=\(valid ? "ok" : "invalid") arch=\(architecture) resources=\(resourcesValid ? "ok" : "invalid") licences=\(noticesValid ? "ok" : "invalid")")
-            exit(valid ? 0 : 1)
-        }
-        if CommandLine.arguments.contains("--permission-status") {
-            print("permissions accessibility=\(AXIsProcessTrusted()) microphone=\(AVCaptureDevice.authorizationStatus(for: .audio) == .authorized) input-monitoring=\(CGPreflightListenEventAccess())")
-            exit(0)
-        }
-        if let index = CommandLine.arguments.firstIndex(of: "--batch-flow-check") {
-            Task {
-                do { try await NativeBatchCheck.run(arguments: Array(CommandLine.arguments.dropFirst(index + 1))); exit(0) }
-                catch { print("batch-flow check failed: \(error.localizedDescription)"); exit(1) }
-            }
-            return
-        }
-        if let index = CommandLine.arguments.firstIndex(of: "--asr-check"),
-           CommandLine.arguments.count > index + 1 {
-            let cache = URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true)
-            Task {
-                do {
-                    let model: ParakeetModel
-                    if CommandLine.arguments.count > index + 2 {
-                        guard let selected = ParakeetModel(rawValue: CommandLine.arguments[index + 2]) else {
-                            throw CheckFailure("Unknown speech model")
-                        }
-                        model = selected
-                    } else { model = .unified }
-                    let backend = ParakeetCoreBackend(cacheRoot: cache, model: model)
-                    try await backend.prepare()
-                    let empty = try await backend.transcribe(PCM16k([]))
-                    let silence = try await backend.transcribe(PCM16k([Float](repeating: 0, count: 8_000)))
-                    guard empty.text.isEmpty, silence.audioDuration == 0.5 else {
-                        throw CheckFailure("Bundled ASR empty or silence check failed")
-                    }
-                    try await backend.unload()
-                    print("bundled-asr model=\(model.rawValue) preparation=ok short-input=ok unload=ok")
-                    exit(0)
-                } catch { print("bundled-asr check failed: \(error.localizedDescription)"); exit(1) }
-            }
-            return
-        }
+        if DevelopmentCommands.run(command, app: self) { return }
         do { store = try SettingsStore() }
-        catch { status = "Settings could not be loaded"; readinessState = .needsAttention; createMenu(); return }
+        catch {
+            if case .run = command {
+                status = "Settings could not be loaded"
+                readinessState = .needsAttention
+                createMenu()
+                return
+            }
+            fputs("Probe settings could not be loaded\n", stderr)
+            exit(1)
+        }
         createMenu()
         diagnostics = DiagnosticLogger(directory: store.directory.appendingPathComponent("Diagnostics", isDirectory: true))
         diagnostics?.setEnabled(store.preferences.debugLogging)
         history = DictationHistory(directory: store.directory.appendingPathComponent("History", isDirectory: true))
         indicator.activitySource = { [weak self] in self?.audio.recordingActivity ?? 0 }
         observeLifecycle()
-        if CommandLine.arguments.contains("--benchmark-window") { showBenchmark() }
-        if CommandLine.arguments.contains("--capture-flow-check") { showBenchmark() }
+        if case .run(let options) = command, options.showBenchmarkWindow { showBenchmark() }
+        if case .captureFlow = command { historyAllowed = false; showBenchmark() }
         configure()
-        if CommandLine.arguments.contains("--settings") { showSettings() }
-        if let index = CommandLine.arguments.firstIndex(of: "--capture-flow-check") {
+        if case .run(let options) = command, options.showSettings { showSettings() }
+        if case .captureFlow(let arguments) = command {
             Task {
                 do {
-                    try await runCaptureFlowCheck(arguments: Array(CommandLine.arguments.dropFirst(index + 1)))
+                    try await runCaptureFlowCheck(arguments: arguments)
                     exit(0)
                 } catch {
-                    print("capture-flow check failed: \(type(of: error))")
+                    if let failure = error as? CheckFailure {
+                        print("capture-flow check failed: \(failure.message)")
+                    } else { print("capture-flow check failed: \(type(of: error))") }
                     exit(1)
                 }
             }
         }
-        if let index = CommandLine.arguments.firstIndex(of: "--readiness-report"), CommandLine.arguments.count > index + 1 {
-            writeReadinessReport(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
-        }
+        if case .readinessReport(let output) = command { writeReadinessReport(to: output) }
     }
     private func writeReadinessReport(to output: URL) {
         // Explicit, finite integration probe; normal operation has no readiness polling.
@@ -230,7 +178,7 @@ import WhisprLiteCore
             pipeline.cleanupDeadline = .seconds(preferences.cleanupTimeoutSeconds)
             coordinator = DictationCoordinator(capture: audio, insertion: insertion, media: media, pipeline: pipeline)
             coordinator?.diagnostics = debug ? diagnostics : nil
-            history?.configure(enabled: preferences.saveDictationHistory && preferences.backend != .demo && Self.historyAllowed,
+            history?.configure(enabled: preferences.saveDictationHistory && preferences.backend != .demo && historyAllowed,
                 asr: preferences.backend == .parakeet ? "parakeet-\(preferences.asrModel.rawValue)" : preferences.backend.rawValue,
                 prompt: prompt)
             coordinator?.history = history
