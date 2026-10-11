@@ -19,10 +19,11 @@ import WhisprLiteCore
         let metadataURL = privateDirectory.appendingPathComponent("cleanup-import.json")
         guard try metadataURL.resourceValues(forKeys: [.fileSizeKey]).fileSize.map({ $0 <= 65_536 }) == true else { throw AppError.contextLimit }
         let metadata = try JSONDecoder().decode(Import.self, from: Data(contentsOf: metadataURL))
-        let cleanup = HTTPCleanup(.init(endpoint: try LocalEndpoint(arguments[3]),
-            prompt: try store.prompt(),
-            dictionary: try store.dictionary(), inputFormat: metadata.cleanupInputFormat,
-            dictionaryPrefix: metadata.cleanupDictionaryPrefix))
+        var preferences = store.preferences
+        preferences.cleanupEndpoint = arguments[3]
+        preferences.cleanupInputFormat = metadata.cleanupInputFormat
+        preferences.cleanupDictionaryPrefix = metadata.cleanupDictionaryPrefix
+        let cleanup = HTTPCleanup(try .init(preferences: preferences, prompt: store.prompt(), dictionary: store.dictionary()))
         try await cleanup.checkReadiness()
         let backend = ParakeetCoreBackend(cacheRoot: cache)
         try await backend.prepare()

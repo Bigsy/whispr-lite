@@ -220,8 +220,7 @@ import WhisprLiteCore
         do {
             let prompt = try store.prompt()
             let dictionary = try store.dictionary()
-            cleanup = preferences.backend == .demo ? DemoCleanup() : HTTPCleanup(.init(endpoint: try LocalEndpoint(preferences.cleanupEndpoint), prompt: prompt, dictionary: dictionary,
-                inputFormat: preferences.cleanupInputFormat, dictionaryPrefix: preferences.cleanupDictionaryPrefix))
+            cleanup = preferences.backend == .demo ? DemoCleanup() : HTTPCleanup(try .init(preferences: preferences, prompt: prompt, dictionary: dictionary))
             var pipeline = BatchPipeline(backend: backend, cleanup: cleanup)
             pipeline.asrDeadline = .seconds(preferences.asrTimeoutSeconds)
             pipeline.cleanupDeadline = .seconds(preferences.cleanupTimeoutSeconds)

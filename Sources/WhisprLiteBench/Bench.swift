@@ -84,10 +84,7 @@ import WhisprLiteCore
     @MainActor static func cleanupPrefillCheck() async throws {
         let store = try SettingsStore()
         let preferences = store.preferences
-        let cleanup = HTTPCleanup(.init(endpoint: try LocalEndpoint(preferences.cleanupEndpoint),
-            prompt: try store.prompt(),
-            dictionary: try store.dictionary(), inputFormat: preferences.cleanupInputFormat,
-            dictionaryPrefix: preferences.cleanupDictionaryPrefix))
+        let cleanup = HTTPCleanup(try .init(preferences: preferences, prompt: store.prompt(), dictionary: store.dictionary()))
         let fixtures = ["what's the capital of france", "send it by thursday no wait friday period",
                         "i think it was about fifteen pounds but i'm not sure"]
         for input in fixtures {
@@ -102,10 +99,8 @@ import WhisprLiteCore
         let preferences = store.preferences
         let dictionary = try store.dictionary()
         guard DictionaryCorrections(dictionary).apply(to: "dochler") == "Doccla" else { throw AppError.notReady }
-        let cleanup = HTTPCleanup(.init(endpoint: try LocalEndpoint(preferences.cleanupEndpoint),
-            prompt: try store.prompt(),
-            dictionary: dictionary + "\nhappy fire > hapi fhir", inputFormat: preferences.cleanupInputFormat,
-            dictionaryPrefix: preferences.cleanupDictionaryPrefix))
+        let cleanup = HTTPCleanup(try .init(preferences: preferences, prompt: store.prompt(),
+                                            dictionary: dictionary + "\nhappy fire > hapi fhir"))
         let fixtures = ["i work at dochler", "send the report to dochler", "dochler", "the doctor called me", "we use happy fire"]
         var passed = 0
         for (index, input) in fixtures.enumerated() {

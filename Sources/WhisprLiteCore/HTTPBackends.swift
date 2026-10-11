@@ -111,6 +111,11 @@ public struct CleanupConfiguration: Sendable {
         self.endpoint = endpoint; self.prompt = prompt; self.dictionary = dictionary
         self.inputFormat = inputFormat; self.dictionaryPrefix = dictionaryPrefix
     }
+    public init(preferences: Preferences, prompt: String, dictionary: String) throws {
+        self.init(endpoint: try LocalEndpoint(preferences.cleanupEndpoint), prompt: prompt,
+                  dictionary: dictionary, inputFormat: preferences.cleanupInputFormat,
+                  dictionaryPrefix: preferences.cleanupDictionaryPrefix)
+    }
 }
 /// Tokens of the fixed request framing, measured once during preparation and shared by copies.
 private final class PromptBudget: @unchecked Sendable {
@@ -120,6 +125,7 @@ private final class PromptBudget: @unchecked Sendable {
     func store(_ value: Int) { lock.withLock { tokens = value } }
 }
 public struct HTTPCleanup: TextCleanup {
+    public typealias Configuration = CleanupConfiguration
     public static let contextTokens = 4096
     public let configuration: CleanupConfiguration
     private let http: LocalHTTP

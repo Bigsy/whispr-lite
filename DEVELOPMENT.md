@@ -566,6 +566,8 @@ The private file helper creates/tightens 0700 directories and 0600 files, reject
 symlinks, and writes settings through 0600 temporary files renamed in the same directory.
 Prompt and dictionary file reads use a typed private-file name; convenience accessors
 apply the default prompt or empty dictionary only when the corresponding file is absent.
+The app, native synthetic flow and bench build cleanup configuration through one
+preferences initializer, including endpoint, import framing and dictionary prefix.
 History and diagnostics share a serial-queue JSONL writer with one encoder per owner,
 private open/rotate behavior and separate oversized-entry policies. Their caller-side
 queues remain bounded at 64 and 128 entries, and their different retry rules remain.
