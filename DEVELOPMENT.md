@@ -470,6 +470,10 @@ SIGTERM handling, and its real-framework process test checks that termination ex
 The broker keeps bounded track identity in helper-local named fields, strips it from
 wire replies, and compares a single track match when deciding whether a refreshed
 opaque media item still belongs to the owned player.
+The Swift broker decodes replies into a closed event enum, rejects unknown event types,
+and maps event and readiness states explicitly to diagnostic codes. Its read, queue,
+field and timeout bounds are named in `BrokerLimits` alongside a pointer to the helper
+source that must stay in step.
 The native broker tests and optional media probe use the same Python `BrokerClient`
 for line decoding, generation/request IDs, deadline errors and process teardown.
 The probe waits for a `resumed` event with its lease's original begin request ID.

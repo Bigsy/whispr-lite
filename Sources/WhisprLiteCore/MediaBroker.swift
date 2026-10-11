@@ -1,10 +1,28 @@
 import Foundation
 import Darwin
 
+// Keep these bounds in step with Vendor/mediaremote-adapter/patches/broker.m.
+private enum BrokerLimits {
+    static let readChunkBytes = 8_192
+    static let lineBytes = 8_192
+    static let inboxBytes = 65_536
+    static let pendingWrites = 16
+    static let fieldCharacters = 64
+    static let startup = Duration.seconds(3)
+    static let requestDeadlineMS = 500
+    static let responseWait = Duration.milliseconds(500)
+    static let shutdownGrace = Duration.milliseconds(700)
+    static let settleBeforeLaunch = Duration.milliseconds(100)
+    static let firstRestart = Duration.milliseconds(250)
+    static let secondRestart = Duration.milliseconds(750)
+    static let settlePolls = 20
+    static let settlePoll = Duration.milliseconds(50)
+}
+
 private func brokerReadChunk(_ handle: FileHandle) -> Data {
     // Foundation's read(upToCount:) can wait to fill a pipe read. One POSIX read
     // returns the bytes currently available and keeps the allocation bounded.
-    var bytes = [UInt8](repeating: 0, count: 8192)
+    var bytes = [UInt8](repeating: 0, count: BrokerLimits.readChunkBytes)
     var count: Int
     repeat {
         count = bytes.withUnsafeMutableBytes { Darwin.read(handle.fileDescriptor, $0.baseAddress, $0.count) }
@@ -12,7 +30,29 @@ private func brokerReadChunk(_ handle: FileHandle) -> Data {
     return count > 0 ? Data(bytes.prefix(count)) : Data()
 }
 
-public struct BrokerEvent: Decodable, Sendable {
+enum BrokerEventType: String, Decodable, Sendable {
+    case ready, snapshot, issued, paused, released, resumed, skipped, unconfirmed, fatal
+
+    var diagnosticCode: DiagnosticCode {
+        switch self {
+        case .ready: .ready
+        case .snapshot: .snapshot
+        case .issued: .issued
+        case .paused: .paused
+        case .released: .released
+        case .resumed: .resumed
+        case .skipped: .skipped
+        case .unconfirmed: .unconfirmed
+        case .fatal: .fatal
+        }
+    }
+}
+
+private enum BrokerOperation: String {
+    case snapshot, begin, end, shutdown
+}
+
+struct BrokerEvent: Decodable, Sendable {
     public struct State: Decodable, Sendable {
         public let known: Bool
         public let playing: Bool?
@@ -21,32 +61,38 @@ public struct BrokerEvent: Decodable, Sendable {
     }
     public let state: State?
     public let version: Int
-    public let type: String
+    let type: BrokerEventType
     public let generation: String
     public let request: String
     public let session: String
     public let reason: String?
 }
-public struct JSONLineDecoder: Sendable {
+struct BrokerLineDecoder: Sendable {
     private var pending = Data()
-    public init() {}
-    public mutating func append(_ data: Data) throws -> [BrokerEvent] {
+    private let json = JSONDecoder()
+    mutating func append(_ data: Data) throws -> [BrokerEvent] {
         var result: [BrokerEvent] = []
         for byte in data {
             if byte == 10 {
-                let event = try JSONDecoder().decode(BrokerEvent.self, from: pending)
-                guard event.version == 1, event.generation.count <= 64, event.request.count <= 64,
-                      event.session.count <= 64, (event.reason?.count ?? 0) <= 64,
-                      ["ready", "snapshot", "issued", "paused", "released", "resumed", "skipped", "unconfirmed", "fatal"].contains(event.type) else { throw AppError.protocolViolation }
+                let event: BrokerEvent
+                do { event = try json.decode(BrokerEvent.self, from: pending) }
+                catch { throw AppError.protocolViolation }
+                guard event.version == 1,
+                      event.generation.count <= BrokerLimits.fieldCharacters,
+                      event.request.count <= BrokerLimits.fieldCharacters,
+                      event.session.count <= BrokerLimits.fieldCharacters,
+                      (event.reason?.count ?? 0) <= BrokerLimits.fieldCharacters else {
+                    throw AppError.protocolViolation
+                }
                 result.append(event); pending.removeAll(keepingCapacity: true)
             } else {
-                guard pending.count < 8192 else { throw AppError.protocolViolation }
+                guard pending.count < BrokerLimits.lineBytes else { throw AppError.protocolViolation }
                 pending.append(byte)
             }
         }
         return result
     }
-    public func finish() throws { guard pending.isEmpty else { throw AppError.protocolViolation } }
+    func finish() throws { guard pending.isEmpty else { throw AppError.protocolViolation } }
 }
 
 /// One bounded inbox/dispatch, even if the helper writes faster than the main actor reads.
@@ -59,7 +105,7 @@ private final class BrokerInbox: @unchecked Sendable {
     func append(_ bytes: Data) {
         lock.lock()
         eof = eof || bytes.isEmpty
-        if data.count + bytes.count > 65_536 { overflow = true; data.removeAll() }
+        if data.count + bytes.count > BrokerLimits.inboxBytes { overflow = true; data.removeAll() }
         else if !overflow { data.append(bytes) }
         let notify = !scheduled; scheduled = true
         lock.unlock()
@@ -79,7 +125,7 @@ private final class BrokerWriter: @unchecked Sendable {
     private var outstanding = 0
     func send(_ data: Data, to handle: FileHandle, failed: @escaping @MainActor @Sendable () -> Void) -> Bool {
         lock.lock()
-        guard outstanding < 16 else { lock.unlock(); return false }
+        guard outstanding < BrokerLimits.pendingWrites else { lock.unlock(); return false }
         outstanding += 1; lock.unlock()
         queue.async {
             var didFail = false
@@ -94,6 +140,18 @@ private final class BrokerWriter: @unchecked Sendable {
 
 public enum MediaReadiness: Sendable, Equatable { case disabled, starting, ready, recovering, unavailable }
 
+private extension MediaReadiness {
+    var diagnosticCode: DiagnosticCode {
+        switch self {
+        case .disabled: .disabled
+        case .starting: .starting
+        case .ready: .ready
+        case .recovering: .recovering
+        case .unavailable: .unavailable
+        }
+    }
+}
+
 /// Recovery never transfers a lease across helper generations or blocks microphone/ASR work.
 @MainActor public final class MediaBroker: MediaDriver {
     public private(set) var status = "Media disabled"
@@ -105,7 +163,7 @@ public enum MediaReadiness: Sendable, Equatable { case disabled, starting, ready
     private var input: FileHandle?
     private var configuration: (script: URL, framework: URL)?
     private var generation: String?
-    private var decoder = JSONLineDecoder()
+    private var decoder = BrokerLineDecoder()
     private var pending: Set<String> = []
     private var session: UUID?
     private var enabled = false
@@ -119,7 +177,7 @@ public enum MediaReadiness: Sendable, Equatable { case disabled, starting, ready
     public func start(script: URL, framework: URL) {
         guard !disabledForRun, process == nil, restartTask == nil else { return }
         enabled = true; configuration = (script, framework)
-        if settling?.isRunning == true { schedule(after: .milliseconds(100)) }
+        if settling?.isRunning == true { schedule(after: BrokerLimits.settleBeforeLaunch) }
         else { launch() }
     }
     private func launch() {
@@ -162,7 +220,7 @@ public enum MediaReadiness: Sendable, Equatable { case disabled, starting, ready
             try process.run(); self.process = process
             setStatus(.starting, "Media starting")
             Task { [weak self] in
-                try? await Task.sleep(for: .seconds(3))
+                try? await Task.sleep(for: BrokerLimits.startup)
                 guard let self, self.epoch == owner, self.generation == nil else { return }
                 self.failed()
             }
@@ -170,37 +228,38 @@ public enum MediaReadiness: Sendable, Equatable { case disabled, starting, ready
     }
     private func receive(_ event: BrokerEvent) {
         // Only protocol enums/booleans enter the diagnostic log, never player metadata.
-        if let diagnostics, diagnostics.isEnabled, event.type == "ready" || event.generation == generation {
-            var record = DiagnosticRecord(.mediaReply, session: UUID(uuidString: event.session), code: DiagnosticCode(rawValue: event.type))
+        if let diagnostics, diagnostics.isEnabled, event.type == .ready || event.generation == generation {
+            var record = DiagnosticRecord(.mediaReply, session: UUID(uuidString: event.session), code: event.type.diagnosticCode)
             record.known = event.state?.known; record.playing = event.state?.playing
             record.trustworthy = event.state?.trustworthy; record.subscriptionHealthy = event.state?.subscriptionHealthy
             record.mediaReason = event.reason.flatMap(MediaDiagnosticReason.init(rawValue:))
             diagnostics.record(record)
         }
-        if event.type == "ready" {
+        if event.type == .ready {
             guard generation == nil, !event.generation.isEmpty else { failed(permanent: true); return }
             generation = event.generation
             setStatus(.ready, "Media broker ready (player validation pending)")
-            send("snapshot", session: nil)
+            send(.snapshot, session: nil)
             return
         }
         guard event.generation == generation else { return }
-        if event.type == "fatal" { failed(permanent: true); return }
+        if event.type == .fatal { failed(permanent: true); return }
         pending.remove(event.request)
-        if event.type == "snapshot", let state = event.state {
+        if event.type == .snapshot, let state = event.state {
             setStatus(.ready, state.known && state.trustworthy && state.subscriptionHealthy == true ?
                 "Media ready" : "Media identity/subscription unavailable; control skipped")
         }
-        if event.type == "unconfirmed" {
+        if event.type == .unconfirmed {
             setStatus(.ready, "Media pause unconfirmed; automatic resume may be skipped")
         }
     }
-    private func send(_ operation: String, session: UUID?) {
+    private func send(_ operation: BrokerOperation, session: UUID?) {
         guard let input, let generation else { return }
-        guard pending.count < 16 else { failed(); return }
+        guard pending.count < BrokerLimits.pendingWrites else { failed(); return }
         let request = UUID().uuidString; pending.insert(request)
-        let body: [String: Any] = ["version": 1, "operation": operation, "generation": generation,
-                                  "request": request, "session": session?.uuidString ?? "", "deadlineMS": 500]
+        let body: [String: Any] = ["version": 1, "operation": operation.rawValue, "generation": generation,
+                                  "request": request, "session": session?.uuidString ?? "",
+                                  "deadlineMS": BrokerLimits.requestDeadlineMS]
         guard var data = try? JSONSerialization.data(withJSONObject: body) else { pending.remove(request); return }
         data.append(10)
         let owner = epoch
@@ -208,7 +267,7 @@ public enum MediaReadiness: Sendable, Equatable { case disabled, starting, ready
             guard let self, self.epoch == owner else { return }; self.failed()
         }) else { failed(); return }
         Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
+            try? await Task.sleep(for: BrokerLimits.responseWait)
             guard let self, self.epoch == owner else { return }
             self.pending.remove(request) // A response timeout does not discard the helper's own ledger.
         }
@@ -216,21 +275,21 @@ public enum MediaReadiness: Sendable, Equatable { case disabled, starting, ready
     public func begin(_ session: UUID) {
         diagnostics?.record(.init(.mediaCommand, session: session, code: .begin, enabled: enabled && generation != nil))
         guard enabled, generation != nil, self.session == nil else { return }
-        self.session = session; send("begin", session: session)
+        self.session = session; send(.begin, session: session)
     }
     public func end(_ session: UUID) {
         diagnostics?.record(.init(.mediaCommand, session: session, code: .end, enabled: self.session == session))
         guard self.session == session else { return }
-        send("end", session: session); self.session = nil
+        send(.end, session: session); self.session = nil
     }
     public func shutdown() {
         enabled = false; restartTask?.cancel(); restartTask = nil
         if let session { end(session) }
-        send("shutdown", session: nil)
+        send(.shutdown, session: nil)
         let old = resetTransport()
         setStatus(.disabled, "Media disabled")
         Task {
-            try? await Task.sleep(for: .milliseconds(700))
+            try? await Task.sleep(for: BrokerLimits.shutdownGrace)
             if old?.isRunning == true { old?.terminate() }
         }
     }
@@ -253,7 +312,7 @@ public enum MediaReadiness: Sendable, Equatable { case disabled, starting, ready
         }
         recoveries += 1
         setStatus(.recovering, "Media restarting; previous playback may need manual resume")
-        schedule(after: recoveries == 1 ? .milliseconds(250) : .milliseconds(750))
+        schedule(after: recoveries == 1 ? BrokerLimits.firstRestart : BrokerLimits.secondRestart)
     }
     private func schedule(after delay: Duration) {
         restartTask?.cancel()
@@ -263,10 +322,10 @@ public enum MediaReadiness: Sendable, Equatable { case disabled, starting, ready
                 try await Task.sleep(for: delay)
                 guard let self else { return }
                 // Do not overlap an old helper with its replacement, even if termination is slow.
-                for _ in 0..<20 {
+                for _ in 0..<BrokerLimits.settlePolls {
                     guard self.enabled, self.epoch == owner else { return }
                     if self.settling?.isRunning != true { break }
-                    try await Task.sleep(for: .milliseconds(50))
+                    try await Task.sleep(for: BrokerLimits.settlePoll)
                 }
                 guard self.enabled, self.epoch == owner else { return }
                 self.restartTask = nil
@@ -276,7 +335,7 @@ public enum MediaReadiness: Sendable, Equatable { case disabled, starting, ready
         }
     }
     private func setStatus(_ readiness: MediaReadiness, _ status: String) {
-        diagnostics?.record(.init(.mediaState, code: DiagnosticCode(rawValue: String(describing: readiness))))
+        diagnostics?.record(.init(.mediaState, code: readiness.diagnosticCode))
         self.readiness = readiness; self.status = status; onChange?()
     }
 }
