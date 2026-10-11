@@ -387,7 +387,7 @@ import WhisprLiteCore
         }
     }
     private func update(_ text: String, detail: String = "", readiness: SetupReadiness? = nil) {
-        status = store?.preferences.backend == .demo ? "DEMO — \(text)" : text
+        status = store?.preferences.backend == .demo ? DemoLabel.tagged(text) : text
         statusDetail = detail
         if let readiness { readinessState = readiness }
         statusMenuItem?.title = status
@@ -411,7 +411,7 @@ import WhisprLiteCore
         case .idle: "mic"
         }
         item?.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Whispr Lite")
-        item?.button?.title = store?.preferences.backend == .demo ? " DEMO" : ""
+        item?.button?.title = store?.preferences.backend == .demo ? " \(DemoLabel.name)" : ""
     }
     private func observeLifecycle() {
         for name in [NSWorkspace.willSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
@@ -526,7 +526,7 @@ import WhisprLiteCore
     @objc private func showBenchmark() {
         if benchmarkWindow == nil {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 550, height: 180), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-            window.title = "Whispr Lite — visible text benchmark"
+            window.title = "Whispr Lite: visible text benchmark"
             let view = NSView(frame: NSRect(x: 0, y: 0, width: 550, height: 180))
             let field = MeasuredTextView(frame: NSRect(x: 20, y: 45, width: 510, height: 110))
             field.font = .systemFont(ofSize: 16)

@@ -1,4 +1,4 @@
-# Implementation checks — 11 October 2026
+# Implementation checks: 11 October 2026
 
 The configured local batch stack and signed synthetic native insertion work on this
 machine. These checks do not establish physical release-to-visible-text latency,
@@ -6,6 +6,7 @@ third-party insertion, actual media playback compatibility or release acceptance
 
 | Check | Result |
 |---|---|
+| 11 October UI labels, Apple M1 Max | `make check` passed with 103 Swift, 17 native broker, 14 setup and 5 release tests, signed arm64 app, doctor and bundle smoke. Native `--ui-preview` passed at fitted and 560-point short-screen sizes (`bench/results/tidy-demo-ui`); the General renders were visually inspected with no clipped model or backend labels and Save visible on the short screen. Demo remains explicitly marked. Focus, physical capture and visible insertion were not exercised. |
 | 11 October HTTP WAV encoder, Apple M1 Max | `make test` passed with 103 Swift, 17 native broker, 14 setup and 5 release tests, including WAV container/multipart length checks. A separate optimized synthetic microbenchmark compared the former per-sample writer with the bulk PCM writer in alternating order, 30 measured rounds per condition, with byte-identical output. Five seconds of PCM: median 1.549 ms versus 0.174 ms; 30 seconds: 9.212 ms versus 1.031 ms. This measures WAV serialization only; no HTTP, ASR, cleanup or release-to-visible-text improvement is claimed. |
 | 11 October streaming bench move, Apple M1 Max | `make check` passed with 103 Swift, 17 native broker, 14 setup and 5 release tests, then signed app, doctor and bundle smoke. Cached Unified batch passed 3 synthetic fixtures and 90 warm observations with cancellation/unload. Streaming passed the same 3 fixtures with cancellation/fallback/reset. One paced repetition per fixture passed with explicit `--record-partials`: 1, 6 and 0 snapshots respectively, matching each fixture's partial revision count. Reports: ignored `bench/results/tidy-batch-d9.json`, `tidy-streaming-d9.json` and `tidy-prototype-d9.json`. The installed app was closed for model ownership and reopened afterward. These checks do not measure physical capture or visible insertion. |
 | 11 October build pin cleanup, Apple M1 Max | `make test` passed with 103 Swift, 17 native broker, 14 setup and 5 release tests. Both media framework scripts compiled and signed with the deployment target read from Info.plist. `PARAKEET_MODEL_CACHE="$PWD/.build/models" make candidate-check` passed against the pinned `09873950` revision with downloads off; the candidate prepared and transcribed one second of synthetic silence. Its isolated build changed `Package.resolved` temporarily, and the script restored the published lockfile before exit. The installed app was closed for model ownership and reopened afterward. |
@@ -603,7 +604,7 @@ The previous media state probe observed unknown/no active player: median one-sho
 not observed pause/resume effect or real-player/resource acceptance. No titles/artwork/
 playback history are emitted. Raw results are in ignored `bench/results/media-probe.json`.
 
-## Smaller cleanup model comparison — 11 October 2026
+## Smaller cleanup model comparison: 11 October 2026
 
 Read 79 completed raw/cleaned transcript pairs from the local OpenWhispr SQLite history
 immutably. Ran the installed pinned Gemma 4 E2B/MTP service as baseline, then each
@@ -643,7 +644,7 @@ timings and one post-run candidate-server RSS sample are in the report, but neit
 includes ASR, insertion, model cold start or memory pressure. Measure an 8 GB Mac and
 review real disagreements before offering a smaller model as a supported choice.
 
-### Liquid AI cleanup follow-up — 11 October 2026
+### Liquid AI cleanup follow-up: 11 October 2026
 
 Used the same 79 real pairs, 28 public synthetic cases, prompt/framing, temperature
 zero, output cap, pinned llama.cpp b10809 and isolated 11437 Metal server as above.
@@ -679,7 +680,7 @@ reports are ignored at `bench/results/cleanup-liquid.json` and
 No installed service or settings were changed. Low-RAM memory pressure and reviewed
 real-output accuracy remain open.
 
-### Further low-RAM cleanup screen — 11 October 2026
+### Further low-RAM cleanup screen: 11 October 2026
 
 Checked two more compact GGUFs, a smaller quantization of the existing Gemma 4
 E2B QAT model, and Apple's built-in Foundation Model. The same 79 real inputs and
@@ -729,7 +730,7 @@ prompt, dictionary or generated text was saved in reports. The installed Gemma
 service and settings were unchanged. Human review of real disagreements and memory
 testing on a constrained Mac are still needed before adding a supported alternative.
 
-## MTP plus n-gram speculation and long-dictation chunks — 11 October 2026
+## MTP plus n-gram speculation and long-dictation chunks: 11 October 2026
 
 The pinned llama-server b10809 starts with `--spec-type draft-mtp,ngram-simple`,
 `draft-mtp,ngram-map-k` and `draft-mtp,ngram-mod`. All six 3-/4-token lookup variants

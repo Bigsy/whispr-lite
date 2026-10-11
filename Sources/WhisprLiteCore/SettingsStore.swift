@@ -5,10 +5,10 @@ public enum ParakeetModel: String, Codable, CaseIterable, Sendable {
     case unified, ultra, v2, v3
     public var name: String {
         switch self {
-        case .unified: "Unified — English (default)"
-        case .ultra: "Ultra — multilingual"
-        case .v2: "TDT v2 — English"
-        case .v3: "TDT v3 — multilingual"
+        case .unified: "Unified: English (default)"
+        case .ultra: "Ultra: multilingual"
+        case .v2: "TDT v2: English"
+        case .v3: "TDT v3: multilingual"
         }
     }
 }

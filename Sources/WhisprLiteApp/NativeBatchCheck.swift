@@ -34,7 +34,7 @@ import WhisprLiteCore
         let audio = try files.map { try PCM16k(contentsOfWAV: $0) }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 650, height: 240),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Whispr Lite — synthetic batch check"
+        window.title = "Whispr Lite: synthetic batch check"
         window.isReleasedWhenClosed = false
         let field = NSTextView(frame: NSRect(x: 20, y: 20, width: 610, height: 200))
         field.font = .systemFont(ofSize: 18)

@@ -125,7 +125,7 @@ struct RecordingPill: View {
                 .foregroundStyle(presentation.state == .recording ? Color.red : presentation.state == .error ? Color.orange : Color.primary)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 4) {
-                Text(presentation.demo ? "DEMO · \(title)" : title).font(.system(size: 12, weight: .semibold))
+                Text(presentation.demo ? DemoLabel.tagged(title) : title).font(.system(size: 12, weight: .semibold))
                 if presentation.state == .error {
                     Text(presentation.message).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }

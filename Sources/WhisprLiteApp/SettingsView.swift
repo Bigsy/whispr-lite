@@ -138,9 +138,9 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
                     : preferences.backend == .http ? "Uses your local speech server. Its address is in Advanced."
                     : "Demo produces fabricated text and bypasses real speech recognition and cleanup.") {
                     Picker("Speech recognition", selection: $preferences.backend) {
-                        Text("Parakeet — on this Mac").tag(BackendMode.parakeet)
+                        Text("Parakeet: on this Mac").tag(BackendMode.parakeet)
                         Text("Local HTTP server").tag(BackendMode.http)
-                        if preferences.backend == .demo { Text("DEMO — simulated output").tag(BackendMode.demo) }
+                        if preferences.backend == .demo { Text(DemoLabel.tagged("simulated output")).tag(BackendMode.demo) }
                     }.labelsHidden().fixedSize()
                 }
                 if preferences.backend == .parakeet {
@@ -170,7 +170,7 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
                         Text("System default").tag("")
                         ForEach(microphones) { Text($0.name).tag($0.id) }
                         if !preferences.microphoneUID.isEmpty && !microphones.contains(where: { $0.id == preferences.microphoneUID }) {
-                            Text("Saved microphone — currently unavailable").tag(preferences.microphoneUID)
+                            Text("Saved microphone: currently unavailable").tag(preferences.microphoneUID)
                         }
                     }.labelsHidden().frame(maxWidth: 260)
                 }
