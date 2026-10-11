@@ -31,6 +31,19 @@ import WhisprLiteCore
                 repetitions: repetitions, idleSeconds: idleSeconds)
             return
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--vad-trim-prototype"), CommandLine.arguments.count > index + 4 {
+            let repeatIndex = CommandLine.arguments.firstIndex(of: "--repetitions")
+            let thresholdIndex = CommandLine.arguments.firstIndex(of: "--vad-threshold")
+            let repetitions = repeatIndex.flatMap { CommandLine.arguments.indices.contains($0 + 1) ? Int(CommandLine.arguments[$0 + 1]) : nil } ?? 30
+            let threshold = thresholdIndex.flatMap { CommandLine.arguments.indices.contains($0 + 1) ? Float(CommandLine.arguments[$0 + 1]) : nil } ?? 0.5
+            guard repetitions > 0, (0.05...0.95).contains(threshold) else { throw AppError.invalidAudio }
+            try await vadTrimPrototype(asrCache: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true),
+                vadCache: URL(fileURLWithPath: CommandLine.arguments[index + 2], isDirectory: true),
+                corpus: URL(fileURLWithPath: CommandLine.arguments[index + 3], isDirectory: true),
+                output: URL(fileURLWithPath: CommandLine.arguments[index + 4]), repetitions: repetitions,
+                threshold: threshold, allowDownloads: CommandLine.arguments.contains("--allow-model-downloads"))
+            return
+        }
         #if PARAKEET_STREAMING_CANDIDATE
         if let index = CommandLine.arguments.firstIndex(of: "--streaming-prototype"), CommandLine.arguments.count > index + 3 {
             let repeatIndex = CommandLine.arguments.firstIndex(of: "--repetitions")

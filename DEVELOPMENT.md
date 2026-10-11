@@ -402,6 +402,20 @@ models are prepared before timed spans; the normal app should be closed for meas
 Use only synthetic WAVs. A short idle interval is a repeated comparison, while sparse
 90-second idle observations are exploratory and must be labeled as such.
 
+`--vad-trim-prototype ASR_CACHE VAD_CACHE WAV_DIRECTORY OUTPUT_JSON --repetitions 30`
+asks whether Silero VAD silence trimming pays for itself before final batch ASR. It loads
+the pinned FluidAudio Silero bundle (CPU only) from `VAD_CACHE/silero-vad-coreml`, and
+downloads it there only with `--allow-model-downloads`; keep that cache in an ignored
+directory, separate from the app's models. `--vad-threshold` defaults to 0.5. For each
+synthetic WAV, plus the under-five-second clips joined by 2 s pauses and a noise-only
+clip over a quiet synthetic noise floor, it times a full VAD pass and per-256 ms chunk
+cost, then runs interleaved batch ASR on the original, edge-trimmed and pause-trimmed
+audio (pauses of at least 0.75 s, 0.25 s padding). Unified pads every recording to a
+fixed 15 s encoder window, so trimming saves only decoder frames unless it removes a
+whole window; the report records each variant's window count, text/word parity and
+the paired ASR saving. Release savings with VAD at release or run incrementally during
+the hold are projections from separately measured spans. Close the app while measuring.
+
 Batch ASR has nothing to do while the key is held, and the Neural Engine and CPU clock
 down between 0.5 and 1 s of idle. Normal direct Parakeet dictation therefore runs one
 1-second silence inference at press and again 500 ms after each one finishes, only while

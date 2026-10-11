@@ -248,6 +248,50 @@ while held and never between dictations. The probe was removed. Physical release
 gain and power use remain to be confirmed from debug logs. `make check` passed with 83 Swift
 tests in 24 suites, including a hold that repeats passes and stops them at release.
 
+## VAD silence-trimming prototype
+
+11 October 2026: `whispr-bench --vad-trim-prototype` ran FluidAudio 0.17.7's Silero
+`silero-vad-unified-256ms-v6.2.1` on CPU only (threshold 0.5, negative 0.35) over the eight
+synthetic WAVs, the four base clips under five seconds joined by 2 s pauses over a quiet
+synthetic noise floor, and 3 s of that noise alone. Edge trimming keeps first to last
+speech; pause trimming also shortens pauses of at least 0.75 s, keeping 0.25 s padding.
+Batch Unified ran 30 rotated rounds per original/edges/pauses variant with the app closed;
+both models were prepared outside timing. Results: ignored `bench/results/vad-trim.json`.
+
+| Synthetic fixture | Audio → pause-trimmed | Windows | VAD pass median | ASR original / trimmed median | Paired ASR saving | Projected net, VAD at release / during hold |
+|---|---:|---:|---:|---:|---:|---:|
+| Short | 0.96 → 0.96 s | 1 → 1 | 0.9 ms | 59.0 / 59.1 ms | 0.0 ms | -0.8 / -0.2 ms |
+| Short + trailing silence | 3.66 → 1.27 s | 1 → 1 | 3.2 ms | 63.7 / 59.7 ms | 4.4 ms | 1.2 / 4.2 ms |
+| Correction | 2.66 → 2.66 s | 1 → 1 | 2.3 ms | 66.1 / 66.4 ms | -0.7 ms | -2.9 / -0.9 ms |
+| Correction + trailing silence | 4.46 → 2.81 s | 1 → 1 | 3.7 ms | 68.4 / 65.7 ms | 3.0 ms | -0.7 / 2.8 ms |
+| Dictionary | 2.32 → 2.32 s | 1 → 1 | 2.1 ms | 68.5 / 68.7 ms | 0.0 ms | -2.2 / -0.2 ms |
+| Sentence with pause | 4.19 → 3.16 s | 1 → 1 | 3.6 ms | 71.6 / 69.5 ms | 2.1 ms | -1.6 / 1.8 ms |
+| Eight-second container | 8.00 → 5.63 s | 1 → 1 | 6.9 ms | 91.9 / 88.9 ms | 3.8 ms | -3.0 / 3.6 ms |
+| Twenty-five-second container | 25.00 → 19.19 s | 2 → 2 | 20.7 ms | 248.9 / 238.3 ms | 9.9 ms | -10.8 / 9.7 ms |
+| Joined clips, 2 s pauses | 16.14 → 10.97 s | 2 → 1 | 13.6 ms | 173.6 / 109.4 ms | 64.5 ms | 50.9 / 64.3 ms |
+| Noise only | 3.00 s → no speech | 1 → 0 | 2.6 ms | 58.6 ms / skipped | 58.6 ms | 56.1 / 58.4 ms |
+
+VAD cost about 0.21 ms per 256 ms chunk and repeated exactly in every run. Unified pads
+each recording to its fixed 15 s encoder window, so within one window trimming saves only
+decoder frames (at most 4.4 ms here); a full VAD pass at release cancels most of that,
+and VAD during the hold would leave a few milliseconds. Only removing a whole window paid
+off (64.5 ms on the joined fixture); the 25 s container stayed at two windows. On noise
+alone Parakeet already returned empty text, so the existing pipeline already skips cleanup.
+
+Words matched the original in every variant; punctuation changed in four fixtures.
+Trailing digital silence dropped the final full stop in the correction and eight-second
+containers and trimming restored it; the short clip with trailing silence became
+"Hello, world" (untrimmed "Hello world", clean clip "Hello world."); the joined fixture
+gained sentence punctuation. Fixture padding is digital zero, not room noise, and
+cleanup was not run, so this is not an accuracy result.
+
+Not integrated. For the roughly 99% under-five-second workload the projected gain is
+under 5 ms, while integration would add a model asset, readiness/provisioning, VAD
+work alongside capture and a punctuation change. If long dictations with long pauses
+become common, the candidate is VAD only for recordings over 15 s, used only when it
+removes a window. Physical noise floors, real pauses and the effect on cleanup output
+remain unmeasured.
+
 ## Low-latency capture and read-driven clipboard restore
 
 10 October 2026: a content-free probe on this Mac's default input (44.1 kHz mono) showed
