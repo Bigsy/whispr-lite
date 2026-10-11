@@ -144,17 +144,24 @@ private actor EarlyBackend: ASRBackend {
 }
 @MainActor final class FakeInsertion: InsertionDriver {
     var texts: [String] = []; var shouldFail = false
-    func snapshot() -> UUID { UUID() }
+    var snapshots: [(session: UUID, target: UUID)] = []
+    var insertedTargets: [UUID] = []
+    func snapshot(session: UUID) -> UUID {
+        let target = UUID()
+        snapshots.append((session, target))
+        return target
+    }
     func insert(_ text: String, target: UUID) throws {
         try Task.checkCancellation()
+        guard snapshots.contains(where: { $0.target == target }) else { throw AppError.targetChanged }
         if shouldFail { throw AppError.targetChanged }
-        texts.append(text)
+        insertedTargets.append(target); texts.append(text)
     }
 }
 @MainActor final class OrderedInsertion: InsertionDriver {
     let capture: FakeCapture; var beginsAtSnapshot: [Int] = []
     init(_ capture: FakeCapture) { self.capture = capture }
-    func snapshot() -> UUID { beginsAtSnapshot.append(capture.begins); return UUID() }
+    func snapshot(session: UUID) -> UUID { beginsAtSnapshot.append(capture.begins); return UUID() }
     func insert(_ text: String, target: UUID) throws {}
 }
 @MainActor final class FakeMedia: MediaDriver {
@@ -251,10 +258,15 @@ private actor WarmupBackend: HoldWarmableASRBackend {
     }
     @Test func releaseFinalizesAndInsertsExactlyOnce() async throws {
         let (coordinator, capture, insertion, media) = try await fixture()
-        coordinator.press(); coordinator.press(); coordinator.release(); coordinator.release()
+        coordinator.press()
+        #expect(insertion.snapshots.count == 1)
+        coordinator.press(); coordinator.release(); coordinator.release()
         try await waitUntil { coordinator.state == .idle }
         #expect(capture.begins == 1 && capture.ends == 1)
         #expect(insertion.texts.count == 1)
+        #expect(insertion.snapshots.count == 1)
+        #expect(insertion.snapshots.first?.session == media.begins.first)
+        #expect(insertion.insertedTargets == insertion.snapshots.map(\.target))
         #expect(media.begins == media.ends)
     }
     @Test func historySavesCompletedDictationButNotCancelled() async throws {

@@ -120,17 +120,33 @@ private final class PromisedText: NSObject, NSPasteboardItemDataProvider, @unche
     }
 }
 @MainActor public final class TextInserter: InsertionDriver {
-    private struct Target { let pid: pid_t; let element: AXUIElement? }
-    private var targets: [UUID: Target] = [:]
+    private struct Target {
+        let id: UUID
+        let session: UUID
+        let pid: pid_t
+        let kind: InsertionTargetKind
+        let element: AXUIElement?
+    }
+    private var target: Target?
     public let clipboard: ClipboardTransaction
-    public var diagnostics: DiagnosticLogger?
-    public var diagnosticSession: UUID?
-    public var timings: LatencyRecorder?
+    public var diagnostics: DiagnosticLogger? { didSet { updateRestoreObserver() } }
+    public var timings: LatencyRecorder? { didSet { updateRestoreObserver() } }
     private let modifierGate = ModifierReleaseGate()
     /// AX calls are synchronous IPC on the main actor. Bound a hung target well below the
     /// 6-second system default; slow-but-working apps (first Chromium query) stay well inside it.
     private static let messagingTimeout: Float = 1
     public init(clipboard: ClipboardTransaction = .init(SystemClipboard())) { self.clipboard = clipboard }
+    private func updateRestoreObserver() {
+        guard diagnostics?.isEnabled == true || timings?.isEnabled == true else {
+            clipboard.onRestore = nil
+            return
+        }
+        clipboard.onRestore = { [weak self] session, code in
+            guard let self else { return }
+            self.diagnostics?.record(.init(.clipboardRestore, session: session, code: code))
+            if code == .restored, let session { self.timings?.mark(.clipboardRestored, session: session) }
+        }
+    }
     private func focused(_ pid: pid_t) -> AXUIElement? {
         var value: CFTypeRef?
         let app = AXUIElementCreateApplication(pid)
@@ -145,16 +161,20 @@ private final class PromisedText: NSObject, NSPasteboardItemDataProvider, @unche
         var value: CFTypeRef?
         return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
     }
-    public func snapshot() -> UUID {
-        targets.removeAll()
-        let id = UUID(); let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0
-        targets[id] = .init(pid: pid, element: focused(pid))
-        diagnostics?.record(.init(.targetSnapshot, session: diagnosticSession, target: InsertionTargetKind.classify(bundleIdentifier: NSRunningApplication(processIdentifier: pid)?.bundleIdentifier)))
+    public func snapshot(session: UUID) -> UUID {
+        let app = NSWorkspace.shared.frontmostApplication
+        let id = UUID(), pid = app?.processIdentifier ?? 0
+        let kind = InsertionTargetKind.classify(bundleIdentifier: app?.bundleIdentifier)
+        let captured = Target(id: id, session: session, pid: pid, kind: kind,
+                              element: pid == 0 ? nil : focused(pid))
+        target = captured
+        diagnostics?.record(.init(.targetSnapshot, session: captured.session, target: captured.kind))
         return id
     }
     private func validate(_ target: Target) throws -> AXUIElement {
         func reject(_ code: DiagnosticCode) throws -> Never {
-            diagnostics?.record(.init(.insertionCheck, session: diagnosticSession, code: code)); throw AppError.targetChanged
+            diagnostics?.record(.init(.insertionCheck, session: target.session, code: code))
+            throw AppError.targetChanged
         }
         guard AXIsProcessTrusted() else { try reject(.accessibilityDenied) }
         guard target.pid != 0 else { try reject(.noTarget) }
@@ -173,14 +193,18 @@ private final class PromisedText: NSObject, NSPasteboardItemDataProvider, @unche
         guard values[3] as? Bool != false else { try reject(.readonlyTarget) }
         // Cmd-V requires a focused paste destination, not writable AXValue/SelectedText.
         // Terminals and several custom editors expose read-only accessibility text.
-        diagnostics?.record(.init(.insertionCheck, session: diagnosticSession, code: .ready))
+        diagnostics?.record(.init(.insertionCheck, session: target.session, code: .ready))
         return current
     }
     public func insert(_ text: String, target id: UUID) async throws {
-        guard let target = targets.removeValue(forKey: id) else { diagnostics?.record(.init(.insertionCheck, session: diagnosticSession, code: .noTarget)); throw AppError.targetChanged }
+        guard let target, target.id == id else {
+            diagnostics?.record(.init(.insertionCheck, code: .noTarget))
+            throw AppError.targetChanged
+        }
+        self.target = nil
         var modifierDecision: ((CGEventFlags, Duration) -> Void)?
         if let diagnostics, diagnostics.isEnabled {
-            let session = diagnosticSession
+            let session = target.session
             modifierDecision = { flags, elapsed in
                 guard diagnostics.isEnabled else { return }
                 var record = DiagnosticRecord(.modifierState, session: session, code: flags.isEmpty ? .ready : .modifiersHeld,
@@ -192,7 +216,7 @@ private final class PromisedText: NSObject, NSPasteboardItemDataProvider, @unche
         }
         do { try await modifierGate.wait(onDecision: modifierDecision) }
         catch AppError.modifiersHeld {
-            diagnostics?.record(.init(.insertionCheck, session: diagnosticSession, code: .modifiersHeld))
+            diagnostics?.record(.init(.insertionCheck, session: target.session, code: .modifiersHeld))
             throw AppError.modifiersHeld
         }
         try Task.checkCancellation()
@@ -205,25 +229,17 @@ private final class PromisedText: NSObject, NSPasteboardItemDataProvider, @unche
                 let status = AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString)
                 // Once attempted, never fall through to a second ambiguous insertion.
                 guard status == .success else { throw AppError.targetChanged }
-                diagnostics?.record(.init(.insertionMethod, session: diagnosticSession, code: .nativeAX))
+                diagnostics?.record(.init(.insertionMethod, session: target.session, code: .nativeAX))
                 return
             }
         }
         guard let code = Self.pasteKeyCode(), let (down, up) = Self.pasteEvents(keyCode: code) else { throw AppError.unsupported }
-        let session = diagnosticSession
-        let recorder = timings
-        if diagnostics?.isEnabled == true || recorder?.isEnabled == true {
-            clipboard.onRestore = { [weak self] session, code in
-                self?.diagnostics?.record(.init(.clipboardRestore, session: session, code: code))
-                if code == .restored, let session { recorder?.mark(.clipboardRestored, session: session) }
-            }
-        } else { clipboard.onRestore = nil }
-        try clipboard.write(text, session: session)
+        try clipboard.write(text, session: target.session)
         for event in [down, up] {
             // Session injection leaves the hardware state used by the gate alone.
             event.post(tap: .cgSessionEventTap)
         }
-        diagnostics?.record(.init(.insertionMethod, session: session, code: .commandPaste))
+        diagnostics?.record(.init(.insertionMethod, session: target.session, code: .commandPaste))
     }
     static func pasteEvents(keyCode: CGKeyCode) -> (CGEvent, CGEvent)? {
         guard let source = CGEventSource(stateID: .privateState),

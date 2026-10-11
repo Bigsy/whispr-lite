@@ -309,8 +309,11 @@ with at most 64 pending entries. The folder is 0700 and excluded from backups; t
 enabled. A file error stops saving and shows a warning; saving settings or a readiness
 check retries. Nothing is uploaded. Checks and benchmarks keep using synthetic fixtures.
 
-Insertion snapshots the PID/focused AX element and rechecks it after a 250 ms bounded
-physical-modifier wait. This checks HID hardware state, since combined session state
+Insertion snapshots the PID/focused AX element at press and rechecks it after a 250 ms
+bounded physical-modifier wait. The target owns the dictation session for diagnostics;
+the inserter holds one target until final insertion and does not look up the app bundle
+again on the visible-text path. The clipboard restore observer is configured when
+diagnostics or timings change. This checks HID hardware state, since combined session state
 also reflects synthetic events. Clear hardware state passes immediately. AX selected-range
 writes are restricted to the controlled native benchmark field; other editable fields use
 layout-aware Command-V from a private event source at the session tap. Both events carry

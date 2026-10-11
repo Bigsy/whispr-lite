@@ -61,8 +61,8 @@ import WhisprLiteCore
                        window.isKeyWindow, window.firstResponder === field { break }
                     try await Task.sleep(for: .milliseconds(10))
                 }
-                let target = insertion.snapshot()
                 let session = UUID()
+                let target = insertion.snapshot(session: session)
                 let start = clock.now
                 guard let text = try await pipeline.run(audio[index], mark: { stage in
                     await stages.mark(stage, session: session)

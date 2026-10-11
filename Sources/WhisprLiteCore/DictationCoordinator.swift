@@ -20,7 +20,7 @@ public extension CaptureDriver {
     var drainTimedOut: Bool { false }
 }
 @MainActor public protocol InsertionDriver: AnyObject {
-    func snapshot() -> UUID
+    func snapshot(session: UUID) -> UUID
     func insert(_ text: String, target: UUID) async throws
 }
 @MainActor public protocol MediaDriver: AnyObject {
@@ -83,11 +83,10 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         let owner = generation
         session = id; finalized = false; recoveryText = nil
         timings.mark(.press, session: id)
-        (insertion as? TextInserter)?.diagnosticSession = id
         do { try capture.begin() }
         catch { fail(AppError.capture); return }
         // After capture starts: the snapshot is synchronous AX IPC into the target app and can be slow.
-        let target = insertion.snapshot()
+        let target = insertion.snapshot(session: id)
         message = "Recording"; state = .recording
         media.begin(id)
         startHoldWarmup()
@@ -204,7 +203,6 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                 self.recoveryText = String(text.prefix(DictationHistory.maximumTextCharacters))
                 if copyOnly { self.endSession(.copyOnly); return }
                 self.insertionSession = id
-                (self.insertion as? TextInserter)?.diagnosticSession = id
                 self.message = "Inserting"; self.state = .inserting
                 try await self.insertion.insert(text, target: target)
                 guard self.generation == owner, !Task.isCancelled else { return }
