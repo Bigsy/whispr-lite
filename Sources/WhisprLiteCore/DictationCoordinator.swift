@@ -116,6 +116,11 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                         self.pressWarmup?.cancel()
                         await self.pressWarmup?.value
                         guard self.generation == owner, self.state == .recording else { break }
+                        // Resume keep-warm after this chunk's ASR/cleanup settles. The next
+                        // chunk cancels and awaits that pass before reusing the engine.
+                        defer {
+                            if self.generation == owner, self.state == .recording { self.startHoldWarmup() }
+                        }
                         guard let raw = try await pipeline.transcribe(chunk), raw.endsSentence else { break }
                         let result = try await pipeline.finish(raw)
                         guard result.cleaned.trimmingCharacters(in: .whitespacesAndNewlines).endsSentence else { break }

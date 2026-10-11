@@ -166,18 +166,23 @@ private actor WarmupBackend: PressWarmableASRBackend {
     private let warmGate: AsyncGate?
     private(set) var warmCalls = 0
     private(set) var finalBeforeWarmSettled = false
+    private(set) var transcribedWhileWarming = false
     private var warmSettled = false
+    private var warming = false
     init(warmGate: AsyncGate? = nil) { self.warmGate = warmGate }
     func prepare() async throws {}
     func readiness() async -> BackendReadiness { .ready }
     func warmForRecording() async throws {
         warmCalls += 1
+        warming = true
         if let warmGate { await warmGate.enterAndWait() }
         else { try await Task.sleep(for: .milliseconds(80)) }
+        warming = false
         warmSettled = true
     }
     func transcribe(_ audio: PCM16k) async throws -> ASRResult {
         if !warmSettled { finalBeforeWarmSettled = true }
+        if warming { transcribedWhileWarming = true }
         return .init(text: "Synthetic words", audioDuration: audio.duration)
     }
 }
@@ -364,6 +369,27 @@ private actor WarmupBackend: PressWarmableASRBackend {
         #expect(await backend.warmCalls == 1)
         #expect(await backend.finalBeforeWarmSettled == false)
         #expect(insertion.texts == ["Synthetic words"])
+    }
+    @Test func holdWarmupRestartsAfterAnEarlyChunk() async throws {
+        let backend = WarmupBackend(), capture = EarlyCapture(), insertion = FakeInsertion(), media = FakeMedia()
+        let coordinator = DictationCoordinator(capture: capture, insertion: insertion, media: media,
+            pipeline: .init(backend: backend, cleanup: DemoCleanup()))
+        coordinator.ready = true; coordinator.holdWarmupInterval = .seconds(2)
+        coordinator.press()
+        for _ in 0..<500 {
+            if await backend.warmCalls >= 1 { break }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        #expect(await backend.warmCalls == 1)
+        try capture.publish()
+        for _ in 0..<500 {
+            if await backend.warmCalls >= 2 { break }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        #expect(await backend.warmCalls >= 2)
+        coordinator.release()
+        try await waitUntil { coordinator.state == .idle && insertion.texts.count == 1 }
+        #expect(await backend.transcribedWhileWarming == false)
     }
 }
 
