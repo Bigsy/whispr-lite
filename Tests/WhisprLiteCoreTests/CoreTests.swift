@@ -5,6 +5,14 @@ import AVFoundation
 @testable import WhisprLiteCore
 
 @Suite struct BackendTests {
+    @Test func captureOptionsFollowSavedBackendAndDemoMode() {
+        var preferences = Preferences()
+        #expect(CaptureOptions(preferences).earlyChunks)
+        #expect(!CaptureOptions(preferences).streaming)
+        preferences.backend = .demo; preferences.streamingDemo = true
+        #expect(CaptureOptions(preferences).streaming)
+        #expect(!CaptureOptions(preferences).earlyChunks)
+    }
     @Test func pcmValidatesFiniteAndLimit() throws {
         #expect(throws: AppError.invalidAudio) { try PCM16k([.nan]) }
         #expect(throws: AppError.audioLimit) { try PCM16k([Float](repeating: 0, count: PCM16k.maximumSamples + 1)) }

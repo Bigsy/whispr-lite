@@ -39,6 +39,7 @@ public struct Preferences: Codable, Sendable {
     public var cleanupDictionaryPrefix = "\nCustom dictionary:\n"
     public var asrTimeoutSeconds = 10.0
     public var cleanupTimeoutSeconds = 10.0
+    public var usesStreamingDemo: Bool { backend == .demo && streamingDemo }
     public init() {}
     private enum CodingKeys: String, CodingKey {
         case version, backend, asrModel, allowASRDownloads, asrModelDirectory, hotkey, warmCapture, lowLatencyCapture, pauseMedia, streamingDemo, showAudioActivity, debugLogging, saveDictationHistory, microphoneUID

@@ -221,7 +221,7 @@ import WhisprLiteCore
                     }
                 }
             }
-            coordinator?.streamingEnabled = preferences.backend == .demo && preferences.streamingDemo
+            coordinator?.streamingEnabled = preferences.usesStreamingDemo
             coordinator?.safetyDuration = .seconds(preferences.warmCapture ? 119.8 : 119.95)
         } catch { update("Check private prompt and local endpoint settings", readiness: .needsAttention); return }
         coordinator?.onChange = { [weak self] in self?.refresh() }
@@ -292,9 +292,7 @@ import WhisprLiteCore
                 guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
                     self.update("Microphone permission needed", detail: "Allow microphone access below, then check readiness.", readiness: .needsAttention); return
                 }
-                try self.audio.prepare(warm: preferences.warmCapture, microphoneUID: preferences.microphoneUID, streaming: preferences.backend == .demo && preferences.streamingDemo,
-                                       earlyChunks: preferences.backend == .parakeet,
-                                       lowLatency: preferences.lowLatencyCapture)
+                try self.audio.prepare(CaptureOptions(preferences))
                 guard AXIsProcessTrusted() else {
                     self.audio.suspend(); self.update("Accessibility permission needed", detail: "Enable Whispr Lite in Accessibility settings below, then check readiness.", readiness: .needsAttention); return
                 }
@@ -355,9 +353,7 @@ import WhisprLiteCore
                 self.update("Microphone keeps changing", detail: "Check the microphone, then check readiness.", readiness: .needsAttention); return
             }
             do {
-                try self.audio.prepare(warm: preferences.warmCapture, microphoneUID: preferences.microphoneUID,
-                                       streaming: preferences.backend == .demo && preferences.streamingDemo,
-                                       earlyChunks: preferences.backend == .parakeet, lowLatency: preferences.lowLatencyCapture)
+                try self.audio.prepare(CaptureOptions(preferences))
             } catch {
                 self.update("Microphone unavailable", detail: "Reconnect or choose a microphone in Advanced, then check readiness.", readiness: .needsAttention)
                 return

@@ -296,6 +296,20 @@ final class AudioTap: @unchecked Sendable {
         worker.receive(list, frames: frames, hostSeconds: hostSeconds)
     }
 }
+public struct CaptureOptions: Sendable {
+    public let warm: Bool
+    public let microphoneUID: String
+    public let streaming: Bool
+    public let earlyChunks: Bool
+    public let lowLatency: Bool
+    public init(_ preferences: Preferences) {
+        warm = preferences.warmCapture
+        microphoneUID = preferences.microphoneUID
+        streaming = preferences.usesStreamingDemo
+        earlyChunks = preferences.backend == .parakeet
+        lowLatency = preferences.lowLatencyCapture
+    }
+}
 @MainActor public final class AudioCapture: CaptureDriver {
     private var engine: AVAudioEngine?
     private var worker: AudioWorker?
@@ -313,7 +327,12 @@ final class AudioTap: @unchecked Sendable {
     public init() {}
     /// `lowLatency` reads each hardware I/O cycle through a sink node instead of a 100 ms tap,
     /// so release waits about 6 ms rather than about 50 ms for the packet holding its boundary.
-    public func prepare(warm: Bool, microphoneUID: String, streaming: Bool = false, earlyChunks: Bool = false, lowLatency: Bool = true) throws {
+    public func prepare(_ options: CaptureOptions) throws {
+        try prepare(warm: options.warm, microphoneUID: options.microphoneUID,
+                    streaming: options.streaming, earlyChunks: options.earlyChunks,
+                    lowLatency: options.lowLatency)
+    }
+    private func prepare(warm: Bool, microphoneUID: String, streaming: Bool, earlyChunks: Bool, lowLatency: Bool) throws {
         suspend(); self.warm = warm; streamingEnabled = streaming; earlyChunksEnabled = earlyChunks
         let engine = AVAudioEngine()
         if !microphoneUID.isEmpty {
