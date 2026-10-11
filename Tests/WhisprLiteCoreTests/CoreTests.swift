@@ -856,6 +856,21 @@ private actor FinishGatedSession: ASRSession {
         let file = try String(contentsOf: root.appendingPathComponent("Resources/cleanup-prompt.txt"), encoding: .utf8)
         #expect(file.trimmingCharacters(in: .newlines) == SettingsStore.defaultPrompt.trimmingCharacters(in: .newlines))
     }
+    @Test func invalidSettingsIdentifyTheirFieldBeforeWriting() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("whispr-test-\(UUID())")
+        let store = try SettingsStore(directory: root)
+        var preferences = Preferences()
+        preferences.asrTimeoutSeconds = 0
+        #expect(throws: SettingsValidationError(.asrTimeout, "Speech recognition deadline must be 1–120 seconds.")) {
+            try store.save(preferences, prompt: nil, dictionary: nil)
+        }
+        preferences.asrTimeoutSeconds = 10
+        preferences.cleanupEndpoint = "https://example.com"
+        #expect(throws: SettingsValidationError(.cleanupEndpoint, "Cleanup URL must be a local HTTP address.")) {
+            try store.save(preferences, prompt: nil, dictionary: nil)
+        }
+        #expect(!FileManager.default.fileExists(atPath: root.path))
+    }
     @Test func unreadablePromptIsPreservedWhenOtherSettingsAreSaved() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("whispr-test-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }

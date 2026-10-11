@@ -352,8 +352,10 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
             error = promptUnreadable || dictionaryUnreadable
                 ? "A private prompt or dictionary could not be read. Its file is preserved until you edit or reset it." : ""
             saved()
+        } catch let failure as SettingsValidationError {
+            self.error = failure.message
         } catch {
-            self.error = "Check local server addresses, the model folder, deadlines (1–120 seconds) and prompt/dictionary size."
+            self.error = "Could not save settings. Check access to the settings folder and try again."
         }
     }
 }

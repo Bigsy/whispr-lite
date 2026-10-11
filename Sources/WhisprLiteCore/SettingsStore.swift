@@ -69,6 +69,12 @@ public struct Preferences: Codable, Sendable, Equatable {
         try fill(&cleanupTimeoutSeconds, .cleanupTimeoutSeconds)
     }
 }
+public struct SettingsValidationError: Error, Equatable, Sendable {
+    public enum Field: Equatable, Sendable { case version, asrTimeout, cleanupTimeout, prompt, dictionary, dictionaryPrefix, modelDirectory, asrEndpoint, cleanupEndpoint }
+    public let field: Field
+    public let message: String
+    public init(_ field: Field, _ message: String) { self.field = field; self.message = message }
+}
 @MainActor public final class SettingsStore {
     public let directory: URL
     public private(set) var preferences: Preferences
@@ -117,12 +123,25 @@ public struct Preferences: Codable, Sendable, Equatable {
     }
     /// A nil private value preserves its file, including one that could not be decoded.
     public func save(_ value: Preferences, prompt: String?, dictionary: String?) throws {
-        guard value.version == 1, value.asrTimeoutSeconds.isFinite, value.cleanupTimeoutSeconds.isFinite,
-              (1...120).contains(value.asrTimeoutSeconds), (1...120).contains(value.cleanupTimeoutSeconds),
-              (prompt?.utf8.count ?? 0) <= 16_384, (dictionary?.utf8.count ?? 0) <= 16_384,
-              value.cleanupDictionaryPrefix.utf8.count <= 2048 else { throw AppError.contextLimit }
-        guard value.asrModelDirectory.isEmpty || value.asrModelDirectory.hasPrefix("/") else { throw AppError.unsupported }
-        _ = try LocalEndpoint(value.asrEndpoint); _ = try LocalEndpoint(value.cleanupEndpoint)
+        guard value.version == 1 else { throw SettingsValidationError(.version, "This settings version is unsupported.") }
+        guard value.asrTimeoutSeconds.isFinite, (1...120).contains(value.asrTimeoutSeconds) else {
+            throw SettingsValidationError(.asrTimeout, "Speech recognition deadline must be 1–120 seconds.")
+        }
+        guard value.cleanupTimeoutSeconds.isFinite, (1...120).contains(value.cleanupTimeoutSeconds) else {
+            throw SettingsValidationError(.cleanupTimeout, "Cleanup deadline must be 1–120 seconds.")
+        }
+        guard (prompt?.utf8.count ?? 0) <= 16_384 else { throw SettingsValidationError(.prompt, "Prompt must be 16 KB or smaller.") }
+        guard (dictionary?.utf8.count ?? 0) <= 16_384 else { throw SettingsValidationError(.dictionary, "Dictionary must be 16 KB or smaller.") }
+        guard value.cleanupDictionaryPrefix.utf8.count <= 2048 else {
+            throw SettingsValidationError(.dictionaryPrefix, "Dictionary prefix must be 2 KB or smaller.")
+        }
+        guard value.asrModelDirectory.isEmpty || value.asrModelDirectory.hasPrefix("/") else {
+            throw SettingsValidationError(.modelDirectory, "Model folder must be an absolute path.")
+        }
+        do { _ = try LocalEndpoint(value.asrEndpoint) }
+        catch { throw SettingsValidationError(.asrEndpoint, "Speech recognition URL must be a local HTTP address.") }
+        do { _ = try LocalEndpoint(value.cleanupEndpoint) }
+        catch { throw SettingsValidationError(.cleanupEndpoint, "Cleanup URL must be a local HTTP address.") }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                               attributes: [.posixPermissions: 0o700])
         var files = [("preferences.json", try JSONEncoder().encode(value))]
