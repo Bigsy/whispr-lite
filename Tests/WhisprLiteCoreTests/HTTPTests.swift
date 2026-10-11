@@ -148,9 +148,22 @@ private final class FixtureProtocol: URLProtocol, @unchecked Sendable {
     @Test func unhealthyStatusAndOversizedBodiesFailBeforeDecode() async throws {
         let (endpoint, http) = try fixture()
         FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("health"), status: 503, body: Data("{}".utf8))
-        await #expect(throws: AppError.inference) { try await http.health(endpoint) }
+        await #expect(throws: AppError.notReady) { try await http.health(endpoint) }
         let url = endpoint.url.appendingPathComponent("oversized")
         FixtureProtocol.responses.set(url, body: Data(repeating: 65, count: 100))
-        await #expect(throws: AppError.inference) { try await http.send(URLRequest(url: url), limit: 10) }
+        await #expect(throws: HTTPFailure.tooLarge) { try await http.send(URLRequest(url: url), limit: 10) }
+    }
+    @Test func cleanupStatusFailureKeepsItsOwnDiagnosis() async throws {
+        let (endpoint, http) = try fixture()
+        let cleanup = HTTPCleanup(.init(endpoint: endpoint, prompt: "Synthetic prompt"), http: http)
+        FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("apply-template"), body: Data("{\"prompt\":\"Synthetic template\"}".utf8))
+        FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("tokenize"), body: Data("{\"tokens\":[1,2,3]}".utf8))
+        FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("v1/chat/completions"), status: 500, body: Data("{}".utf8))
+        await #expect(throws: AppError.cleanup) { try await cleanup.clean("synthetic words") }
+        let backend = HTTPASRBackend(endpoint: endpoint, http: http)
+        FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("health"), body: Data("{}".utf8))
+        try await backend.prepare()
+        FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("v1/audio/transcriptions"), status: 500, body: Data("{}".utf8))
+        await #expect(throws: AppError.inference) { try await backend.transcribe(PCM16k([0.1])) }
     }
 }

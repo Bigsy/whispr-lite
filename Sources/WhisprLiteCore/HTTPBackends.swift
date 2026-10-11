@@ -1,5 +1,7 @@
 import Foundation
 
+enum HTTPFailure: Error, Equatable { case status, tooLarge }
+
 public struct LocalEndpoint: Sendable {
     public let url: URL
     public init(_ value: String) throws {
@@ -25,26 +27,31 @@ public final class LocalHTTP: Sendable {
     }
     public func send(_ request: URLRequest, limit: Int = 256 * 1024) async throws -> Data {
         let (bytes, response) = try await session.bytes(for: request)
-        guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode),
-              response.expectedContentLength <= limit else { throw AppError.inference }
+        guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode)
+        else { throw HTTPFailure.status }
+        guard response.expectedContentLength <= limit else { throw HTTPFailure.tooLarge }
         var result = Data()
         result.reserveCapacity(min(limit, max(0, Int(response.expectedContentLength))))
         for try await byte in bytes {
-            guard result.count < limit else { throw AppError.contextLimit }
+            guard result.count < limit else { throw HTTPFailure.tooLarge }
             result.append(byte)
         }
         return result
     }
     public func health(_ endpoint: LocalEndpoint) async throws {
-        _ = try await withDeadline(.seconds(2), stage: "Health") {
-            try await self.send(URLRequest(url: endpoint.url.appendingPathComponent("health")), limit: 16_384)
-        }
+        do {
+            _ = try await withDeadline(.seconds(2), stage: "Health") {
+                try await self.send(URLRequest(url: endpoint.url.appendingPathComponent("health")), limit: 16_384)
+            }
+        } catch is HTTPFailure { throw AppError.notReady }
     }
     public func cleanupReadiness(_ endpoint: LocalEndpoint, model: String = "gemma4-e2b-cleanup:latest") async throws {
         try await health(endpoint)
         try await withDeadline(.seconds(2), stage: "Cleanup model") {
             struct Models: Decodable { struct Model: Decodable { let id: String }; let data: [Model] }
-            let data = try await self.send(URLRequest(url: endpoint.url.appendingPathComponent("v1/models")), limit: 16_384)
+            let data: Data
+            do { data = try await self.send(URLRequest(url: endpoint.url.appendingPathComponent("v1/models")), limit: 16_384) }
+            catch is HTTPFailure { throw AppError.notReady }
             guard try JSONDecoder().decode(Models.self, from: data).data.contains(where: { $0.id == model }) else {
                 throw AppError.notReady
             }
@@ -89,7 +96,9 @@ public actor HTTPASRBackend: ASRBackend {
     public func transcribe(_ audio: PCM16k) async throws -> ASRResult {
         guard state == .ready else { throw AppError.notReady }
         guard !audio.samples.isEmpty else { return .init(text: "", audioDuration: 0) }
-        let data = try await http.send(Self.request(audio: audio, endpoint: endpoint, boundary: UUID().uuidString))
+        let data: Data
+        do { data = try await http.send(Self.request(audio: audio, endpoint: endpoint, boundary: UUID().uuidString)) }
+        catch is HTTPFailure { throw AppError.inference }
         struct Response: Decodable { let text: String }
         return .init(text: try JSONDecoder().decode(Response.self, from: data).text, audioDuration: audio.duration)
     }
@@ -121,6 +130,10 @@ public struct HTTPCleanup: TextCleanup {
     private let http: LocalHTTP
     private let dictionary: DictionaryCorrections
     private let budget = PromptBudget()
+    private func send(_ request: URLRequest, limit: Int = 256 * 1024) async throws -> Data {
+        do { return try await http.send(request, limit: limit) }
+        catch is HTTPFailure { throw AppError.cleanup }
+    }
     public init(_ configuration: CleanupConfiguration, http: LocalHTTP = .shared) {
         self.configuration = configuration; self.http = http
         dictionary = DictionaryCorrections(configuration.dictionary)
@@ -156,7 +169,7 @@ public struct HTTPCleanup: TextCleanup {
         request.httpBody = try JSONSerialization.data(withJSONObject: ["prompt": prefix,
             "n_predict": 0, "temperature": 0, "stream": false, "cache_prompt": true])
         struct Prefill: Decodable { let tokens_predicted: Int; let truncated: Bool }
-        let response = try JSONDecoder().decode(Prefill.self, from: await http.send(request))
+        let response = try JSONDecoder().decode(Prefill.self, from: await send(request))
         // The pinned server samples one token even with n_predict: 0. Discard all
         // response text; preparation must never become a dictation result.
         guard !response.truncated, (0...1).contains(response.tokens_predicted) else { throw AppError.cleanup }
@@ -175,7 +188,7 @@ public struct HTTPCleanup: TextCleanup {
         template.httpBody = try JSONSerialization.data(withJSONObject: ["messages": body["messages"]!,
             "chat_template_kwargs": ["enable_thinking": false]])
         struct Template: Decodable { let prompt: String }
-        let rendered = try JSONDecoder().decode(Template.self, from: await http.send(template, limit: 128 * 1024))
+        let rendered = try JSONDecoder().decode(Template.self, from: await send(template, limit: 128 * 1024))
         var tokens = URLRequest(url: configuration.endpoint.url.appendingPathComponent("tokenize"))
         tokens.httpMethod = "POST"
         tokens.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -183,7 +196,7 @@ public struct HTTPCleanup: TextCleanup {
         // prefill token array, or native prefill shares no prefix with chat.
         tokens.httpBody = try JSONSerialization.data(withJSONObject: ["content": rendered.prompt, "add_special": true, "parse_special": true])
         struct Tokens: Decodable { let tokens: [Int] }
-        return try JSONDecoder().decode(Tokens.self, from: await http.send(tokens, limit: 128 * 1024)).tokens
+        return try JSONDecoder().decode(Tokens.self, from: await send(tokens, limit: 128 * 1024)).tokens
     }
     public func clean(_ text: String) async throws -> String {
         let limit = Self.outputLimit(for: text)
@@ -199,7 +212,7 @@ public struct HTTPCleanup: TextCleanup {
             maxTokens = min(limit, room)
         }
         try Task.checkCancellation()
-        let data = try await http.send(try request(text, maxTokens: maxTokens))
+        let data = try await send(try request(text, maxTokens: maxTokens))
         struct Response: Decodable { struct Choice: Decodable { struct Message: Decodable { let content: String }; let message: Message; let finish_reason: String? }; let choices: [Choice] }
         let result = try JSONDecoder().decode(Response.self, from: data)
         guard let choice = result.choices.first, choice.finish_reason == "stop" else { throw AppError.cleanup }
