@@ -524,6 +524,8 @@ reuse and unload/reprepare. `--streaming-check` uses the same arguments and chec
 640-sample input, partial revisions, final text versus batch, cancellation/settlement,
 batch fallback and returning to streaming. It sends audio without capture pacing and
 does not measure physical partial lag, visible insertion, cleanup or ground-truth WER.
+Unlike `--parakeet-check`, `--streaming-check` takes no model or repetition options;
+it checks the cached Unified model with its fixed synthetic sequence.
 The Parakeet streaming adapter lives only in the bench target; the signed app uses
 the batch adapter. Published builds include streaming bench modes. Local candidate
 builds enable them with `PARAKEET_STREAMING=1` when that candidate supports sessions.
@@ -830,6 +832,9 @@ with the same ISO-8601 date strategy as the writers.
 The broker's production shutdown grace remains 700 ms. Tests may inject a shorter
 grace and observe that the helper has exited; recovery exhaustion tests inspect
 whether another restart is scheduled instead of waiting for an arbitrary interval.
+The capture worker releases its finished stream references at finalization. If an
+early or streaming consumer has terminated, it stops producing that stream's chunks;
+the final owned PCM still goes through the existing batch handoff.
 HTTP request builders, WAV encoding, clipboard snapshots/system access, history entry
 schema/file names and internal diagnostic counters likewise stay inside Core. The app
 constructs `TextInserter()` and can settle its clipboard transaction; tests retain

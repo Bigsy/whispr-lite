@@ -25,6 +25,7 @@ import AVFoundation
         feed(0.3, packets: 50); feed(0, packets: 2)
         let full = try await worker.end()
         let chunks = try await reader.value
+        #expect(worker.completedChunks() == nil)
         #expect(chunks.count == 2)
         #expect(chunks.allSatisfy { (10...15).contains($0.duration) })
         #expect(Array(full.samples.prefix(chunks.flatMap(\.samples).count)) == chunks.flatMap(\.samples))
@@ -199,6 +200,7 @@ import AVFoundation
         let buffer = try filledBuffer(format: format, frames: 3200, value: 0.1)
         worker.receive(buffer)
         let audio = try await worker.end()
+        #expect(worker.chunks() == nil)
         var chunks: [Float] = []
         for try await chunk in stream { #expect(chunk.samples.count <= 640); chunks.append(contentsOf: chunk.samples) }
         #expect(chunks == audio.samples)

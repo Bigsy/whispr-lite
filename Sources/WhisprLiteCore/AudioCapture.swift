@@ -233,7 +233,9 @@ final class AudioWorker: @unchecked Sendable {
             continuation.finish(throwing: AppError.capture); earlyContinuation = nil; return
         }
         earlyStart = end; quietSamples = 0
-        if case .dropped = continuation.yield(pcm) {
+        // A cancelled consumer terminates the stream; stop producing early chunks.
+        if case .enqueued = continuation.yield(pcm) { return }
+        else {
             continuation.finish(throwing: AppError.overflow); earlyContinuation = nil
         }
     }
@@ -245,7 +247,8 @@ final class AudioWorker: @unchecked Sendable {
             streamContinuation = nil
             return
         }
-        if case .dropped = continuation.yield(pcm) {
+        // A cancelled consumer terminates the stream; final owned PCM remains intact.
+        if case .enqueued = continuation.yield(pcm) {} else {
             continuation.finish(throwing: AppError.overflow); streamContinuation = nil
         }
         chunk.removeAll(keepingCapacity: true)
@@ -287,10 +290,12 @@ final class AudioWorker: @unchecked Sendable {
         guard !failed, !overflow else {
             streamContinuation?.finish(throwing: AppError.overflow); streamContinuation = nil
             earlyContinuation?.finish(throwing: AppError.overflow); earlyContinuation = nil
+            stream = nil; earlyStream = nil
             continuation.resume(throwing: AppError.overflow); return
         }
         flushChunk(); streamContinuation?.finish(); streamContinuation = nil
         earlyContinuation?.finish(); earlyContinuation = nil
+        stream = nil; earlyStream = nil
         do { continuation.resume(returning: try PCM16k(Array(samples.prefix(count)))) }
         catch { continuation.resume(throwing: error) }
     }
