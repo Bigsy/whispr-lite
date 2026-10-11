@@ -1,5 +1,4 @@
 import Foundation
-import AVFoundation
 import WhisprLiteCore
 
 @main struct Bench {
@@ -124,16 +123,6 @@ import WhisprLiteCore
         }
         print("Dictionary check: \(passed)/\(fixtures.count) synthetic cases passed; private text not recorded.")
     }
-    static func readPCM(_ file: URL) throws -> PCM16k {
-        let input = try AVAudioFile(forReading: file, commonFormat: .pcmFormatFloat32, interleaved: false)
-        guard input.processingFormat.sampleRate == 16_000, input.processingFormat.channelCount == 1,
-              input.length <= PCM16k.maximumSamples,
-              let buffer = AVAudioPCMBuffer(pcmFormat: input.processingFormat, frameCapacity: AVAudioFrameCount(input.length))
-        else { throw AppError.invalidAudio }
-        try input.read(into: buffer)
-        guard let samples = buffer.floatChannelData else { throw AppError.invalidAudio }
-        return try PCM16k(Array(UnsafeBufferPointer(start: samples[0], count: Int(buffer.frameLength))))
-    }
     static func milliseconds(_ duration: Duration) -> Double {
         duration.milliseconds
     }
@@ -149,15 +138,13 @@ import WhisprLiteCore
         guard empty.text.isEmpty, empty.audioDuration == 0 else { throw AppError.inference }
         let silence = try await backend.transcribe(PCM16k([Float](repeating: 0, count: 16_000)))
         guard silence.text.isEmpty else { throw AppError.inference }
-        let files = try FileManager.default.contentsOfDirectory(at: corpus, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "wav" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-        guard !files.isEmpty else { throw AppError.invalidAudio }
+        let files = try PCM16k.corpus(in: corpus)
         var observations: [[String: Any]] = []
         var longest: PCM16k?
         var shortest: PCM16k?
         var shortestText = ""
         for file in files {
-            let audio = try readPCM(file)
+            let audio = try PCM16k(contentsOfWAV: file)
             if longest == nil || audio.duration > longest!.duration { longest = audio }
             let expected = try await backend.transcribe(audio)
             guard !expected.text.isEmpty, expected.audioDuration == audio.duration else { throw AppError.inference }
@@ -259,14 +246,12 @@ import WhisprLiteCore
     }
     static func streamingPrototype(cache: URL, corpus: URL, output: URL, repetitions: Int,
                                    recordPartials: Bool) async throws {
-        let files = try FileManager.default.contentsOfDirectory(at: corpus, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "wav" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-        guard !files.isEmpty else { throw AppError.invalidAudio }
+        let files = try PCM16k.corpus(in: corpus)
         let backend = ParakeetStreamingBackend(cacheRoot: cache)
         try await backend.prepare()
         var observations: [[String: Any]] = []
         for file in files {
-            let audio = try readPCM(file)
+            let audio = try PCM16k(contentsOfWAV: file)
             let reference = try await backend.transcribe(audio)
             var batchMS: [Double] = []
             var streaming: [[String: Any]] = []
@@ -313,7 +298,7 @@ import WhisprLiteCore
             print("paced-streaming fixture=\(file.lastPathComponent) repetitions=\(repetitions)")
             fflush(stdout)
         }
-        let (_, fallbackMS, resetMS) = try await cancelFallbackAndReset(backend, audio: readPCM(files[0]))
+        let (_, fallbackMS, resetMS) = try await cancelFallbackAndReset(backend, audio: PCM16k(contentsOfWAV: files[0]))
         let result: [String: Any] = ["schema": 1, "mode": "unified-paced-streaming-prototype",
             "repetitions": repetitions, "capture_paced": true, "cleanup_measured": false,
             "visible_text_measured": false, "ground_truth_accuracy_measured": false,
@@ -326,17 +311,15 @@ import WhisprLiteCore
     static func realStreaming(cache: URL, corpus: URL, output: URL) async throws {
         let batch = ParakeetCoreBackend(cacheRoot: cache)
         try await batch.prepare()
-        let files = try FileManager.default.contentsOfDirectory(at: corpus, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "wav" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-        guard !files.isEmpty else { throw AppError.invalidAudio }
+        let files = try PCM16k.corpus(in: corpus)
         var references: [String: ASRResult] = [:]
-        for file in files { references[file.lastPathComponent] = try await batch.transcribe(readPCM(file)) }
+        for file in files { references[file.lastPathComponent] = try await batch.transcribe(PCM16k(contentsOfWAV: file)) }
         try await batch.unload()
         let backend = ParakeetStreamingBackend(cacheRoot: cache)
         try await backend.prepare()
         var observations: [[String: Any]] = []
         for file in files {
-            let audio = try readPCM(file)
+            let audio = try PCM16k(contentsOfWAV: file)
             let session = try await backend.makeSession()
             let feed = try await feed(audio, into: session)
             let start = ContinuousClock.now
@@ -352,7 +335,7 @@ import WhisprLiteCore
                 "adapter_finish_ms": finishMS])
         }
         // Switching to retained-audio batch fallback must settle the cancelled session first.
-        let audio = try readPCM(files[0])
+        let audio = try PCM16k(contentsOfWAV: files[0])
         let (fallback, _, _) = try await cancelFallbackAndReset(backend, audio: audio)
         guard fallback == references[files[0].lastPathComponent] else { throw AppError.inference }
         let result: [String: Any] = ["schema": 1, "mode": "real-parakeet-streaming-synthetic",

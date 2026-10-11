@@ -1,5 +1,4 @@
 import AppKit
-import AVFoundation
 import ApplicationServices
 import WhisprLiteCore
 
@@ -30,18 +29,9 @@ import WhisprLiteCore
         let pipeline = BatchPipeline(backend: backend, cleanup: cleanup)
         guard try await pipeline.run(PCM16k([])) == nil,
               try await pipeline.run(PCM16k([Float](repeating: 0, count: 8000))) == nil else { throw AppError.inference }
-        let files = try FileManager.default.contentsOfDirectory(at: corpus, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "wav" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let files = try PCM16k.corpus(in: corpus)
         guard files.count == 6 else { throw AppError.invalidAudio }
-        let audio = try files.map { file -> PCM16k in
-            let input = try AVAudioFile(forReading: file, commonFormat: .pcmFormatFloat32, interleaved: false)
-            guard input.processingFormat.sampleRate == 16_000, input.processingFormat.channelCount == 1,
-                  input.length <= PCM16k.maximumSamples,
-                  let buffer = AVAudioPCMBuffer(pcmFormat: input.processingFormat, frameCapacity: AVAudioFrameCount(input.length)) else { throw AppError.invalidAudio }
-            try input.read(into: buffer)
-            guard let samples = buffer.floatChannelData else { throw AppError.invalidAudio }
-            return try PCM16k(Array(UnsafeBufferPointer(start: samples[0], count: Int(buffer.frameLength))))
-        }
+        let audio = try files.map { try PCM16k(contentsOfWAV: $0) }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 650, height: 240),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Whispr Lite — synthetic batch check"

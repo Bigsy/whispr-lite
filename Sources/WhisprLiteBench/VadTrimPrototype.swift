@@ -19,11 +19,8 @@ extension Bench {
                              vadModel: try await loadSileroVAD(cache: vadCache, allowDownloads: allowDownloads))
         let backend = ParakeetCoreBackend(cacheRoot: asrCache)
         try await backend.prepare()
-        var fixtures: [(id: String, audio: [Float])] = try FileManager.default
-            .contentsOfDirectory(at: corpus, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "wav" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
-            .map { ($0.deletingPathExtension().lastPathComponent, try readPCM($0).samples) }
-        guard !fixtures.isEmpty else { throw AppError.invalidAudio }
+        var fixtures: [(id: String, audio: [Float])] = try PCM16k.corpus(in: corpus)
+            .map { ($0.deletingPathExtension().lastPathComponent, try PCM16k(contentsOfWAV: $0).samples) }
         // Under-five-second clips joined by 2 s pauses over a quiet noise floor: a long dictation
         // that crosses one 15 s window boundary untrimmed but not after removing the pauses.
         let short = fixtures.filter { $0.audio.count < 5 * PCM16k.rate && !$0.id.hasSuffix("trailing-silence") }
