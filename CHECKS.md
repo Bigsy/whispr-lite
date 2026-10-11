@@ -404,6 +404,10 @@ observations; this attempt neither confirms nor rejects the long-idle warm-up be
 
 ## Press-time ASR warm-up prototype
 
+Historical measurements from commit `58b318f`. The one-shot prototype harness was
+retired after hold-time keep-warm shipped; these figures do not validate the current
+periodic hold behavior.
+
 10 October 2026: the pinned Unified batch backend was prepared from cached models,
 then tested on two synthetic clips. Each observation had a one-second idle interval
 before simulated press and 40 ms ticks during the audio-length hold. Alternating

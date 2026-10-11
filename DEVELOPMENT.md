@@ -486,14 +486,8 @@ on its one slot. The ignored `bench/results/speculative-cleanup.json` contains m
 only; the installed 11436 service and private settings remain untouched. Release savings
 combine separately measured partial lead and Gemma timing, so they are projections.
 
-`--press-warmup-prototype CACHE WAV_DIRECTORY OUTPUT_JSON --repetitions 30
---idle-seconds 1` uses the same pinned batch backend for an alternating baseline versus
-one 16 kHz silence inference started at synthetic press. It wakes every 40 ms during
-the synthetic recording, waits for warm-up settlement at release, then measures final
-ASR. It reports the extra warm-up inference and release tick lag separately. Cached
-models are prepared before timed spans; the normal app should be closed for measurement.
-Use only synthetic WAVs. A short idle interval is a repeated comparison, while sparse
-90-second idle observations are exploratory and must be labeled as such.
+The one-shot press warm-up prototype was retired after hold-time keep-warm shipped.
+Its historical measurements remain in CHECKS.md under commit `58b318f`.
 
 `--vad-trim-prototype ASR_CACHE VAD_CACHE WAV_DIRECTORY OUTPUT_JSON --repetitions 30`
 asks whether Silero VAD silence trimming pays for itself before final batch ASR. It loads
