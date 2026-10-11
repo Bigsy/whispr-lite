@@ -3,11 +3,11 @@ import SwiftUI
 import AVFoundation
 import WhisprLiteCore
 
-@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, ObservableObject {
-    @Published var status = "Starting"
-    @Published var statusDetail = ""
-    @Published var readinessState: SetupReadiness = .preparing
-    @Published var mediaStatus = "Media disabled"
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+    let appStatus = AppStatus()
+    var status: String { appStatus.snapshot.text }
+    var statusDetail: String { appStatus.snapshot.detail }
+    var readinessState: SetupReadiness { appStatus.snapshot.readiness }
     private var item: NSStatusItem!
     private var statusMenuItem: NSMenuItem?
     private var copyMenuItem: NSMenuItem?
@@ -168,8 +168,7 @@ import WhisprLiteCore
         do { store = try SettingsStore() }
         catch {
             if case .run = command {
-                status = "Settings could not be loaded"
-                readinessState = .needsAttention
+                update("Settings could not be loaded", readiness: .needsAttention)
                 createMenu()
                 return
             }
@@ -178,8 +177,14 @@ import WhisprLiteCore
         }
         createMenu()
         diagnostics = DiagnosticLogger(directory: store.directory.appendingPathComponent("Diagnostics", isDirectory: true))
+        diagnostics?.setFailureObserver { [weak self] in
+            Task { @MainActor [weak self] in self?.publishFailureFlags() }
+        }
         diagnostics?.setEnabled(store.preferences.debugLogging)
         history = DictationHistory(directory: store.directory.appendingPathComponent("History", isDirectory: true))
+        history?.setFailureObserver { [weak self] in
+            Task { @MainActor [weak self] in self?.publishFailureFlags() }
+        }
         indicator.activitySource = { [weak self] in self?.audio.recordingActivity ?? 0 }
         indicator.onCancel = { [weak self] in self?.coordinator?.cancel() }
         indicator.onCopy = { [weak self] in self?.copyResult() }
@@ -386,7 +391,10 @@ import WhisprLiteCore
         coordinator = parts.coordinator
         let backend = parts.backend
         audio.onFailure = { [weak self] in self?.recoverCapture(epoch: epoch, preferences: preferences) }
-        media.onChange = { [weak self] in self?.mediaStatus = self?.media.status ?? "" }
+        media.onChange = { [weak self] in
+            guard let self else { return }
+            self.appStatus.setMediaStatus(self.media.status)
+        }
         setupTask = Task { [weak self] in
             guard let self else { return }
             self.update("Preparing speech recognition", readiness: .preparing)
@@ -445,12 +453,16 @@ import WhisprLiteCore
             self.updateTapReadiness(self.tapReady)
         }
     }
-    private func update(_ text: String, detail: String = "", readiness: SetupReadiness? = nil) {
-        status = store?.preferences.backend == .demo ? DemoLabel.tagged(text) : text
-        statusDetail = detail
-        if let readiness { readinessState = readiness }
+    private func update(_ text: String, detail: String? = nil, readiness: SetupReadiness? = nil) {
+        let displayed = store?.preferences.backend == .demo ? DemoLabel.tagged(text) : text
+        appStatus.update(displayed, detail: detail, readiness: readiness)
+        publishFailureFlags()
         statusMenuItem?.title = status
         item?.button?.toolTip = "Whispr Lite: \(status)"
+    }
+    private func publishFailureFlags() {
+        appStatus.setFailures(diagnostics: diagnostics?.hasFailed == true,
+            history: history?.hasFailed == true)
     }
     private func refresh() {
         guard let coordinator else { return }
@@ -506,7 +518,7 @@ import WhisprLiteCore
         if pipelineReady, let store {
             startHotkey(configuration: store.preferences.hotkey, epoch: settingsEpoch)
         } else if status.contains("Choosing a shortcut"), let previous {
-            status = previous.text; statusDetail = previous.detail; readinessState = previous.readiness
+            appStatus.update(previous.text, detail: previous.detail, readiness: previous.readiness)
             statusMenuItem?.title = status
             item?.button?.toolTip = "Whispr Lite: \(status)"
         }
@@ -522,16 +534,21 @@ import WhisprLiteCore
         guard let diagnostics else { return }
         reveal(diagnostics.directory)
     }
-    var diagnosticLogFailed: Bool { diagnostics?.hasFailed == true }
     func showDictationHistory() {
         guard let history else { return }
         reveal(history.directory)
     }
     func deleteDictationHistory() async -> Bool {
         guard let history else { return false }
-        do { try await history.deleteAll(); return true } catch { return false }
+        do {
+            try await history.deleteAll()
+            publishFailureFlags()
+            return true
+        } catch {
+            publishFailureFlags()
+            return false
+        }
     }
-    var dictationHistoryFailed: Bool { history?.hasFailed == true }
     private static func milliseconds(_ duration: Duration) -> Double { duration.milliseconds }
     @objc private func copyResult() {
         guard let text = coordinator?.recoveryText else { return }
@@ -558,8 +575,19 @@ import WhisprLiteCore
     }
     @objc private func showSettings() {
         guard let store else { return }
+        publishFailureFlags()
         if settingsWindow?.isVisible != true {
-            let view = SettingsView(store: store, app: self,
+            let actions = SettingsActions(
+                checkReadiness: { [weak self] in self?.retry() },
+                beginShortcutRecording: { [weak self] in self?.beginShortcutRecording() },
+                endShortcutRecording: { [weak self] in self?.endShortcutRecording() },
+                showDictationHistory: { [weak self] in self?.showDictationHistory() },
+                deleteDictationHistory: { [weak self] in await self?.deleteDictationHistory() ?? false },
+                showDiagnosticLogs: { [weak self] in self?.showDiagnosticLogs() },
+                requestMicrophone: { [weak self] in self?.requestMicrophone() },
+                requestAccessibility: { [weak self] in self?.requestAccessibility() },
+                requestInputMonitoring: { [weak self] in self?.inputMonitoring() })
+            let view = SettingsView(store: store, status: appStatus, actions: actions,
                 onHeightChange: { [weak self] in self?.fitSettings(height: $0) },
                 saved: { [weak self] in self?.configure() })
             let host = NSHostingView(rootView: view)

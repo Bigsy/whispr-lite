@@ -4,6 +4,13 @@ import CoreGraphics
 import AVFoundation
 @testable import WhisprLiteCore
 
+final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func increment() { lock.withLock { count += 1 } }
+    var value: Int { lock.withLock { count } }
+}
+
 actor CountingCleanup: TextCleanup {
     var calls = 0
     func clean(_ text: String) -> String { calls += 1; return text }

@@ -151,6 +151,7 @@ public final class DiagnosticLogger: @unchecked Sendable {
     private let lock = NSLock()
     private var enabled = false
     private var failed = false
+    private var failureObserver: (@Sendable () -> Void)?
     private var pending = 0
     private var dropped = 0
     private let run = UUID()
@@ -163,6 +164,9 @@ public final class DiagnosticLogger: @unchecked Sendable {
     }
     public var isEnabled: Bool { lock.withLock { enabled && !failed } }
     public var hasFailed: Bool { lock.withLock { failed } }
+    public func setFailureObserver(_ observer: (@Sendable () -> Void)?) {
+        lock.withLock { failureObserver = observer }
+    }
     var droppedEvents: Int { lock.withLock { dropped } }
     public func setEnabled(_ value: Bool) {
         lock.lock()
@@ -187,7 +191,15 @@ public final class DiagnosticLogger: @unchecked Sendable {
         pending += 1
         queue.async { [value] in
             do { try self.writer.write(value) }
-            catch { self.lock.withLock { self.failed = true }; self.writer.close() }
+            catch {
+                let observer = self.lock.withLock { () -> (@Sendable () -> Void)? in
+                    guard !self.failed else { return nil }
+                    self.failed = true
+                    return self.failureObserver
+                }
+                observer?()
+                self.writer.close()
+            }
             self.lock.withLock { self.pending -= 1 }
         }
     }

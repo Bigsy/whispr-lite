@@ -796,6 +796,11 @@ the cleanup-stage status. Setup failures retain a stage-specific, recoverable st
 Settings reports its measured header, page and footer heights through a window-sizing
 closure. The measurements live in one non-observable holder, so geometry callbacks do
 not refresh the whole view. The editor height range is applied by one shared clamp.
+The view observes a focused `AppStatus` snapshot and calls app operations through
+`SettingsActions`. Unchanged status and media values do not publish a new view update;
+coordinator refreshes preserve existing readiness guidance. The private history and
+diagnostic writers notify the app once on an asynchronous file failure so their
+warnings appear while Settings is open, without waiting for another user action.
 
 The recording indicator receives its cancel/copy actions once at app startup. Its
 activity timer uses a weak block callback and runs only during recording. The

@@ -65,10 +65,13 @@ import Foundation
         try Data().write(to: directory) // A file cannot be the history folder.
         defer { try? FileManager.default.removeItem(at: directory) }
         let history = DictationHistory(directory: directory, maximumPending: 1)
+        let failures = LockedCounter()
+        history.setFailureObserver { failures.increment() }
         history.configure(enabled: true, asr: "http", prompt: "")
         for _ in 0..<1000 { history.record(.init(raw: "synthetic", cleaned: "Synthetic.")) }
         await history.flush()
         #expect(history.hasFailed && !history.isEnabled)
+        #expect(failures.value == 1)
         history.configure(enabled: true, asr: "http", prompt: "")
         #expect(!history.hasFailed && history.isEnabled)
     }

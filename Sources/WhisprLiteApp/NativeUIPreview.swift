@@ -12,9 +12,10 @@ import Darwin
         let store = try SettingsStore(directory: temporary)
         try store.save(Preferences(), prompt: SettingsStore.defaultPrompt,
                        dictionary: "Parakeet\nhappy fire > HAPI FHIR\ndochler > Doccla")
-        app.status = "Cleanup service unavailable"
-        app.statusDetail = "Start your cleanup service and check its address in Advanced. Your speech models are ready."
-        app.readinessState = .needsAttention
+        let previewStatus = AppStatus()
+        previewStatus.update("Cleanup service unavailable",
+            detail: "Start your cleanup service and check its address in Advanced. Your speech models are ready.",
+            readiness: .needsAttention)
         // Pages render at the height the settings window gives them; short-screen renders
         // check the scroll fallback when a page is taller than the display.
         // Editor heights live in UserDefaults; keep the user's real values out of the renders.
@@ -25,7 +26,8 @@ import Darwin
         defer { previewDefaults.removePersistentDomain(forName: suite) }
         var heights: [String: CGFloat] = [:]
         func settings(_ name: String, _ page: SettingsPage, _ scheme: ColorScheme, height: CGFloat? = nil) throws {
-            let view = SettingsView(store: store, app: app, page: page,
+            let view = SettingsView(store: store, status: previewStatus,
+                actions: .preview, page: page,
                 enumerateMicrophones: false,
                 onHeightChange: { app.fitSettings(height: $0) }, saved: {})
                 .environment(\.colorScheme, scheme).defaultAppStorage(previewDefaults)
@@ -62,7 +64,8 @@ import Darwin
         try settings("general-right-control", .general, .dark)
         // A real titled window must fit its content to the page height with the top edge fixed.
         let window = AppDelegate.makeSettingsWindow(NSHostingView(rootView:
-            SettingsView(store: store, app: app, page: .advanced,
+            SettingsView(store: store, status: previewStatus,
+                actions: .preview, page: .advanced,
                 enumerateMicrophones: false,
                 onHeightChange: { app.fitSettings(height: $0) }, saved: {})
                 .defaultAppStorage(previewDefaults)))

@@ -5,6 +5,22 @@ import WhisprLiteCore
 
 enum SettingsPage: String, CaseIterable { case general = "General", cleanup = "Cleanup", advanced = "Advanced" }
 enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
+@MainActor struct SettingsActions {
+    let checkReadiness: () -> Void
+    let beginShortcutRecording: () -> Void
+    let endShortcutRecording: () -> Void
+    let showDictationHistory: () -> Void
+    let deleteDictationHistory: () async -> Bool
+    let showDiagnosticLogs: () -> Void
+    let requestMicrophone: () -> Void
+    let requestAccessibility: () -> Void
+    let requestInputMonitoring: () -> Void
+
+    static let preview = Self(checkReadiness: {}, beginShortcutRecording: {},
+        endShortcutRecording: {}, showDictationHistory: {},
+        deleteDictationHistory: { false }, showDiagnosticLogs: {},
+        requestMicrophone: {}, requestAccessibility: {}, requestInputMonitoring: {})
+}
 private final class SettingsSectionHeights {
     var header: CGFloat = 0
     var content: CGFloat = 0
@@ -17,7 +33,8 @@ private final class SettingsSectionHeights {
 @MainActor struct SettingsView: View {
     static let width: CGFloat = 640
     let store: SettingsStore
-    @ObservedObject var app: AppDelegate
+    @ObservedObject var status: AppStatus
+    let actions: SettingsActions
     let onHeightChange: (CGFloat) -> Void
     let saved: () -> Void
     private let enumerateMicrophones: Bool
@@ -38,10 +55,12 @@ private final class SettingsSectionHeights {
     @AppStorage("settingsPromptEditorHeight") private var promptHeight = 132.0
     @AppStorage("settingsDictionaryEditorHeight") private var dictionaryHeight = 84.0
 
-    init(store: SettingsStore, app: AppDelegate, page: SettingsPage = .general,
+    init(store: SettingsStore, status: AppStatus, actions: SettingsActions,
+         page: SettingsPage = .general,
          enumerateMicrophones: Bool = true, onHeightChange: @escaping (CGFloat) -> Void,
          saved: @escaping () -> Void) {
-        self.store = store; self.app = app; self.onHeightChange = onHeightChange
+        self.store = store; self.status = status; self.actions = actions
+        self.onHeightChange = onHeightChange
         self.saved = saved; self.enumerateMicrophones = enumerateMicrophones
         _page = State(initialValue: page)
         _preferences = State(initialValue: store.preferences)
@@ -91,7 +110,7 @@ private final class SettingsSectionHeights {
         .onChange(of: prompt) { _, _ in promptEdited = true }
         .onChange(of: dictionary) { _, _ in dictionaryEdited = true }
         .onAppear { if enumerateMicrophones { microphones = MicrophoneDevice.available() } }
-        .sheet(isPresented: $recordingShortcut, onDismiss: { app.endShortcutRecording() }) {
+        .sheet(isPresented: $recordingShortcut, onDismiss: actions.endShortcutRecording) {
             ShortcutRecordingSheet(recorded: { configuration in
                 preferences.hotkey = configuration
                 recordingShortcut = false
@@ -110,15 +129,17 @@ private final class SettingsSectionHeights {
                 ForEach(SettingsPage.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }.pickerStyle(.segmented).labelsHidden().frame(width: 330)
             HStack(spacing: 10) {
-                Image(systemName: app.readinessState == .ready ? "checkmark.circle.fill" : app.readinessState == .preparing ? "hourglass" : "exclamationmark.circle.fill")
-                    .foregroundStyle(app.readinessState == .ready ? Color.green : Color.orange).font(.title3)
+                Image(systemName: status.snapshot.readiness == .ready ? "checkmark.circle.fill"
+                      : status.snapshot.readiness == .preparing ? "hourglass" : "exclamationmark.circle.fill")
+                    .foregroundStyle(status.snapshot.readiness == .ready ? Color.green : Color.orange).font(.title3)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(app.status).font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
-                    if !app.statusDetail.isEmpty {
-                        Text(app.statusDetail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(status.snapshot.text).font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                    if !status.snapshot.detail.isEmpty {
+                        Text(status.snapshot.detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
-                Button("Check readiness") { app.retry() }.disabled(app.readinessState == .preparing)
+                Button("Check readiness", action: actions.checkReadiness)
+                    .disabled(status.snapshot.readiness == .preparing)
             }
             .padding(.horizontal, 12).padding(.vertical, 10)
             .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
@@ -165,7 +186,7 @@ private final class SettingsSectionHeights {
                         }
                     }.labelsHidden().fixedSize()
                     Button("Record…") {
-                        app.beginShortcutRecording()
+                        actions.beginShortcutRecording()
                         recordingShortcut = true
                     }.help("Record any hold key or combination, including Left or Right Control.")
                 }
@@ -186,14 +207,14 @@ private final class SettingsSectionHeights {
                 Divider()
                 toggleRow("Show audio activity", "A small wave in the listening pill follows your microphone level.", isOn: $preferences.showAudioActivity)
                 Divider()
-                toggleRow("Pause media while recording", preferences.pauseMedia && app.readinessState == .ready ? app.mediaStatus
+                toggleRow("Pause media while recording", preferences.pauseMedia && status.snapshot.readiness == .ready ? status.mediaStatus
                           : "Playback resumes only if this recording paused it.", isOn: $preferences.pauseMedia)
             }
             section("Permissions") {
                 row("Grant access", "Needed to record and insert text.") {
-                    Button("Microphone…") { app.requestMicrophone() }.fixedSize()
-                    Button("Accessibility…") { app.requestAccessibility() }.fixedSize()
-                    Button("Input Monitoring…") { app.inputMonitoring() }.fixedSize()
+                    Button("Microphone…", action: actions.requestMicrophone).fixedSize()
+                    Button("Accessibility…", action: actions.requestAccessibility).fixedSize()
+                    Button("Input Monitoring…", action: actions.requestInputMonitoring).fixedSize()
                 }
             }
         }
@@ -219,16 +240,16 @@ private final class SettingsSectionHeights {
                           isOn: $preferences.saveDictationHistory)
                 Divider()
                 row("Saved history", historyMessage.isEmpty ? "Excluded from Time Machine. Keeps up to \(DictationHistory.maximumStorageBytes / (1024 * 1024)) MB, removing the oldest entries first." : historyMessage) {
-                    Button("Show in Finder", action: app.showDictationHistory).help("~/Library/Application Support/WhisprLite/History")
+                    Button("Show in Finder", action: actions.showDictationHistory).help("~/Library/Application Support/WhisprLite/History")
                     Button("Delete…", role: .destructive) { confirmingHistoryDelete = true }
                 }
-                if app.dictationHistoryFailed {
+                if status.dictationHistoryFailed {
                     warning("Saving stopped after a file error. Check free space and folder permissions, then save settings to retry.")
                 }
             }
             .alert("Delete all dictation history?", isPresented: $confirmingHistoryDelete) {
                 Button("Delete", role: .destructive) {
-                    Task { historyMessage = await app.deleteDictationHistory() ? "Dictation history deleted." : "Dictation history could not be deleted." }
+                    Task { historyMessage = await actions.deleteDictationHistory() ? "Dictation history deleted." : "Dictation history could not be deleted." }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: { Text("This permanently removes every saved transcript from this Mac.") }
@@ -286,11 +307,11 @@ private final class SettingsSectionHeights {
             // Demo output is a development mode set in preferences.json, not a user setting.
             section("Diagnostics") {
                 row("Record debug timings", "Timing, readiness, paste checks and media replies only; never audio, dictated text, prompts or titles. Up to \(DiagnosticLogger.maximumStorageBytes / (1024 * 1024)) MB.") {
-                    Button("Show logs", action: app.showDiagnosticLogs)
+                    Button("Show logs", action: actions.showDiagnosticLogs)
                         .help("~/Library/Application Support/WhisprLite/Diagnostics · Enable logging and save first.")
                     Toggle("Record debug timings", isOn: $preferences.debugLogging).labelsHidden().toggleStyle(.switch).controlSize(.small)
                 }
-                if app.diagnosticLogFailed {
+                if status.diagnosticLogFailed {
                     warning("Logging stopped after a file error. Check free space and folder permissions, then turn logging off and on.")
                 }
             }

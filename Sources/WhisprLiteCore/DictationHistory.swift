@@ -25,6 +25,7 @@ public final class DictationHistory: @unchecked Sendable {
     private let lock = NSLock()
     private var enabled = false
     private var failed = false
+    private var failureObserver: (@Sendable () -> Void)?
     private var pending = 0
     private var asr = ""
     private var promptSHA256 = ""
@@ -38,6 +39,9 @@ public final class DictationHistory: @unchecked Sendable {
     }
     public var isEnabled: Bool { lock.withLock { enabled && !failed } }
     public var hasFailed: Bool { lock.withLock { failed } }
+    public func setFailureObserver(_ observer: (@Sendable () -> Void)?) {
+        lock.withLock { failureObserver = observer }
+    }
     public func configure(enabled value: Bool, asr: String, prompt: String) {
         let digest = SHA256.hash(data: Data(prompt.utf8)).map { String(format: "%02x", $0) }.joined()
         lock.withLock {
@@ -57,7 +61,15 @@ public final class DictationHistory: @unchecked Sendable {
             let entry = Entry(timestamp: timestamp, raw: String(dictation.raw.prefix(Self.maximumTextCharacters)),
                               cleaned: String(dictation.cleaned.prefix(Self.maximumTextCharacters)), asr: asr, promptSHA256: promptSHA256)
             do { try self.writer.write(entry) }
-            catch { self.lock.withLock { self.failed = true }; self.writer.close() }
+            catch {
+                let observer = self.lock.withLock { () -> (@Sendable () -> Void)? in
+                    guard !self.failed else { return nil }
+                    self.failed = true
+                    return self.failureObserver
+                }
+                observer?()
+                self.writer.close()
+            }
             self.lock.withLock { self.pending -= 1 }
         }
     }

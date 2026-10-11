@@ -74,11 +74,14 @@ import ParakeetCore
         try Data().write(to: directory) // A file cannot be the log directory.
         defer { try? FileManager.default.removeItem(at: directory) }
         let logger = DiagnosticLogger(directory: directory, maximumPending: 1)
+        let failures = LockedCounter()
+        logger.setFailureObserver { failures.increment() }
         logger.setEnabled(true)
         for _ in 0..<1000 { logger.record(.init(.hotkey, code: .press)) }
         await logger.flush()
         #expect(logger.hasFailed && !logger.isEnabled)
         #expect(logger.droppedEvents > 0)
+        #expect(failures.value == 1)
     }
     @MainActor @Test func timingEventsCorrelateSessionsAndCaptureTimestamp() {
         let recorder = LatencyRecorder(enabled: true), session = UUID()
