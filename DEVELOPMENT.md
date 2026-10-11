@@ -444,6 +444,9 @@ they are present and nonempty in the signed bundle. The app media framework comp
 the upstream files needed by the broker; `scripts/build-media-upstream.sh` creates a
 separate full framework for the one-shot media benchmark. The broker restores default
 SIGTERM handling, and its real-framework process test checks that termination exits.
+The broker keeps bounded track identity in helper-local named fields, strips it from
+wire replies, and compares a single track match when deciding whether a refreshed
+opaque media item still belongs to the owned player.
 Explicit `make install` stages and verifies the signed app before replacing the old copy.
 An optional model argument selects another cached stack, for example
 `WhisprLite --asr-check /absolute/path/to/Models ultra`.

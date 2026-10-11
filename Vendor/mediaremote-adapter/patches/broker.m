@@ -70,20 +70,22 @@ static void replyReason(NSString *type, NSDictionary *request, NSDictionary *sna
     emit(event);
 }
 static void reply(NSString *type, NSDictionary *request, NSDictionary *snapshot) { replyReason(type, request, snapshot, nil); }
-static NSArray *trackIdentity(id title, id artist, id album, id duration) {
+static NSDictionary *unknownState(void) { return @{@"known": @NO, @"playing": @NO, @"trustworthy": @NO}; }
+static NSDictionary *trackIdentity(id title, id artist, id album, id duration) {
     if (![title isKindOfClass:NSString.class] || ![title length] || [title length] > 1024 ||
         (artist && (![artist isKindOfClass:NSString.class] || [artist length] > 1024)) ||
         (album && (![album isKindOfClass:NSString.class] || [album length] > 1024)) ||
         (![artist length] && ![album length]) || ![duration isKindOfClass:NSNumber.class]) return nil;
     double seconds = [duration doubleValue];
     if (!isfinite(seconds) || seconds <= 0) return nil;
-    return @[[title copy], [artist copy] ?: @"", [album copy] ?: @"", @(seconds)];
+    return @{@"title": [title copy], @"artist": [artist copy] ?: @"",
+             @"album": [album copy] ?: @"", @"duration": @(seconds)};
 }
 #ifdef WHISPR_BROKER_TEST
 static NSDictionary *fakeSnapshot(void) {
     NSMutableDictionary *snapshot = [fakeState mutableCopy];
     NSDictionary *metadata = [snapshot[@"metadata"] isKindOfClass:NSDictionary.class] ? snapshot[@"metadata"] : nil;
-    NSArray *track = trackIdentity(metadata[@"title"], metadata[@"artist"], metadata[@"album"], metadata[@"duration"]);
+    NSDictionary *track = trackIdentity(metadata[@"title"], metadata[@"artist"], metadata[@"album"], metadata[@"duration"]);
     [snapshot removeObjectForKey:@"trackIdentity"];
     if (track) snapshot[@"trackIdentity"] = track;
     [snapshot removeObjectForKey:@"metadata"];
@@ -91,19 +93,21 @@ static NSDictionary *fakeSnapshot(void) {
 }
 #endif
 /// Same title, artist and album; players may report a slightly different duration once paused.
-static BOOL sameTrack(NSArray *a, NSArray *b) {
-    return [a[0] isEqual:b[0]] && [a[1] isEqual:b[1]] && [a[2] isEqual:b[2]] && fabs([a[3] doubleValue] - [b[3] doubleValue]) <= 1;
+static BOOL sameTrack(NSDictionary *a, NSDictionary *b) {
+    return [a[@"title"] isEqual:b[@"title"]] && [a[@"artist"] isEqual:b[@"artist"]] &&
+        [a[@"album"] isEqual:b[@"album"]] && fabs([a[@"duration"] doubleValue] - [b[@"duration"] doubleValue]) <= 1;
 }
 static NSString *identityFailure(NSDictionary *a, NSDictionary *b) {
     if (![b[@"known"] boolValue]) return @"unknownPlayer";
     if (![a[@"trustworthy"] boolValue] || ![b[@"trustworthy"] boolValue]) return @"unidentifiedPlayer";
     if (![a[@"pid"] isEqual:b[@"pid"]] || ![a[@"bundle"] isEqual:b[@"bundle"]]) return @"playerChanged";
     if (![a[@"lifetime"] isEqual:b[@"lifetime"]]) return @"playerRestarted";
-    NSArray *before = a[@"trackIdentity"], *after = b[@"trackIdentity"];
+    NSDictionary *before = a[@"trackIdentity"], *after = b[@"trackIdentity"];
     // Some players regenerate the opaque content ID after Pause. Matching bounded
     // content metadata distinguishes that refresh from a real track change.
-    if (before && after && !sameTrack(before, after)) return @"itemChanged";
-    if (![a[@"item"] isEqual:b[@"item"]] && !(before && after && sameTrack(before, after))) return @"itemChanged";
+    BOOL comparable = before && after;
+    BOOL matchingTrack = comparable && sameTrack(before, after);
+    if (!matchingTrack && (comparable || ![a[@"item"] isEqual:b[@"item"]])) return @"itemChanged";
     return nil;
 }
 /// Chrome reports our Pause and a new opaque item ID in the same update, often with no
@@ -111,11 +115,10 @@ static NSString *identityFailure(NSDictionary *a, NSDictionary *b) {
 /// with no contradicting track metadata is that refresh. Once confirmed, changes stay strict.
 static BOOL pauseRefresh(NSDictionary *owned, NSDictionary *next) {
     NSDictionary *a = owned[@"identity"];
-    NSArray *before = a[@"trackIdentity"], *after = next[@"trackIdentity"];
+    NSDictionary *before = a[@"trackIdentity"], *after = next[@"trackIdentity"];
     return ![owned[@"confirmed"] boolValue] && [identityFailure(a, next) isEqual:@"itemChanged"] &&
         ![a[@"item"] isEqual:next[@"item"]] && !(before && after && !sameTrack(before, after));
 }
-static BOOL identityMatches(NSDictionary *a, NSDictionary *b) { return identityFailure(a, b) == nil; }
 static void invalidateLease(NSString *reason) {
     NSDictionary *owned = lease; lease = nil;
     if (diagnosticsEnabled) replyReason(@"skipped", owned, state, reason);
@@ -153,7 +156,7 @@ static void pumpQueries(void) {
         if (![queryOwner isEqual:owner]) return;
         queryOwner = nil;
         if (next) acceptState(next);
-        if (callback != [NSNull null]) ((void (^)(NSDictionary *))callback)(next ? state : @{@"known": @NO, @"playing": @NO, @"trustworthy": @NO});
+        if (callback != [NSNull null]) ((void (^)(NSDictionary *))callback)(next ? state : unknownState());
         pumpQueries();
     };
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 500 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{ complete(nil); });
@@ -169,7 +172,7 @@ static void querySnapshot(void (^done)(NSDictionary *)) {
 #else
     // All decisions and command submissions run on the main queue. Never block that queue.
     g_mediaRemote.getNowPlayingApplicationPID(dispatch_get_main_queue(), ^(int pid) {
-        if (pid <= 0) { NSDictionary *empty = @{@"known": @NO, @"playing": @NO, @"trustworthy": @NO}; done(empty); return; }
+        if (pid <= 0) { done(unknownState()); return; }
         NSRunningApplication *app = [NSRunningApplication runningApplicationWithProcessIdentifier:pid];
         NSString *bundle = app.bundleIdentifier;
         NSDate *launch = app.launchDate;
@@ -182,7 +185,7 @@ static void querySnapshot(void (^done)(NSDictionary *)) {
                     NSDictionary *next = @{@"known": @(finalPID == pid), @"playing": @(playing), @"trustworthy": @(trusted),
                         @"pid": @(pid), @"bundle": bundle ?: @"", @"lifetime": launch ? @([launch timeIntervalSince1970]) : @0,
                         @"item": trusted ? item : @""};
-                    NSArray *track = trackIdentity(info[kMRMediaRemoteNowPlayingInfoTitle], info[kMRMediaRemoteNowPlayingInfoArtist],
+                    NSDictionary *track = trackIdentity(info[kMRMediaRemoteNowPlayingInfoTitle], info[kMRMediaRemoteNowPlayingInfoArtist],
                         info[kMRMediaRemoteNowPlayingInfoAlbum], info[kMRMediaRemoteNowPlayingInfoDuration]);
                     if (track) {
                         NSMutableDictionary *identified = [next mutableCopy]; identified[@"trackIdentity"] = track;
@@ -211,7 +214,7 @@ static void releaseLease(void) {
             reply(@"released", owned, current); // submission only
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 40 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
                 refresh(^(NSDictionary *next) {
-                    BOOL sameItem = identityMatches(owned[@"identity"], next) || pauseRefresh(@{@"identity": owned[@"identity"]}, next);
+                    BOOL sameItem = identityFailure(owned[@"identity"], next) == nil || pauseRefresh(@{@"identity": owned[@"identity"]}, next);
                     BOOL resumed = sameItem && [next[@"playing"] boolValue];
                     replyReason(resumed ? @"resumed" : @"unconfirmed", owned, next, resumed ? nil : @"resumeUnconfirmed");
                 });
@@ -273,8 +276,7 @@ static void handle(NSDictionary *request) {
             if ([lease[@"issued"] boolValue]) releaseLease();
             else { lease = nil; replyReason(@"skipped", request, state, @"endedBeforePause"); }
         } else replyReason(@"skipped", request, state, lease ? @"sessionMismatch" : @"noLease");
-    } else if ([op isEqual:@"shutdown"]) brokerShutdown();
-    else brokerShutdown();
+    } else brokerShutdown(); // Shutdown and unknown operations both close safely.
 }
 void adapter_broker(void) {
     // An upstream adapter constructor only stops one run-loop iteration.
@@ -330,7 +332,7 @@ void adapter_broker(void) {
                 });
             }];
         }
-        #endif
+#endif
         // Ready proves transport availability, not a supported player. Unknown state never controls media.
         emit(envelope(@"ready", nil, nil));
         refresh(^(NSDictionary *value) { reply(@"snapshot", @{}, value); });
