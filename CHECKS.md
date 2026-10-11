@@ -1,4 +1,4 @@
-# Implementation checks — 10 October 2026
+# Implementation checks — 11 October 2026
 
 The configured local batch stack and signed synthetic native insertion work on this
 machine. These checks do not establish physical release-to-visible-text latency,
@@ -548,6 +548,132 @@ The previous media state probe observed unknown/no active player: median one-sho
 24.43 ms versus persistent round trip 0.093 ms. This is a read-only protocol comparison,
 not observed pause/resume effect or real-player/resource acceptance. No titles/artwork/
 playback history are emitted. Raw results are in ignored `bench/results/media-probe.json`.
+
+## Smaller cleanup model comparison — 11 October 2026
+
+Read 79 completed raw/cleaned transcript pairs from the local OpenWhispr SQLite history
+immutably. Ran the installed pinned Gemma 4 E2B/MTP service as baseline, then each
+candidate alone on an isolated 11437 Metal server. Real inputs used the saved private
+prompt, dictionary and OpenWhispr framing; the 28 public synthetic cases used the
+bundled default prompt and public dictionary. All models used non-thinking mode,
+temperature zero and the app's proportional output cap. Every real request completed.
+
+| Cleanup model | GGUF file | Public synthetic pass | Exact to Gemma on 79 real inputs | Exact to historical cleaned text |
+|---|---:|---:|---:|---:|
+| Gemma 4 E2B QAT Q4 + 59 MB MTP | 2.62 GB | **26/28** | baseline | 23/79 |
+| Qwen3.5 2B Q4_K_M | 1.28 GB | 19/28 | 37/79 | 22/79 |
+| Qwen3 1.7B Q4_K_M | 1.11 GB | 17/28 | 36/79 | 24/79 |
+| Gemma 3 1B QAT Q4_K_M | 0.81 GB | 17/28 | 30/79 | 18/79 |
+| Qwen3.5 0.8B Q4_0 | 0.56 GB | 16/28 | 34/79 | 24/79 |
+
+The model files were SHA-256 verified from pinned revisions:
+[Qwen3.5 2B](https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/tree/f6d5376be1edb4d416d56da11e5397a961aca8ae),
+[Qwen3 1.7B](https://huggingface.co/Qwen/Qwen3-1.7B-GGUF/tree/7fb011e9aee6e4dc7adf8430df9ea8de6a466aa3),
+[Gemma 3 1B](https://huggingface.co/bartowski/google_gemma-3-1b-it-qat-GGUF/tree/074329a7942d6a61a3748a80ed1bbc9e2d7d0e18) and
+[Qwen3.5 0.8B](https://huggingface.co/ggml-org/Qwen3.5-0.8B-GGUF/tree/8fea620810c4afa23dd6443f999a48574c1611a3).
+In the 23 real cases where Gemma exactly matched the historical cleaned text,
+Qwen3.5 2B matched 19, Qwen3 1.7B matched 21, Gemma 3 1B matched 16 and Qwen3.5
+0.8B matched 19. The 79 historical outputs are another model's cleanup, not human
+reviewed truth. This is a single-pass quality screen; it does not establish a real
+error rate or prove that any disagreement is wrong. The synthetic cases reveal
+specific gaps in self-correction, filler removal, paragraph breaks, British spelling
+and multilingual punctuation. In a separate exploratory run using the saved dictionary,
+a shorter prompt reduced the synthetic pass count for Qwen3 1.7B from 20 to 15 and
+Qwen3.5 2B from 19 to 17, so it was not adopted.
+
+Ignored aggregate reports: `bench/results/cleanup-models-final.json` and
+`cleanup-models-followup.json`. No private transcript, prompt, dictionary or generated
+text was saved in them; model weights remain in ignored `.build/`. The installed
+service/settings were unchanged, and temporary servers stopped. Completion-only warm
+timings and one post-run candidate-server RSS sample are in the report, but neither
+includes ASR, insertion, model cold start or memory pressure. Measure an 8 GB Mac and
+review real disagreements before offering a smaller model as a supported choice.
+
+### Liquid AI cleanup follow-up — 11 October 2026
+
+Used the same 79 real pairs, 28 public synthetic cases, prompt/framing, temperature
+zero, output cap, pinned llama.cpp b10809 and isolated 11437 Metal server as above.
+All GGUF SHA-256 hashes matched their pinned Hugging Face revisions. Results are
+single-pass and cleanup-only; real exact matches are against model outputs, not
+human-reviewed truth.
+
+| Liquid model | GGUF file | Real completed | Public synthetic pass | Exact to Gemma on completed real inputs | Warm median cleanup call | Candidate RSS after run |
+|---|---:|---:|---:|---:|---:|---:|
+| LFM2.5 1.2B Instruct QAD Q4_0 | 0.70 GB | 78/79 | 15/28 | 26/78 | 303 ms | 827 MiB |
+| LFM2.5 1.2B Instruct Q4_K_M | 0.73 GB | 75/79 | 11/28 | 16/75 | 356 ms | 858 MiB |
+| LFM2 2.6B Q4_K_M | 1.56 GB | 78/79 | 17/28 | 21/78 | 874 ms | 1,674 MiB |
+| LFM2.5 2.6B Q4_K_M | 1.67 GB | 0/79 | 0/28 | n/a | n/a | 1,804 MiB |
+
+Gemma repeated at 26/28 and about 279-310 ms median across these two passes.
+The LFM2.5 2.6B row is a compatibility failure under the current app output cap,
+not a measured correctness score: all 79 real requests ended at the length limit.
+Liquid [describes it as always reasoning before answering](https://huggingface.co/LiquidAI/LFM2.5-2.6B),
+and a public-only probe confirmed the cap was spent on reasoning with no final text.
+The LFM2.5 1.2B QAD checkpoint performed better than its ordinary Q4_K_M quantization,
+but missed synthetic dictionary, filler-only, paragraph, British spelling and
+multilingual punctuation cases. Neither smaller model matched Gemma's task quality.
+
+Verified model revisions:
+[LFM2.5 1.2B Instruct](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF/tree/8ed288026e23958ad9dfa92d53ed773a8eee7125),
+[LFM2.5 2.6B](https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF/tree/e7caca5d835a3901a8e0d63e94009429bafafdfc), and
+[LFM2 2.6B](https://huggingface.co/LiquidAI/LFM2-2.6B-GGUF/tree/a759abdc5955d4ca97763e5cb7ff3940589ba898).
+Liquid's [LFM Open License v1.0](https://www.liquid.ai/lfm-license) requires
+distribution notices and has a $10 million annual revenue threshold for free
+commercial use; review those terms before shipping a model choice. Aggregate-only
+reports are ignored at `bench/results/cleanup-liquid.json` and
+`bench/results/cleanup-liquid-lfm2.json`; weights remain under ignored `.build/`.
+No installed service or settings were changed. Low-RAM memory pressure and reviewed
+real-output accuracy remain open.
+
+### Further low-RAM cleanup screen — 11 October 2026
+
+Checked two more compact GGUFs, a smaller quantization of the existing Gemma 4
+E2B QAT model, and Apple's built-in Foundation Model. The same 79 real inputs and
+28 public synthetic cases were used. The GGUF runs kept the installed Gemma
+baseline, prompt, dictionary, framing, generation cap and pinned llama.cpp runtime;
+Apple used the same prompts and proportional output cap with greedy generation via
+`FoundationModels`. Gemma repeated at 26/28 synthetic and 79/79 real completed.
+
+| Candidate | Model file | Real completed | Public synthetic pass | Warm median cleanup call | Finding |
+|---|---:|---:|---:|---:|---|
+| Apple on-device Foundation Model (macOS 27) | OS-managed | 78/79 | 16/28 | 2,256 ms | Available on this Mac, but slower and less accurate under this prompt |
+| Granite 4.0 1B Q4_K_M | 1.02 GB | 0/79 | n/a | n/a | Pinned runtime generated repeated `@` characters and hit the output cap |
+| Ministral 3 3B Instruct Q4_K_M | 2.15 GB | 79/79 | 17/28 | 533 ms | Larger and less accurate than Qwen3.5 2B in this screen |
+| Gemma 4 E2B QAT Q2_K_XL | 2.19 GB | 79/79 | 17/28 | 297 ms | Saves 0.43 GB of weights but loses nine synthetic cases versus installed Q4 |
+| Qwen3.5 4B Q3_K_M | 2.29 GB | 79/79 | **24/28** | 838 ms | Closest smaller GGUF to Gemma's task score, with modest memory savings |
+
+Granite's row is a runtime compatibility failure, not a quality result. Its
+public-only diagnostic request emitted 128 `@` characters with `finish_reason=length`.
+Ministral's real outputs exactly matched Gemma in 10/79 cases; lower-bit Gemma in
+23/79; Apple's in 19/78 completed cases. These are disagreements, not reviewed
+correctness judgments. Qwen3.5 4B Q3_K_M exactly matched Gemma in 27/79 real
+cases and the historical cleaned text in 21/79; these are comparison references,
+not truth. It missed public filler-only, paragraph, emphatic-repetition and
+Spanish-question cases. Its post-run server RSS was 2,762,112 KiB versus about
+2,992,528 KiB for the installed Gemma process, a roughly 225 MiB saving on this
+Mac. The 2.29 GB file is 0.33 GB smaller than Gemma's model file, or about 0.39 GB
+smaller than Gemma plus MTP. Qwen3.5 2B remains the larger memory reduction at
+1.28 GB and 19/28 synthetic, with a clearer quality cost.
+
+Apple's model required normal macOS model-service access; the restricted session
+returned a model-service error. Its use requires [Apple Intelligence availability and
+macOS 26+](https://developer.apple.com/documentation/foundationmodels/systemlanguagemodel).
+It avoids a separate model download, but OS-managed RAM use and 8 GB memory pressure
+were not measured, and model updates can change behavior. A task-specific prompt may
+alter results; the current saved prompt was used for direct comparison.
+
+The GGUFs were SHA-256 verified from these pinned revisions:
+[Granite 4.0 1B](https://huggingface.co/ibm-granite/granite-4.0-1b-GGUF/tree/b27c2fe3f211b7f44e80fa620177aea371099aaa),
+[Ministral 3 3B](https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF/tree/eb599d408350ea2bb60452cb86be7c7b2fc28227),
+[Gemma 4 E2B QAT](https://huggingface.co/unsloth/gemma-4-E2B-it-qat-GGUF/tree/66a399f68ddd113b06dff02fca9523e55465d11d), and
+[Qwen3.5 4B](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/tree/e87f176479d0855a907a41277aca2f8ee7a09523).
+Aggregate-only reports are ignored at `bench/results/cleanup-apple-foundation.json`,
+`cleanup-granite-ministral.json`, `cleanup-gemma-q2.json` and
+`cleanup-qwen35-4b-q3.json`. Model weights and the
+compiled Apple benchmark bridge remain in ignored `.build/`; no private transcript,
+prompt, dictionary or generated text was saved in reports. The installed Gemma
+service and settings were unchanged. Human review of real disagreements and memory
+testing on a constrained Mac are still needed before adding a supported alternative.
 
 Open gates: reviewed cleanup/streaming accuracy and historical parity; first-use ASR
 download/default-cache acceptance; physical hotkeys/onset/endings/devices/sleep/lock and

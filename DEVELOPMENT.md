@@ -406,6 +406,34 @@ preflight with a direct final chat request. Its direct path is only a latency mo
 does not preserve the app's exact context-limit check. The metric-only report is ignored
 at `bench/results/cleanup-roundtrips.json`.
 
+`python3 -B scripts/bench-cleanup-models.py --binary /absolute/path/to/llama-server
+--candidate LABEL /absolute/path/to/model.gguf MODEL_ALIAS` compares the installed
+Gemma service with one or more smaller local cleanup models. Repeat `--candidate` for
+each GGUF; `--candidate-prompt LABEL PATH` optionally tests a different prompt for one
+candidate. The script reads completed raw/cleaned pairs from the local OpenWhispr SQLite
+database immutably and the saved Whispr Lite prompt/dictionary into RAM. The existing
+11436 service is read only; each candidate runs alone on 11437 with logging and slot
+persistence disabled, then stops. Synthetic checks use `bench/prompt-fixtures.json`,
+`bench/model-cleanup-fixtures.json`, the bundled default prompt and a public dictionary.
+Only aggregate scores/timings and public synthetic case IDs go to ignored
+`bench/results/cleanup-models.json`. Real transcripts and generated text are never
+written to the report. Use normal Metal session access, verified GGUFs in an ignored
+directory, and the pinned llama-server. Historical cleaned text and Gemma outputs are
+comparison references, not reviewed ground truth; this is cleanup-only, not an ASR or
+release-to-visible-text measurement.
+
+`python3 -B scripts/bench-apple-cleanup.py` compares the installed Gemma service
+with Apple's on-device Foundation Model on the same real and synthetic inputs. It
+builds `scripts/bench-apple-cleanup.swift` into ignored `.build/` using the Xcode
+macOS SDK, then passes requests and responses through in-memory pipes. The Apple
+model must be available (macOS 26+ and Apple Intelligence enabled); run with normal
+model-service access. The report at ignored
+`bench/results/cleanup-apple-foundation.json` contains only aggregate metrics and
+public synthetic case IDs. One new session is created per request to avoid carrying
+transcript context into the next sample. Apple Foundation Models is a separate
+runtime, so its call latency and memory behavior are not directly interchangeable
+with llama.cpp server metrics.
+
 `python3 scripts/bench-speculative-cleanup.py --repetitions 30` reads the ignored
 synthetic `streaming-snapshots.json` and `speculative-snapshots.json`. To reproduce the
 latter, append 2.7 seconds of silence to `bench/results/audio/short.wav` and 1.8 seconds
