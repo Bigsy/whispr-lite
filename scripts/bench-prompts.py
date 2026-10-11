@@ -2,21 +2,12 @@
 """Compare cleanup prompts locally; reports contain only synthetic case IDs and metrics."""
 import argparse
 import json
-import math
 from pathlib import Path
-import statistics
 import time
 from cleanup_bench import (ALIAS, LocalHTTP, SYNTHETIC_DICTIONARY, app_request,
-                           load_fixtures, loopback_url, matches_synthetic, messages)
+                           load_fixtures, loopback_url, matches_synthetic, messages, summary)
 
 ROOT = Path(__file__).resolve().parent.parent
-
-
-def summary(values):
-    values = sorted(values)
-    return dict(n=len(values), median=statistics.median(values),
-                p90=values[math.ceil(len(values) * .90) - 1],
-                p95=values[math.ceil(len(values) * .95) - 1])
 
 
 def run(args, extra_context=''):

@@ -6,14 +6,10 @@ import json
 from pathlib import Path
 import time
 
-from importlib.util import spec_from_file_location, module_from_spec
 from cleanup_bench import (ALIAS, DictionaryCorrections, LocalHTTP, isolated_server,
-                           load_fixtures, load_saved_cleanup, loopback_url, words)
+                           load_fixtures, load_saved_cleanup, loopback_url, summary, words)
 
 ROOT = Path(__file__).resolve().parent.parent
-spec = spec_from_file_location('prompt_bench', ROOT / 'scripts/bench-prompts.py')
-helpers = module_from_spec(spec)
-spec.loader.exec_module(helpers)
 
 
 def run(args):
@@ -160,7 +156,7 @@ def run(args):
                              condition_repeat_equal=all(r['condition_repeat_equal'] for r in rows))
             for field in ('prefill_ms', 'release_to_clean_ms', 'release_wait_ms', 'final_cleanup_ms', 'total_request_work_ms',
                           'cached_tokens', 'processed_tokens', 'generated_tokens', 'prompt_ms', 'generation_ms'):
-                aggregate[field] = helpers.summary([r[field] for r in rows])
+                aggregate[field] = summary([r[field] for r in rows])
             aggregates.append(aggregate)
     paired = []
     for fixture in fixtures:
@@ -170,7 +166,7 @@ def run(args):
                      for i in range(1, args.repetitions+1)]
             pairs = [(paired_outputs[fixture['id'], i, cache+'_baseline'], paired_outputs[fixture['id'], i, cache+'_prefill'])
                      for i in range(1, args.repetitions+1)]
-            paired.append(dict(fixture=fixture['id'], cache=cache, saved_release_ms=helpers.summary(gains),
+            paired.append(dict(fixture=fixture['id'], cache=cache, saved_release_ms=summary(gains),
                                exact_equal_pairs=sum(a == b for a, b in pairs),
                                words_equal_pairs=sum(words(a) == words(b) for a, b in pairs)))
     report = dict(schema=1, experiment='fixed-prefix-prefill', created_utc=datetime.now(timezone.utc).isoformat(),

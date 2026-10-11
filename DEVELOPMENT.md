@@ -654,6 +654,8 @@ corrections for the candidate screen. Swift and Python check the shared syntheti
 Word parity uses Core's `WordTokens` in the app and Swift benches, with matching Python
 scoring and shared `bench/word-cases.json` vectors. Both apostrophe styles are treated
 as the same contraction; the benchmark scripts share synthetic fixture loading.
+The fixed-prefix harness imports its summary helper directly from `cleanup_bench.py`;
+it no longer loads the entire prompt-comparison program during startup.
 
 ```sh
 python3 scripts/bench-prefill.py --isolated-server --repetitions 30 --hold-seconds 0.5

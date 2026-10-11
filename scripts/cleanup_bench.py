@@ -5,8 +5,10 @@ from contextlib import contextmanager
 from functools import lru_cache
 from importlib.util import module_from_spec, spec_from_file_location
 import json
+import math
 from pathlib import Path
 import re
+import statistics
 import subprocess
 import time
 import unicodedata
@@ -147,6 +149,18 @@ def matches_synthetic(fixture, output):
 
 def load_fixtures(*names):
     return [fixture for name in names for fixture in json.loads((ROOT / 'bench' / name).read_text())]
+
+
+def nearest_rank(values, fraction):
+    if not values:
+        raise ValueError('Percentile needs at least one observation')
+    ordered = sorted(values)
+    return ordered[math.ceil(len(ordered) * fraction) - 1]
+
+
+def summary(values):
+    return {'n': len(values), 'median': statistics.median(values),
+            'p90': nearest_rank(values, .9), 'p95': nearest_rank(values, .95)}
 
 
 @lru_cache(maxsize=1)
