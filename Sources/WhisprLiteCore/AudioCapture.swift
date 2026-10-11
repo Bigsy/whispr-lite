@@ -65,16 +65,14 @@ final class AudioWorker: @unchecked Sendable {
     private var failed = false
     private var audioEpoch: Double?
     private var outputPosition = 0
-    private var stream: AsyncThrowingStream<PCM16k, any Error>?
     private var streamContinuation: AsyncThrowingStream<PCM16k, any Error>.Continuation?
-    private var earlyStream: AsyncThrowingStream<PCM16k, any Error>?
     private var earlyContinuation: AsyncThrowingStream<PCM16k, any Error>.Continuation?
     private var earlyStart = 0
     private var quietSamples = 0
     private var chunk: [Float] = []
     private var streamingEnabled = false
     private var endBoundary: Double?
-    private var completion: CheckedContinuation<PCM16k, any Error>?
+    private var completion: CheckedContinuation<CapturedAudio, any Error>?
     private var lastPacketSeconds = 0.0
     private var drainSerial = 0
     private var drainTimedOut = false
@@ -185,7 +183,8 @@ final class AudioWorker: @unchecked Sendable {
             if status != .haveData { break }
         }
     }
-    func begin(warm: Bool, streaming: Bool = false, earlyChunks: Bool = false, activity: Bool = false, timings: Bool = false) throws {
+    func begin(warm: Bool, streaming: Bool = false, earlyChunks: Bool = false,
+               activity: Bool = false, timings: Bool = false) throws -> CaptureStreams {
         try queue.sync {
             guard !recording, completion == nil else { throw AppError.capture }
             let overflow = callbackOverflow; callbackOverflow = false
@@ -193,17 +192,23 @@ final class AudioWorker: @unchecked Sendable {
             failed = false; drainTimedOut = false; count = 0
             firstAudio = nil; timingEnabled = timings; activityEnabled = activity; meter = .init(); self.activity.publish(0)
             streamingEnabled = streaming; chunk = []; chunk.reserveCapacity(PCM16k.streamingChunkSamples)
+            let streams: CaptureStreams
             if streaming {
                 let pair = AsyncThrowingStream<PCM16k, any Error>.makeStream(bufferingPolicy: .bufferingOldest(16))
-                stream = pair.stream; streamContinuation = pair.continuation
-            } else { stream = nil; streamContinuation = nil }
-            earlyStart = 0; quietSamples = 0
-            if earlyChunks {
+                streamContinuation = pair.continuation; earlyContinuation = nil
+                streams = .partial(pair.stream)
+            } else if earlyChunks {
                 let pair = AsyncThrowingStream<PCM16k, any Error>.makeStream(bufferingPolicy: .bufferingOldest(1))
-                earlyStream = pair.stream; earlyContinuation = pair.continuation
-            } else { earlyStream = nil; earlyContinuation = nil }
+                earlyContinuation = pair.continuation; streamContinuation = nil
+                streams = .completed(pair.stream)
+            } else {
+                streamContinuation = nil; earlyContinuation = nil
+                streams = .none
+            }
+            earlyStart = 0; quietSamples = 0
             if warm { appendPreRoll() }
             rollCount = 0; recording = true
+            return streams
         }
     }
     private func appendPreRoll() {
@@ -217,10 +222,6 @@ final class AudioWorker: @unchecked Sendable {
             if index == preRoll.count { index = 0 }
         }
     }
-    func chunks() -> AsyncThrowingStream<PCM16k, any Error>? { queue.sync { stream } }
-    func completedChunks() -> AsyncThrowingStream<PCM16k, any Error>? { queue.sync { earlyStream } }
-    func firstAudioUptime() -> Double? { queue.sync { firstAudio } }
-    func lastDrainTimedOut() -> Bool { queue.sync { drainTimedOut } }
     private func deliver(_ value: Float) {
         if earlyContinuation != nil {
             let length = count - earlyStart
@@ -262,7 +263,7 @@ final class AudioWorker: @unchecked Sendable {
         }
         chunk.removeAll(keepingCapacity: true)
     }
-    func end(at boundary: Double? = nil) async throws -> PCM16k {
+    func end(at boundary: Double? = nil) async throws -> CapturedAudio {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { [self] in
                 guard recording else { continuation.resume(throwing: AppError.capture); return }
@@ -299,13 +300,15 @@ final class AudioWorker: @unchecked Sendable {
         guard !failed, !overflow else {
             streamContinuation?.finish(throwing: AppError.overflow); streamContinuation = nil
             earlyContinuation?.finish(throwing: AppError.overflow); earlyContinuation = nil
-            stream = nil; earlyStream = nil
             continuation.resume(throwing: AppError.overflow); return
         }
         flushChunk(); streamContinuation?.finish(); streamContinuation = nil
         earlyContinuation?.finish(); earlyContinuation = nil
-        stream = nil; earlyStream = nil
-        do { continuation.resume(returning: try PCM16k(Array(samples.prefix(count)))) }
+        do {
+            let pcm = try PCM16k(Array(samples.prefix(count)))
+            continuation.resume(returning: .init(pcm: pcm, firstAudioUptime: firstAudio,
+                                                drainTimedOut: drainTimedOut))
+        }
         catch { continuation.resume(throwing: error) }
     }
 }
@@ -362,8 +365,6 @@ public struct CaptureOptions: Sendable {
     public var showAudioActivity = true
     public var debugTimings = false
     public var recordingActivity: Float { worker?.activity.read() ?? 0 }
-    public var firstAudioUptime: Double? { worker?.firstAudioUptime() }
-    public var drainTimedOut: Bool { worker?.lastDrainTimedOut() ?? false }
     public var onFailure: (() -> Void)?
     private var changeObserver: NSObjectProtocol?
     public init() {}
@@ -400,17 +401,15 @@ public struct CaptureOptions: Sendable {
         }
         if warm { try engine.start() }
     }
-    public func begin() throws {
+    public func begin() throws -> CaptureStreams {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { throw AppError.capture }
         guard let engine, let worker else { throw AppError.notReady }
         if !engine.isRunning { try engine.start() }
-        try worker.begin(warm: warm, streaming: streamingEnabled, earlyChunks: earlyChunksEnabled, activity: showAudioActivity, timings: debugTimings)
+        return try worker.begin(warm: warm, streaming: streamingEnabled, earlyChunks: earlyChunksEnabled,
+                                activity: showAudioActivity, timings: debugTimings)
     }
-    public func chunks() -> AsyncThrowingStream<PCM16k, any Error>? { worker?.chunks() }
-    public func completedChunks() -> AsyncThrowingStream<PCM16k, any Error>? { worker?.completedChunks() }
     public func releaseBoundary() -> Double? { AVAudioTime.seconds(forHostTime: AudioGetCurrentHostTime()) }
-    public func end() async throws -> PCM16k { try await end(at: nil) }
-    public func end(at boundary: Double?) async throws -> PCM16k {
+    public func end(at boundary: Double?) async throws -> CapturedAudio {
         guard let worker else { throw AppError.capture }
         defer { if !warm { engine?.stop() } }
         return try await worker.end(at: boundary ?? releaseBoundary())

@@ -298,6 +298,11 @@ the result at the boundary for host-time rounding, and copies the accepted PCM i
 The same sample count governs already-buffered trimming and completion. If the release
 packet is late (about 100 ms beyond the last packet's duration, 0.15 to 0.5 s), the
 recording is kept without the unseen tail and debug diagnostics record `capture/drainTimeout`.
+`CaptureDriver.begin()` returns that recording's optional partial or completed-chunk
+stream in a `CaptureStreams` value. The worker keeps only its bounded producer
+continuation and releases it when capture finishes. `end(at:)` returns the owned PCM,
+first-audio timestamp and drain status together as `CapturedAudio`, so the coordinator
+does not make separate serial-queue reads for streams or final metadata.
 Capture starts before the AX target snapshot, and AX calls into the target are bounded to
 1 s each; insertion validation reads its four attributes in one AX round trip.
 A microphone route change (for example AirPods becoming the default input) rebuilds only

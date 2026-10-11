@@ -58,26 +58,28 @@ struct FailingCleanup: TextCleanup { func clean(_ text: String) throws -> String
     var boundaryValue: Double?
     var endBoundary: Double?
     var onBoundary: (() -> Void)?
-    func begin() { begins += 1 }
-    func end() async throws -> PCM16k { ends += 1; return try PCM16k([0.1]) }
-    func end(at boundary: Double?) async throws -> PCM16k {
+    func begin() -> CaptureStreams { begins += 1; return .none }
+    func end(at boundary: Double?) async throws -> CapturedAudio {
+        ends += 1
         endBoundary = boundary
-        return try await end()
+        return try .init(pcm: PCM16k([0.1]))
     }
     func releaseBoundary() -> Double? { onBoundary?(); return boundaryValue }
     func suspend() { suspended += 1 }
 }
 @MainActor final class EarlyCapture: CaptureDriver {
     var ends = 0
-    private var stream: AsyncThrowingStream<PCM16k, any Error>?
     private var continuation: AsyncThrowingStream<PCM16k, any Error>.Continuation?
-    func begin() {
+    func begin() -> CaptureStreams {
         let pair = AsyncThrowingStream<PCM16k, any Error>.makeStream()
-        stream = pair.stream; continuation = pair.continuation
+        continuation = pair.continuation
+        return .completed(pair.stream)
     }
-    func completedChunks() -> AsyncThrowingStream<PCM16k, any Error>? { stream }
     func publish() throws { continuation?.yield(try PCM16k([0.1])) }
-    func end() throws -> PCM16k { ends += 1; continuation?.finish(); return try PCM16k([0.1, 0.2]) }
+    func end(at boundary: Double?) throws -> CapturedAudio {
+        ends += 1; continuation?.finish(); continuation = nil
+        return try .init(pcm: PCM16k([0.1, 0.2]))
+    }
     func suspend() {}
 }
 actor EarlyBackend: ASRBackend {

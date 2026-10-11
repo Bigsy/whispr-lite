@@ -46,18 +46,17 @@ import AVFoundation
 }
 
 @MainActor final class FakeStreamCapture: CaptureDriver {
-    private var stream: AsyncThrowingStream<PCM16k, any Error>?
     private var continuation: AsyncThrowingStream<PCM16k, any Error>.Continuation?
-    func begin() throws {
+    func begin() throws -> CaptureStreams {
         let pair = AsyncThrowingStream<PCM16k, any Error>.makeStream(bufferingPolicy: .bufferingOldest(16))
-        stream = pair.stream; continuation = pair.continuation
+        continuation = pair.continuation
         continuation?.yield(try PCM16k([Float](repeating: 0.1, count: 320)))
+        return .partial(pair.stream)
     }
-    func chunks() -> AsyncThrowingStream<PCM16k, any Error>? { stream }
-    func end() async throws -> PCM16k {
+    func end(at boundary: Double?) async throws -> CapturedAudio {
         continuation?.yield(try PCM16k([Float](repeating: 0.2, count: 320)))
         continuation?.finish(); continuation = nil
-        return try PCM16k([Float](repeating: 0.1, count: 640))
+        return try .init(pcm: PCM16k([Float](repeating: 0.1, count: 640)))
     }
     func suspend() { continuation?.finish(throwing: CancellationError()); continuation = nil }
 }

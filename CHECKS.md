@@ -6,11 +6,9 @@ third-party insertion, actual media playback compatibility or release acceptance
 
 ## Remaining code tidy-up gates from PLAN.md
 
-- **Coordinator and capture shape (A1, A8):** Session teardown is centralized and
-  finished streams are released, but per-session fields are not yet one `ActiveSession`,
-  and `CaptureDriver` still exposes separate stream/metadata accessors with serial
-  `queue.sync` reads. A typed `CaptureStreams`/`CapturedAudio` handoff needs a coordinated
-  app, fake-capture and real-device migration.
+- **Coordinator shape (A1):** Session teardown is centralized, but per-session fields
+  are not yet one `ActiveSession`. The typed A8 capture handoff is implemented; physical
+  microphone validation remains open.
 - **App structure (B1):** Launch parsing, status, preparation, teardown and probe helpers
   have been separated or simplified, but `main.swift` is still a large `AppDelegate`.
   A full controller/window/menu split remains, with native startup and window checks.
@@ -41,6 +39,7 @@ accuracy and release-to-visible-text latency gates remain open until measured.
 
 | Check | Result |
 |---|---|
+| 11 October typed capture handoff (A8), Apple M1 Max | `make check` passed with 113 registered Swift tests in 27 suites (one optional skip), 1 synthetic app CLI test, 2 synthetic bench CLI tests, 17 native broker, 27 synthetic setup and 6 release tests, signed arm64 app, doctor and bundle smoke. Cached Unified batch ASR passed 3 synthetic fixtures with 6 warm observations, cancellation and unload; streaming passed 3 fixtures, cancellation, retained-audio fallback and reset. The installed app was closed for exclusive model ownership and reopened. Worker tests cover partial/completed streams, owned PCM, first-audio metadata and drain timeout. Synthetic ASR checks do not exercise a physical microphone or measure release-to-visible-text latency. |
 | 11 October bench streaming cancellation, Apple M1 Max | Post-edit `make test` passed with 113 registered Swift tests in 27 suites (one optional skip), 1 synthetic app CLI test, 2 synthetic bench CLI tests, 17 native broker, 27 synthetic setup and 6 release tests. A concurrently started `make check` passed signed arm64 build, doctor and bundle smoke; its test phase started before this bench-only edit, while its release bench build finished after it. Cached Unified streaming passed 3 synthetic fixtures, cancellation, retained-audio fallback and reset. The installed app was closed for exclusive model ownership and reopened. The benchmark did not force `ParakeetError.cancelled` specifically in batch fallback. |
 | 11 October HTTP framing readability, Apple M1 Max | `make test` passed with 113 registered Swift tests in 27 suites (one optional skip), 1 synthetic app CLI test, 2 synthetic bench CLI tests, 17 native broker, 27 synthetic setup and 6 release tests. Existing synthetic WAV/multipart and cleanup response tests passed after splitting long declarations; no live HTTP ASR service was used. |
 | 11 October pre-roll replay helper, Apple M1 Max | `make check` passed with 113 registered Swift tests in 27 suites (one optional skip), 1 synthetic app CLI test, 2 synthetic bench CLI tests, 17 native broker, 27 synthetic setup and 6 release tests, signed arm64 app, doctor and bundle smoke. Cached Unified batch ASR passed 3 synthetic fixtures with 6 warm observations, cancellation and unload; streaming passed 3 fixtures, cancellation, retained-audio fallback and reset. The installed app was closed for exclusive model ownership and reopened. Existing exact release-boundary and warm pre-roll tests passed; no physical microphone or visible-text latency was measured. |

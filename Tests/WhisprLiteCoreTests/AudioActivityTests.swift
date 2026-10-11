@@ -28,18 +28,19 @@ import AVFoundation
         let format = try monoFormat()
         let worker = try AudioWorker(format: format)
         let packet = try filledBuffer(format: format, frames: 1600, value: 0.1)
-        try worker.begin(warm: false, activity: true, timings: true)
+        _ = try worker.begin(warm: false, activity: true, timings: true)
         worker.receive(packet); worker.queue.sync {}
         #expect(worker.activity.read() == 1)
-        #expect(worker.firstAudioUptime() != nil)
-        let pcm = try await worker.end()
-        #expect(pcm.samples.count == 1600 && pcm.samples.allSatisfy { abs($0 - 0.1) < 0.001 })
+        let first = try await worker.end()
+        #expect(first.firstAudioUptime != nil)
+        #expect(first.pcm.samples.count == 1600 && first.pcm.samples.allSatisfy { abs($0 - 0.1) < 0.001 })
         #expect(worker.activity.read() == 0)
-        try worker.begin(warm: false, activity: false)
+        _ = try worker.begin(warm: false, activity: false)
         worker.receive(packet); worker.queue.sync {}
         #expect(worker.activity.read() == 0)
-        #expect(worker.firstAudioUptime() == nil)
-        #expect(try await worker.end() == pcm)
+        let second = try await worker.end()
+        #expect(second.firstAudioUptime == nil)
+        #expect(second.pcm == first.pcm)
         // Warm idle input doesn't run or publish an activity meter.
         worker.receive(packet); worker.queue.sync {}
         #expect(worker.activity.read() == 0)
@@ -55,11 +56,11 @@ import AVFoundation
         for iteration in 0..<32 {
             for mode in iteration.isMultiple(of: 2) ? [false, true] : [true, false] {
                 let worker = workers[mode ? 1 : 0]
-                try worker.begin(warm: false, activity: mode)
+                _ = try worker.begin(warm: false, activity: mode)
                 let start = ContinuousClock.now
                 for _ in 0..<100 { worker.receive(packet); worker.queue.sync {} }
                 let audio = try await worker.end()
-                #expect(abs(audio.duration - 2) < 0.002)
+                #expect(abs(audio.pcm.duration - 2) < 0.002)
                 let ms = start.duration(to: .now).milliseconds
                 if iteration >= 2 { if mode { enabled.append(ms) } else { disabled.append(ms) } }
             }

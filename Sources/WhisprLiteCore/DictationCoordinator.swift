@@ -1,23 +1,32 @@
 import Foundation
 
+public enum CaptureStreams: Sendable {
+    case none
+    case partial(AsyncThrowingStream<PCM16k, any Error>)
+    case completed(AsyncThrowingStream<PCM16k, any Error>)
+}
+
+public struct CapturedAudio: Sendable {
+    public let pcm: PCM16k
+    public let firstAudioUptime: Double?
+    public let drainTimedOut: Bool
+
+    public init(pcm: PCM16k, firstAudioUptime: Double? = nil, drainTimedOut: Bool = false) {
+        self.pcm = pcm
+        self.firstAudioUptime = firstAudioUptime
+        self.drainTimedOut = drainTimedOut
+    }
+}
+
 @MainActor public protocol CaptureDriver: AnyObject {
-    func begin() throws
-    func end() async throws -> PCM16k
-    func end(at boundary: Double?) async throws -> PCM16k
+    func begin() throws -> CaptureStreams
+    func end(at boundary: Double?) async throws -> CapturedAudio
     func releaseBoundary() -> Double?
     func suspend()
-    func chunks() -> AsyncThrowingStream<PCM16k, any Error>?
-    func completedChunks() -> AsyncThrowingStream<PCM16k, any Error>?
-    var firstAudioUptime: Double? { get }
-    var drainTimedOut: Bool { get }
 }
 public extension CaptureDriver {
-    func end(at boundary: Double?) async throws -> PCM16k { try await end() }
+    func end() async throws -> CapturedAudio { try await end(at: nil) }
     func releaseBoundary() -> Double? { nil }
-    func chunks() -> AsyncThrowingStream<PCM16k, any Error>? { nil }
-    func completedChunks() -> AsyncThrowingStream<PCM16k, any Error>? { nil }
-    var firstAudioUptime: Double? { nil }
-    var drainTimedOut: Bool { false }
 }
 @MainActor public protocol InsertionDriver: AnyObject {
     func snapshot(session: UUID) -> UUID
@@ -84,14 +93,16 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         let owner = generation
         session = id; finalized = false; isCancelling = false; recoveryText = nil
         timings.mark(.press, session: id)
-        do { try capture.begin() }
+        let streams: CaptureStreams
+        do { streams = try capture.begin() }
         catch { fail(AppError.capture); return }
         // After capture starts: the snapshot is synchronous AX IPC into the target app and can be slow.
         let target = insertion.snapshot(session: id)
         message = "Recording"; state = .recording
         media.begin(id)
         startHoldWarmup()
-        if streamingEnabled, pipeline.backend.capabilities.streaming, let chunks = capture.chunks() {
+        if streamingEnabled, pipeline.backend.capabilities.streaming,
+           case let .partial(chunks) = streams {
             let streaming = StreamingPipeline(pipeline: pipeline)
             self.streaming = streaming; streamingFailed = false; partial = nil
             delivery = Task { [weak self] in
@@ -106,7 +117,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                     }
                 } catch { await streaming.cancel(); if self.generation == owner { self.streamingFailed = true } }
             }
-        } else if let chunks = capture.completedChunks() {
+        } else if case let .completed(chunks) = streams {
             let pipeline = self.pipeline
             earlyDelivery = Task { [weak self] in
                 guard let self else { return [] }
@@ -152,8 +163,8 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     private func handoffCapture(session id: UUID, owner: UInt64,
                                 boundary: Double?) async -> PCM16k? {
         // Even cancellation must wait for capture handoff before ending its media lease.
-        let audio: PCM16k
-        do { audio = try await capture.end(at: boundary) }
+        let captured: CapturedAudio
+        do { captured = try await capture.end(at: boundary) }
         catch {
             _ = await earlyDelivery?.value
             draining = false; media.end(id)
@@ -162,14 +173,14 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         }
         draining = false
         timings.mark(.captureFinalized, session: id)
-        if timings.isEnabled, let first = capture.firstAudioUptime {
+        if timings.isEnabled, let first = captured.firstAudioUptime {
             timings.mark(.firstAudio, session: id, uptime: first)
         }
         diagnostics?.record(.init(.capture, session: id,
-            code: capture.drainTimedOut ? .drainTimeout : nil,
-            sampleCount: audio.samples.count))
+            code: captured.drainTimedOut ? .drainTimeout : nil,
+            sampleCount: captured.pcm.samples.count))
         media.end(id)
-        return audio
+        return captured.pcm
     }
     private struct FinalTranscription {
         let text: String?

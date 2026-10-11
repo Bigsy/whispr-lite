@@ -8,8 +8,9 @@ import AVFoundation
     @Test func longCapturePublishesCompletedChunksWithoutChangingFinalAudio() async throws {
         let format = try monoFormat()
         let worker = try AudioWorker(format: format)
-        try worker.begin(warm: false, earlyChunks: true)
-        let stream = try #require(worker.completedChunks())
+        guard case let .completed(stream) = try worker.begin(warm: false, earlyChunks: true) else {
+            Issue.record("Expected completed-chunk stream"); return
+        }
         let reader = Task { () throws -> [PCM16k] in
             var result: [PCM16k] = []
             for try await chunk in stream { result.append(chunk) }
@@ -25,15 +26,14 @@ import AVFoundation
         feed(0.3, packets: 50); feed(0, packets: 2)
         let full = try await worker.end()
         let chunks = try await reader.value
-        #expect(worker.completedChunks() == nil)
         #expect(chunks.count == 2)
         #expect(chunks.allSatisfy { (10...15).contains($0.duration) })
-        #expect(Array(full.samples.prefix(chunks.flatMap(\.samples).count)) == chunks.flatMap(\.samples))
+        #expect(Array(full.pcm.samples.prefix(chunks.flatMap(\.samples).count)) == chunks.flatMap(\.samples))
     }
     @MainActor @Test func engineTapCallbackRunsOffMainActorWithOwnedAudio() async throws {
         let format = try monoFormat()
         let worker = try AudioWorker(format: format)
-        try worker.begin(warm: false)
+        _ = try worker.begin(warm: false)
         // Construct the production tap on MainActor, invoke it as AVAudioEngine does.
         let callback = AudioTap(worker).callback()
         try await Task.detached {
@@ -45,13 +45,13 @@ import AVFoundation
             for i in 0..<320 { buffer.floatChannelData![0][i] = 0 }
         }.value
         let result = try await worker.end()
-        #expect(result.samples.count == 320)
-        #expect(result.samples.allSatisfy { abs($0 - 0.25) < 0.001 })
+        #expect(result.pcm.samples.count == 320)
+        #expect(result.pcm.samples.allSatisfy { abs($0 - 0.25) < 0.001 })
     }
     @Test(arguments: [16_000.0, 44_100.0, 48_000.0]) func conversionPreservesTailAndDuration(rate: Double) async throws {
         let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: 2, interleaved: false))
         let worker = try AudioWorker(format: format)
-        try worker.begin(warm: false)
+        _ = try worker.begin(warm: false)
         // 40 ms, with an audible ending marker; no hardware/microphone permission.
         let frames = Int(rate * 0.04)
         let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: UInt32(frames)))
@@ -59,19 +59,19 @@ import AVFoundation
         for channel in 0..<2 { for i in 0..<frames { buffer.floatChannelData![channel][i] = i >= frames - Int(rate * 0.01) ? 0.5 : 0 } }
         worker.receive(buffer)
         let result = try await worker.end()
-        #expect(abs(result.samples.count - 640) <= 2)
-        #expect(result.samples.suffix(80).contains { abs($0) > 0.1 })
+        #expect(abs(result.pcm.samples.count - 640) <= 2)
+        #expect(result.pcm.samples.suffix(80).contains { abs($0) > 0.1 })
     }
     @Test func warmPrerollIsBoundedAndNotDuplicated() async throws {
         let format = try monoFormat()
         let worker = try AudioWorker(format: format)
         let buffer = try filledBuffer(format: format, frames: 3200, value: 0.1)
         worker.receive(buffer)
-        try worker.begin(warm: true)
+        _ = try worker.begin(warm: true)
         let result = try await worker.end()
-        #expect(result.samples.count == 2400)
-        try worker.begin(warm: true)
-        #expect(try await worker.end().samples.isEmpty)
+        #expect(result.pcm.samples.count == 2400)
+        _ = try worker.begin(warm: true)
+        #expect(try await worker.end().pcm.samples.isEmpty)
     }
     @Test(arguments: [44_100.0, 96_000.0, 192_000.0]) func hardwareSizedInputPacketDoesNotOverflowWarmCapture(rate: Double) async throws {
         let format = try monoFormat(rate: rate)
@@ -80,10 +80,10 @@ import AVFoundation
         let frames = AVAudioFrameCount(rate / 10)
         let buffer = try filledBuffer(format: format, frames: frames, value: 0.25)
         worker.receive(buffer)
-        try worker.begin(warm: true)
+        _ = try worker.begin(warm: true)
         let audio = try await worker.end()
-        #expect(abs(audio.samples.count - 1600) <= 2)
-        #expect(audio.samples.suffix(100).contains { abs($0) > 0.1 })
+        #expect(abs(audio.pcm.samples.count - 1600) <= 2)
+        #expect(audio.pcm.samples.suffix(100).contains { abs($0) > 0.1 })
     }
 }
 @Suite struct LowLatencyCaptureTests {
@@ -103,18 +103,18 @@ import AVFoundation
         let format = try monoFormat(rate: 44_100)
         let worker = try AudioWorker(format: format, lowLatency: true)
         let callback = AudioTap(worker).sinkCallback()
-        try worker.begin(warm: false)
+        _ = try worker.begin(warm: false)
         // Ten 11.6 ms I/O cycles, as this Mac delivers; release 50 ms in.
         try feed(callback, packets: 10, rate: 44_100)
         let audio = try await worker.end(at: AVAudioTime.seconds(forHostTime: AVAudioTime.hostTime(forSeconds: 10.05)))
-        #expect(abs(audio.samples.count - 800) <= 16)
-        #expect(!worker.lastDrainTimedOut())
+        #expect(abs(audio.pcm.samples.count - 800) <= 16)
+        #expect(!audio.drainTimedOut)
     }
     @Test func missingIOCycleStillFailsInsteadOfSplicingAudio() async throws {
         let format = try monoFormat(rate: 48_000)
         let worker = try AudioWorker(format: format, lowLatency: true)
         let callback = AudioTap(worker).sinkCallback()
-        try worker.begin(warm: false)
+        _ = try worker.begin(warm: false)
         try feed(callback, packets: 6, rate: 48_000, gapAfter: 2)
         await #expect(throws: AppError.overflow) { try await worker.end() }
     }
@@ -122,14 +122,14 @@ import AVFoundation
         let format = try monoFormat(rate: 44_100)
         let worker = try AudioWorker(format: format, lowLatency: true)
         let callback = AudioTap(worker).sinkCallback()
-        try worker.begin(warm: false)
+        _ = try worker.begin(warm: false)
         let gate = DispatchSemaphore(value: 0)
         worker.queue.async { gate.wait() }
         // About 1.4 s of I/O cycles while the worker is stalled.
         try feed(callback, packets: 120, rate: 44_100)
         gate.signal()
         let audio = try await worker.end()
-        #expect(abs(audio.samples.count - 120 * 512 * 16_000 / 44_100) <= 16)
+        #expect(abs(audio.pcm.samples.count - 120 * 512 * 16_000 / 44_100) <= 16)
     }
 }
 @Suite struct AudioPoolTests {
@@ -143,9 +143,9 @@ import AVFoundation
         for _ in 0..<17 { worker.receive(packet) }
         gate.signal()
         #expect(throws: AppError.overflow) { try worker.begin(warm: false) }
-        try worker.begin(warm: false)
+        _ = try worker.begin(warm: false)
         for _ in 0..<40 { worker.receive(packet); worker.queue.sync {} }
-        #expect(try await worker.end().samples.count == 12_800)
+        #expect(try await worker.end().pcm.samples.count == 12_800)
     }
 }
 @Suite struct AudioBoundaryTests {
@@ -155,37 +155,37 @@ import AVFoundation
         func packet(_ value: Float) throws -> AVAudioPCMBuffer {
             try filledBuffer(format: format, frames: 320, value: value)
         }
-        try worker.begin(warm: false)
+        _ = try worker.begin(warm: false)
         worker.receive(try packet(0.1), hostSeconds: 10)
         let finish = Task { try await worker.end(at: 10.025) }
         try await Task.sleep(for: .milliseconds(5))
         worker.receive(try packet(0.9), hostSeconds: 10.02)
         let result = try await finish.value
-        #expect(result.samples.count == 400)
-        #expect(result.samples.suffix(80).allSatisfy { abs($0 - 0.9) < 0.001 })
+        #expect(result.pcm.samples.count == 400)
+        #expect(result.pcm.samples.suffix(80).allSatisfy { abs($0 - 0.9) < 0.001 })
     }
     @Test func lateReleasePacketKeepsCapturedAudio() async throws {
         let format = try monoFormat()
         let worker = try AudioWorker(format: format)
         let packet = try filledBuffer(format: format, frames: 320, value: 0.3)
-        try worker.begin(warm: false)
+        _ = try worker.begin(warm: false)
         worker.receive(packet, hostSeconds: 10)
         // The packet covering the release never arrives: keep what was captured, flag the tail.
         let result = try await worker.end(at: 10.5)
-        #expect(result.samples.count == 320)
-        #expect(worker.lastDrainTimedOut())
-        try worker.begin(warm: false)
+        #expect(result.pcm.samples.count == 320)
+        #expect(result.drainTimedOut)
+        _ = try worker.begin(warm: false)
         worker.receive(packet)
-        _ = try await worker.end()
-        #expect(!worker.lastDrainTimedOut())
+        #expect(!(try await worker.end()).drainTimedOut)
     }
 }
 @Suite struct StreamingAudioTests {
     @Test func invalidStreamingChunkFinishesInsteadOfGrowing() async throws {
         let format = try monoFormat()
         let worker = try AudioWorker(format: format)
-        try worker.begin(warm: false, streaming: true)
-        let stream = try #require(worker.chunks())
+        guard case let .partial(stream) = try worker.begin(warm: false, streaming: true) else {
+            Issue.record("Expected partial stream"); return
+        }
         let buffer = try filledBuffer(format: format, frames: 640, value: .nan)
         worker.receive(buffer)
         worker.queue.sync {}
@@ -195,21 +195,22 @@ import AVFoundation
     @Test func boundedSenderChunksMatchOwnedCaptureAndBackpressureKeepsBatchAudio() async throws {
         let format = try monoFormat()
         let worker = try AudioWorker(format: format)
-        try worker.begin(warm: false, streaming: true)
-        let stream = try #require(worker.chunks())
+        guard case let .partial(stream) = try worker.begin(warm: false, streaming: true) else {
+            Issue.record("Expected partial stream"); return
+        }
         let buffer = try filledBuffer(format: format, frames: 3200, value: 0.1)
         worker.receive(buffer)
         let audio = try await worker.end()
-        #expect(worker.chunks() == nil)
         var chunks: [Float] = []
         for try await chunk in stream { #expect(chunk.samples.count <= 640); chunks.append(contentsOf: chunk.samples) }
-        #expect(chunks == audio.samples)
-        try worker.begin(warm: false, streaming: true)
-        let overflow = try #require(worker.chunks())
+        #expect(chunks == audio.pcm.samples)
+        guard case let .partial(overflow) = try worker.begin(warm: false, streaming: true) else {
+            Issue.record("Expected partial stream"); return
+        }
         // Four packets produce 20 chunks, exceeding the fixed 16-chunk sender buffer without a consumer.
         for _ in 0..<4 { worker.receive(buffer); worker.queue.sync {} }
         let retained = try await worker.end()
-        #expect(retained.samples.count == 12_800)
+        #expect(retained.pcm.samples.count == 12_800)
         await #expect(throws: AppError.overflow) { for try await _ in overflow {} }
     }
 }
