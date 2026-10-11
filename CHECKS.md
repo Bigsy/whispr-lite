@@ -6,6 +6,7 @@ third-party insertion, actual media playback compatibility or release acceptance
 
 | Check | Result |
 |---|---|
+| 11 October hotkey state machine readability, Apple M1 Max | `make test` passed with 105 Swift, 17 native broker, 16 synthetic setup and 6 release tests. Existing hotkey and modifier release suites cover repeated, injected, interrupted and side-specific gestures. Physical keyboard acceptance remains open. |
 | 11 October shortcut recorder state, Apple M1 Max | `make test` passed with 105 Swift, 17 native broker, 16 synthetic setup and 6 release tests after removing the duplicate active-key field and moving the physical modifier definitions. No physical shortcut capture was performed. |
 | 11 October shared hotkey codes, Apple M1 Max | `make test` passed with 105 Swift, 17 native broker, 16 synthetic setup and 6 release tests. Hotkey and shortcut recorder suites remain green; physical layouts and focus checks remain open. |
 | 11 October main-queue observer hops, Apple M1 Max | `make test` passed with 105 Swift, 17 native broker, 16 synthetic setup and 6 release tests. Main-queue observers compile with direct main-actor handling. Physical sleep/wake and device-change acceptance remain open. |

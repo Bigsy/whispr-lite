@@ -83,6 +83,9 @@ Core key-code constants are shared by hotkey handling, shortcut recording, prese
 the UI preview. Shortcut display tables are initialized once.
 The shortcut recorder derives its active key from the pending candidate, and the
 physical modifier definitions live with the hotkey state machine.
+The event-tap hotkey state machine dispatches key, legacy modifier chord and Fn
+gestures through separate bounded branches. Release and interruption share reset
+helpers; interrupted gestures wait for a full release before another press.
 `WhisprLite --ui-preview OUTPUT_DIRECTORY` renders synthetic native settings at each page's
 fitted height and on a 560-point short screen, in light/dark appearances, plus indicator
 states. `settings-heights.json` records each fitted height; a real titled window must fit

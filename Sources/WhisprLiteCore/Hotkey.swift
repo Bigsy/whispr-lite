@@ -84,48 +84,62 @@ public struct HotkeyMachine: Sendable {
     public static let shortcutModifiers = relevantModifiers | fnMask
     public var configuration: HotkeyConfiguration
     private var held = false
-    private var fnShortcut = false
+    private var awaitingRelease = false
     private var physicalModifierDown = false
     private var oppositeModifierDown = false
     public init(_ configuration: HotkeyConfiguration) { self.configuration = configuration }
-    public mutating func consume(_ input: HotkeyInput) -> (HotkeyAction?, Bool) {
+    private typealias Decision = (action: HotkeyAction?, swallow: Bool)
+    public mutating func consume(_ input: HotkeyInput) -> (action: HotkeyAction?, swallow: Bool) {
         guard !input.injected else { return (nil, false) }
         if input.kind == .down, input.code == KeyCode.escape { return (.cancel, held) }
         if let code = configuration.keyCode {
             if let modifier = HotkeyModifier(rawValue: code) { return consumeModifier(input, modifier: modifier) }
-            if input.kind == .down, input.code == code,
-               input.flags & Self.shortcutModifiers == configuration.modifiers & Self.shortcutModifiers {
-                guard !input.repeated, !held else { return (nil, true) }
-                held = true; return (.press, true)
-            }
-            if input.kind == .up, input.code == code, held { held = false; return (.release, true) }
-        } else if configuration.modifiers & Self.relevantModifiers != 0 {
-            let matches = input.flags & Self.relevantModifiers == configuration.modifiers & Self.relevantModifiers
-            if input.kind == .flags {
-                if matches, !held, !fnShortcut { held = true; return (.press, true) }
-                if !matches { let wasHeld = held; held = false; fnShortcut = false; return (wasHeld ? .release : nil, wasHeld) }
-            }
-            if input.kind == .down { let wasHeld = held; held = false; fnShortcut = true; return (wasHeld ? .cancel : nil, false) }
-        } else {
-            let fn = input.flags & Self.fnMask != 0
-            if input.kind == .flags {
-                if fn, input.flags & Self.relevantModifiers != 0 {
-                    let wasHeld = held; held = false; fnShortcut = true; return (wasHeld ? .cancel : nil, false)
-                }
-                if fn, !held, !fnShortcut, input.flags & Self.relevantModifiers == 0 { held = true; return (.press, true) }
-                if !fn {
-                    let wasHeld = held; held = false; fnShortcut = false
-                    return (wasHeld ? .release : nil, wasHeld)
-                }
-            }
-            if input.kind == .down, fn, input.code != HotkeyModifier.fn.rawValue {
-                let wasHeld = held; held = false; fnShortcut = true
-                return (wasHeld ? .cancel : nil, false)
-            }
+            return consumeKey(input, code: code)
         }
+        if configuration.modifiers & Self.relevantModifiers != 0 { return consumeLegacyChord(input) }
+        return consumeFn(input)
+    }
+    private mutating func endHold() -> Decision {
+        let wasHeld = held
+        held = false; awaitingRelease = false
+        return (wasHeld ? .release : nil, wasHeld)
+    }
+    private mutating func interruptHold() -> Decision {
+        let wasHeld = held
+        held = false; awaitingRelease = true
+        return (wasHeld ? .cancel : nil, false)
+    }
+    private mutating func consumeKey(_ input: HotkeyInput, code: UInt16) -> Decision {
+        if input.kind == .down, input.code == code,
+           input.flags & Self.shortcutModifiers == configuration.modifiers & Self.shortcutModifiers {
+            guard !input.repeated, !held else { return (nil, true) }
+            held = true; return (.press, true)
+        }
+        if input.kind == .up, input.code == code, held { return endHold() }
         return (nil, false)
     }
-    private mutating func consumeModifier(_ input: HotkeyInput, modifier: HotkeyModifier) -> (HotkeyAction?, Bool) {
+    private mutating func consumeLegacyChord(_ input: HotkeyInput) -> Decision {
+        let matches = input.flags & Self.relevantModifiers == configuration.modifiers & Self.relevantModifiers
+        if input.kind == .flags {
+            if matches, !held, !awaitingRelease { held = true; return (.press, true) }
+            if !matches { return endHold() }
+        }
+        if input.kind == .down { return interruptHold() }
+        return (nil, false)
+    }
+    private mutating func consumeFn(_ input: HotkeyInput) -> Decision {
+        let fn = input.flags & Self.fnMask != 0
+        if input.kind == .flags {
+            if fn, input.flags & Self.relevantModifiers != 0 { return interruptHold() }
+            if fn, !held, !awaitingRelease, input.flags & Self.relevantModifiers == 0 {
+                held = true; return (.press, true)
+            }
+            if !fn { return endHold() }
+        }
+        if input.kind == .down, fn, input.code != HotkeyModifier.fn.rawValue { return interruptHold() }
+        return (nil, false)
+    }
+    private mutating func consumeModifier(_ input: HotkeyInput, modifier: HotkeyModifier) -> Decision {
         if input.kind == .flags {
             if let other = HotkeyModifier(rawValue: input.code), other != modifier, other.flag == modifier.flag {
                 oppositeModifierDown = other.isDown(flags: input.flags, previouslyDown: oppositeModifierDown)
@@ -139,27 +153,18 @@ public struct HotkeyMachine: Sendable {
             } else if input.flags & modifier.sideFlags != 0 {
                 physicalModifierDown = input.flags & modifier.sideFlag != 0
             }
-            if !physicalModifierDown {
-                let wasHeld = held; held = false; fnShortcut = false
-                return (wasHeld ? .release : nil, wasHeld)
-            }
+            if !physicalModifierDown { return endHold() }
             let required = (configuration.modifiers & Self.shortcutModifiers) | modifier.flag
             let actual = input.flags & Self.shortcutModifiers
             let extraSide = oppositeModifierDown || input.flags & (modifier.sideFlags & ~modifier.sideFlag) != 0
-            if actual & ~required != 0 || extraSide {
-                let wasHeld = held; held = false; fnShortcut = true
-                return (wasHeld ? .cancel : nil, false)
-            }
+            if actual & ~required != 0 || extraSide { return interruptHold() }
             if held, actual != required {
-                held = false; fnShortcut = true
+                held = false; awaitingRelease = true
                 return (.release, true)
             }
-            if actual == required, !held, !fnShortcut { held = true; return (.press, true) }
+            if actual == required, !held, !awaitingRelease { held = true; return (.press, true) }
         }
-        if input.kind == .down, physicalModifierDown {
-            let wasHeld = held; held = false; fnShortcut = true
-            return (wasHeld ? .cancel : nil, false)
-        }
+        if input.kind == .down, physicalModifierDown { return interruptHold() }
         return (nil, false)
     }
 }
