@@ -24,5 +24,6 @@ for source in sources:
                                '(Bundle.main.resourceURL ?? Bundle.main.bundleURL).appendingPathComponent(')
     if adapted != original:
         path.write_text(adapted)
-compiler = subprocess.check_output(['xcrun', '--find', 'swiftc'], text=True).strip()
+compiler = os.environ.get('WHISPR_SWIFTC_PATH') or subprocess.check_output(
+    ['xcrun', '--find', 'swiftc'], text=True).strip()
 os.execv(compiler, [compiler, *arguments])

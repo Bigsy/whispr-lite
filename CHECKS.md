@@ -6,6 +6,7 @@ third-party insertion, actual media playback compatibility or release acceptance
 
 | Check | Result |
 |---|---|
+| 11 October compiler-path cache, Apple M1 Max | A synthetic override check ran the Swift compiler adapter with no `xcrun` in `PATH`. An incremental signed arm64 `build-app.sh` completed and verified its app signature. The app installed under Applications was unchanged. |
 | 11 October CI workflow setup, Apple M1 Max | Both workflows and their shared composite action parsed as YAML, and six synthetic release tests passed. The pinned Xcode selection is in one action, and Markdown changes are no longer excluded from CI. No hosted GitHub Actions run was triggered locally. |
 | 11 October shared Swift build environment, Apple M1 Max | `make check` passed with 108 registered Swift tests (one optional skip), 17 native broker, 26 synthetic setup and 6 release tests, signed arm64 app, doctor and bundle smoke. `build-app.sh` completed one release build and used the verified output path. Existing installed app and cleanup service were unchanged. |
 | 11 October shared broker client, Apple M1 Max | `make test` passed with 108 registered Swift tests (one optional skip), 17 native broker, 26 synthetic setup and 6 release tests. A synthetic queue timeout now raises the intended media deadline error; native tests still cover generation, lease and process behavior. The optional real media probe was not run, and player compatibility remains open. |

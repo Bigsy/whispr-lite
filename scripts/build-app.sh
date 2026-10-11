@@ -4,6 +4,7 @@ cd "${0:A:h}/.."
 source scripts/swift-env.sh
 task_scratch_path=.build
 export SWIFT_EXEC="$PWD/scripts/swiftc-app.py"
+export WHISPR_SWIFTC_PATH="$(xcrun --find swiftc)"
 if [[ -n "${PARAKEET_CORE_PATH:-}" ]]; then
   task_scratch_path=.build/candidate
 fi
