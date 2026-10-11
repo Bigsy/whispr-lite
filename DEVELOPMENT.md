@@ -81,6 +81,8 @@ Notification observers registered on the main queue handle app suspension, short
 recorder focus loss and audio engine configuration changes on the main actor directly.
 Core key-code constants are shared by hotkey handling, shortcut recording, presets and
 the UI preview. Shortcut display tables are initialized once.
+The shortcut recorder derives its active key from the pending candidate, and the
+physical modifier definitions live with the hotkey state machine.
 `WhisprLite --ui-preview OUTPUT_DIRECTORY` renders synthetic native settings at each page's
 fitted height and on a 560-point short screen, in light/dark appearances, plus indicator
 states. `settings-heights.json` records each fitted height; a real titled window must fit
