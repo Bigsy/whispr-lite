@@ -17,9 +17,14 @@ def module(name, file):
 
 packaging = module('packaging', 'package-release.py')
 planning = module('planning', 'release-plan.py')
+local_http = module('local_http', 'local_http.py')
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_local_http_ignores_configured_proxies(self):
+        from urllib.request import ProxyHandler
+        self.assertFalse(any(isinstance(handler, ProxyHandler) for handler in local_http.LOCAL.handlers))
+
     def test_stable_tags_require_notarization_and_prereleases_allow_previews(self):
         self.assertEqual(planning.plan('refs/tags/v1.2.3')['RELEASE_CHANNEL'], 'notarized')
         result = planning.plan('refs/tags/v1.2.3-beta.2')

@@ -15,6 +15,7 @@ import unicodedata
 import urllib.error
 import urllib.request
 from urllib.parse import urlparse
+from local_http import LOCAL
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -25,12 +26,12 @@ HISTORY = pathlib.Path.home() / 'Library/Application Support/open-whispr/transcr
 def post(endpoint, path, payload, timeout=120):
     request = urllib.request.Request(endpoint + path, data=json.dumps(payload).encode(),
                                      headers={'Content-Type': 'application/json'})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with LOCAL.open(request, timeout=timeout) as response:
         return json.load(response)
 
 
 def get(endpoint, path, timeout=2):
-    with urllib.request.urlopen(endpoint + path, timeout=timeout) as response:
+    with LOCAL.open(endpoint + path, timeout=timeout) as response:
         return json.load(response)
 
 

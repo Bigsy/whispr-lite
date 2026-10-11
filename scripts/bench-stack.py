@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import time
 import urllib.request
+from local_http import LOCAL
 root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
 parser.add_argument('--repetitions', type=int, default=30)
@@ -32,7 +33,7 @@ def request(fixture, condition, maximum=512):
                 temperature=0, max_tokens=512, stream=False, chat_template_kwargs=dict(enable_thinking=False))
     body['max_tokens'] = maximum
     start = time.monotonic()
-    with urllib.request.urlopen(urllib.request.Request(args.endpoint+'/v1/chat/completions',
+    with LOCAL.open(urllib.request.Request(args.endpoint+'/v1/chat/completions',
             data=json.dumps(body).encode(), headers={'Content-Type':'application/json'}), timeout=10) as response:
         result = json.load(response)
     text = result['choices'][0]['message']['content'].strip()
