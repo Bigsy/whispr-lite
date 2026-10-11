@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic setup tests: no downloads, real login-item writes or private configuration."""
 import hashlib
+from contextlib import redirect_stderr
 import importlib.util
 import io
 import json
@@ -43,6 +44,22 @@ def batch(sequence, operations):
 
 
 class SetupTests(unittest.TestCase):
+    def test_benchmark_guard_redacts_exception_text(self):
+        stderr = io.StringIO()
+        def private_error():
+            raise ValueError('synthetic private transcript')
+        with redirect_stderr(stderr), self.assertRaises(SystemExit) as exit_error:
+            bench_common.run_guarded(private_error, 'Synthetic check')
+        self.assertEqual(exit_error.exception.code, 1)
+        self.assertIn('ValueError', stderr.getvalue())
+        self.assertNotIn('synthetic private transcript', stderr.getvalue())
+        stderr = io.StringIO()
+        def safe_error():
+            raise ValueError('Output parity failed')
+        with redirect_stderr(stderr), self.assertRaises(SystemExit):
+            bench_common.run_guarded(safe_error, 'Synthetic check', {'Output parity failed'})
+        self.assertIn('Output parity failed', stderr.getvalue())
+
     def test_benchmark_report_header_and_private_content_guard(self):
         with tempfile.TemporaryDirectory() as temporary:
             destination = Path(temporary) / 'report.json'

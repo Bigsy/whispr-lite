@@ -8,7 +8,7 @@ import time
 
 from cleanup_bench import (ALIAS, ISOLATED_PORT, SERVICE_PORT, DictionaryCorrections, LocalHTTP, isolated_server,
                            load_fixtures, load_saved_cleanup, loopback_url, summary,
-                           words, write_report)
+                           words, write_report, run_guarded)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -202,7 +202,7 @@ if __name__ == '__main__':
     parser.add_argument('--isolated-server', action='store_true',
                         help=f'Own a temporary server on {ISOLATED_PORT} with --cache-ram 0; reuse verified model files read-only')
     parser.add_argument('--output', type=Path, default=ROOT / 'bench/results/prefill.json')
-    try:
+    def main():
         args = parser.parse_args()
         if args.isolated_server:
             with isolated_server(extra=('--cache-ram', '0')) as server:
@@ -211,11 +211,7 @@ if __name__ == '__main__':
                 run(args)
         else:
             run(args)
-    except KeyboardInterrupt:
-        parser.exit(130, 'Prefill experiment interrupted; incomplete run discarded.\n')
-    except Exception as error:
-        safe_reasons = {'Temporary server exited', 'Temporary server not ready',
-                        'Prior final transcript contaminated prefix benchmark', 'Expected prefix was not reused',
-                        'Forced miss reused cache', 'Forced prefill miss reused cache', 'Unexpected prefill generation'}
-        reason = str(error) if str(error) in safe_reasons else type(error).__name__
-        parser.exit(1, f'Prefill experiment failed ({reason}); private request/response details suppressed.\n')
+    safe_reasons = {'Temporary server exited', 'Temporary server not ready',
+                    'Prior final transcript contaminated prefix benchmark', 'Expected prefix was not reused',
+                    'Forced miss reused cache', 'Forced prefill miss reused cache', 'Unexpected prefill generation'}
+    run_guarded(main, 'Prefill experiment', safe_reasons)

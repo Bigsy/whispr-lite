@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import statistics
 import subprocess
+import sys
 import time
 import unicodedata
 import urllib.error
@@ -188,6 +189,20 @@ def write_report(path, report, experiment, *, forbidden=()):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(encoded)
     return report
+
+
+def run_guarded(main, label, safe_reasons=()):
+    """Keep exception text from private requests and responses out of terminal logs."""
+    try:
+        return main()
+    except KeyboardInterrupt:
+        print(f'{label} interrupted; incomplete run discarded.', file=sys.stderr)
+        raise SystemExit(130)
+    except Exception as error:
+        reason = str(error) if str(error) in safe_reasons else type(error).__name__
+        print(f'{label} failed ({reason}); private request/response details suppressed.',
+              file=sys.stderr)
+        raise SystemExit(1)
 
 
 @lru_cache(maxsize=1)

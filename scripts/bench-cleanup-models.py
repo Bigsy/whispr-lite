@@ -14,7 +14,7 @@ import urllib.error
 from cleanup_bench import (DEFAULT_PROMPT, LOCK, SYNTHETIC_DICTIONARY, DictionaryCorrections,
                            LocalHTTP, app_request, isolated_server, load_fixtures,
                            load_saved_cleanup, loopback_url, matches_synthetic, messages,
-                           nearest_rank, words, write_report)
+                           nearest_rank, run_guarded, words, write_report)
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -149,4 +149,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    run_guarded(main, 'Cleanup model comparison',
+                {'installed Gemma baseline is not ready', 'Temporary server exited',
+                 'Temporary server not ready', 'Request exceeds the app byte budget',
+                 'Request exceeds the app context budget'})

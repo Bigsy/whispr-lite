@@ -6,7 +6,7 @@ from pathlib import Path
 import time
 from cleanup_bench import (ALIAS, SERVICE_PORT, LocalHTTP, SYNTHETIC_DICTIONARY, app_request,
                            load_fixtures, loopback_url, matches_synthetic, messages,
-                           summary, write_report)
+                           run_guarded, summary, write_report)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -119,6 +119,6 @@ def parser():
 
 if __name__ == '__main__':
     argument_parser = parser()
-    try: run(argument_parser.parse_args())
-    except (OSError, ValueError, KeyError, TypeError):
-        argument_parser.exit(1, 'Prompt comparison failed; private request/response details suppressed.\n')
+    run_guarded(lambda: run(argument_parser.parse_args()), 'Prompt comparison',
+                {'Request exceeds the app byte budget', 'Request exceeds the app context budget',
+                 'Synthetic output was truncated', 'Server reused tokens in the uncached condition'})

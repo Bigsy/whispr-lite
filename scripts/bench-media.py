@@ -9,7 +9,7 @@ import statistics
 import subprocess
 import threading
 import time
-from cleanup_bench import nearest_rank, write_report
+from cleanup_bench import nearest_rank, run_guarded, write_report
 
 ROOT = Path(__file__).resolve().parent.parent
 MEDIA_REVISION = json.loads((ROOT / 'stack.lock.json').read_text())['media_adapter']['revision']
@@ -116,4 +116,5 @@ def main():
         thread.join(timeout=1); process.stdout.close()
 
 if __name__ == '__main__':
-    main()
+    run_guarded(main, 'Media probe', {'Media response deadline',
+                                     'Control benchmark requires a playing, identifiable active session'})
