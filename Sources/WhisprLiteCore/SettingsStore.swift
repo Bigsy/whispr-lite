@@ -115,17 +115,20 @@ public struct Preferences: Codable, Sendable {
             guard preferences.version == 1 else { throw AppError.unsupported }
         } else { preferences = .init() }
     }
-    public func save(_ value: Preferences, prompt: String, dictionary: String) throws {
+    /// A nil private value preserves its file, including one that could not be decoded.
+    public func save(_ value: Preferences, prompt: String?, dictionary: String?) throws {
         guard value.version == 1, value.asrTimeoutSeconds.isFinite, value.cleanupTimeoutSeconds.isFinite,
               (1...120).contains(value.asrTimeoutSeconds), (1...120).contains(value.cleanupTimeoutSeconds),
-              prompt.utf8.count <= 16_384, dictionary.utf8.count <= 16_384,
+              (prompt?.utf8.count ?? 0) <= 16_384, (dictionary?.utf8.count ?? 0) <= 16_384,
               value.cleanupDictionaryPrefix.utf8.count <= 2048 else { throw AppError.contextLimit }
         guard value.asrModelDirectory.isEmpty || value.asrModelDirectory.hasPrefix("/") else { throw AppError.unsupported }
         _ = try LocalEndpoint(value.asrEndpoint); _ = try LocalEndpoint(value.cleanupEndpoint)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                               attributes: [.posixPermissions: 0o700])
-        for (name, data) in [("preferences.json", try JSONEncoder().encode(value)),
-                             ("prompt.txt", Data(prompt.utf8)), ("dictionary.txt", Data(dictionary.utf8))] {
+        var files = [("preferences.json", try JSONEncoder().encode(value))]
+        if let prompt { files.append(("prompt.txt", Data(prompt.utf8))) }
+        if let dictionary { files.append(("dictionary.txt", Data(dictionary.utf8))) }
+        for (name, data) in files {
             let path = directory.appendingPathComponent(name)
             try data.write(to: path, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path.path)

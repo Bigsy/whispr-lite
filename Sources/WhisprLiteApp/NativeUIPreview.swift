@@ -36,6 +36,10 @@ import Darwin
         try settings("general", .general, .dark)
         try settings("cleanup", .cleanup, .dark)
         try settings("cleanup-light", .cleanup, .light)
+        try Data(repeating: 65, count: 16_385).write(to: temporary.appendingPathComponent("prompt.txt"))
+        try settings("cleanup-unreadable-prompt", .cleanup, .dark)
+        try store.save(store.preferences, prompt: SettingsStore.defaultPrompt,
+                       dictionary: "Parakeet\nhappy fire > HAPI FHIR\ndochler > Doccla")
         try settings("advanced-parakeet", .advanced, .dark)
         try settings("general-short-screen", .general, .dark, height: 560)
         try settings("cleanup-short-screen-light", .cleanup, .light, height: 560)

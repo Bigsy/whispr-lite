@@ -19,7 +19,11 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
     @State private var preferences: Preferences
     @State private var prompt: String
     @State private var dictionary: String
-    @State private var error = ""
+    @State private var promptUnreadable: Bool
+    @State private var dictionaryUnreadable: Bool
+    @State private var promptEdited = false
+    @State private var dictionaryEdited = false
+    @State private var error: String
     @State private var shortcut: String
     @State private var recordingShortcut = false
     @State private var microphones: [MicrophoneDevice] = []
@@ -36,9 +40,19 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
         self.store = store; self.app = app; self.saved = saved; self.enumerateMicrophones = enumerateMicrophones
         _page = State(initialValue: page)
         _preferences = State(initialValue: store.preferences)
-        _prompt = State(initialValue: (try? store.privateText("prompt.txt")) ?? SettingsStore.defaultPrompt)
-        _dictionary = State(initialValue: (try? store.privateText("dictionary.txt")) ?? "")
+        let loadedPrompt = Self.loadPrivateText("prompt.txt", fallback: SettingsStore.defaultPrompt, store: store)
+        let loadedDictionary = Self.loadPrivateText("dictionary.txt", fallback: "", store: store)
+        _prompt = State(initialValue: loadedPrompt.text)
+        _dictionary = State(initialValue: loadedDictionary.text)
+        _promptUnreadable = State(initialValue: loadedPrompt.unreadable)
+        _dictionaryUnreadable = State(initialValue: loadedDictionary.unreadable)
+        _error = State(initialValue: loadedPrompt.unreadable || loadedDictionary.unreadable
+            ? "A private prompt or dictionary could not be read. Its file will be preserved until you edit or reset it." : "")
         _shortcut = State(initialValue: Self.selection(for: store.preferences.hotkey))
+    }
+    private static func loadPrivateText(_ name: String, fallback: String, store: SettingsStore) -> (text: String, unreadable: Bool) {
+        do { return (try store.privateText(name) ?? fallback, false) }
+        catch { return (fallback, true) }
     }
     private static func selection(for hotkey: HotkeyConfiguration) -> String {
         if hotkey == .init() { return "fn" }
@@ -71,6 +85,8 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Color(nsColor: .windowBackgroundColor))
+        .onChange(of: prompt) { _, _ in promptEdited = true }
+        .onChange(of: dictionary) { _, _ in dictionaryEdited = true }
         .onAppear { if enumerateMicrophones { microphones = MicrophoneDevice.available() } }
         .sheet(isPresented: $recordingShortcut, onDismiss: { app.endShortcutRecording() }) {
             ShortcutRecordingSheet(recorded: { configuration in
@@ -182,11 +198,17 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
         Group {
             editorSection("Cleanup prompt", "The default makes minimal edits and keeps your meaning. Add a short context line for your work or terminology.",
                           text: $prompt, height: $promptHeight) {
-                Button("Use default prompt") { prompt = SettingsStore.defaultPrompt }.controlSize(.small)
+                Button("Use default prompt") { prompt = SettingsStore.defaultPrompt; promptEdited = true }.controlSize(.small)
                     .help("Replace the editor text with the default. Changes apply when saved.")
+            }
+            if promptUnreadable {
+                warning("Saved prompt could not be read. The editor shows the default; Save preserves the file until you edit or reset it.")
             }
             editorSection("Dictionary and phrases", "Names and terms guide the local model. For an exact conversion, write spoken phrase > Written phrase on its own line; case is ignored.",
                           text: $dictionary, height: $dictionaryHeight) { EmptyView() }
+            if dictionaryUnreadable {
+                warning("Saved dictionary could not be read. The editor is blank; Save preserves the file until you edit it.")
+            }
             section("Dictation history") {
                 toggleRow("Keep dictation history on this Mac", "Saves each transcript and its cleaned text in a private file on this Mac, so a better local cleanup model can be trained on your own dictation. Never uploaded or shared. Audio and cancelled dictations are not kept.",
                           isOn: $preferences.saveDictationHistory)
@@ -322,8 +344,14 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
             case "fn": preferences.hotkey = .init()
             default: break // Preserve custom saved gestures when changing unrelated settings.
             }
-            try store.save(preferences, prompt: prompt, dictionary: dictionary)
-            error = ""; saved()
+            try store.save(preferences,
+                prompt: promptUnreadable && !promptEdited ? nil : prompt,
+                dictionary: dictionaryUnreadable && !dictionaryEdited ? nil : dictionary)
+            if promptEdited { promptUnreadable = false; promptEdited = false }
+            if dictionaryEdited { dictionaryUnreadable = false; dictionaryEdited = false }
+            error = promptUnreadable || dictionaryUnreadable
+                ? "A private prompt or dictionary could not be read. Its file is preserved until you edit or reset it." : ""
+            saved()
         } catch {
             self.error = "Check local server addresses, the model folder, deadlines (1–120 seconds) and prompt/dictionary size."
         }

@@ -744,6 +744,22 @@ actor PrefillProbe {
         let mode = try FileManager.default.attributesOfItem(atPath: root.appendingPathComponent("dictionary.txt").path)[.posixPermissions] as? Int
         #expect(mode == 0o600)
     }
+    @Test func unreadablePromptIsPreservedWhenOtherSettingsAreSaved() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("whispr-test-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try SettingsStore(directory: root)
+        try store.save(Preferences(), prompt: "synthetic prompt", dictionary: "synthetic dictionary")
+        let promptURL = root.appendingPathComponent("prompt.txt")
+        let oversized = Data(repeating: 65, count: 16_385)
+        try oversized.write(to: promptURL)
+        #expect(throws: AppError.contextLimit) { try store.privateText("prompt.txt") }
+        var preferences = store.preferences
+        preferences.pauseMedia = false
+        try store.save(preferences, prompt: nil, dictionary: "updated synthetic dictionary")
+        #expect(try Data(contentsOf: promptURL) == oversized)
+        #expect(try store.privateText("dictionary.txt") == "updated synthetic dictionary")
+        #expect(try SettingsStore(directory: root).preferences.pauseMedia == false)
+    }
 }
 @Suite struct StreamingAudioTests {
     @Test func boundedSenderChunksMatchOwnedCaptureAndBackpressureKeepsBatchAudio() async throws {
