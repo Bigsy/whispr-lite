@@ -30,6 +30,7 @@ public extension CaptureDriver {
 public enum DictationState: String, Codable, Sendable { case idle, recording, processing, inserting, error }
 @MainActor public final class DictationCoordinator {
     public private(set) var state: DictationState = .idle { didSet { onChange?() } }
+    public private(set) var isCancelling = false
     public private(set) var recoveryText: String?
     public private(set) var message = "Preparing…"
     public var ready = false
@@ -81,7 +82,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         }
         let id = UUID(); generation &+= 1
         let owner = generation
-        session = id; finalized = false; recoveryText = nil
+        session = id; finalized = false; isCancelling = false; recoveryText = nil
         timings.mark(.press, session: id)
         do { try capture.begin() }
         catch { fail(AppError.capture); return }
@@ -229,6 +230,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         if let id = session, !finalized {
             finalized = true; draining = true
             // Serialize the end before allowing another recording to own the capture buffers.
+            isCancelling = true
             message = "Cancelling"; state = .processing
             task = Task { [weak self] in
                 guard let self else { return }
@@ -240,6 +242,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         } else if let earlyDelivery {
             // A cancelled cleanup request can return before CoreML finishes. Keep
             // the coordinator busy until the early worker has actually settled.
+            isCancelling = true
             draining = true; message = "Cancelling"; state = .processing
             task = Task { [weak self] in
                 _ = await earlyDelivery.value
@@ -281,7 +284,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
             }
         }
         streaming = nil; delivery = nil; earlyDelivery = nil; partial = nil
-        session = nil; currentTarget = nil; draining = false
+        session = nil; currentTarget = nil; draining = false; isCancelling = false
         switch result {
         case .completed:
             message = ready ? "Ready" : "Not ready"

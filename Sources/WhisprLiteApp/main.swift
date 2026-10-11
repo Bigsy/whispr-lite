@@ -181,6 +181,8 @@ import WhisprLiteCore
         diagnostics?.setEnabled(store.preferences.debugLogging)
         history = DictationHistory(directory: store.directory.appendingPathComponent("History", isDirectory: true))
         indicator.activitySource = { [weak self] in self?.audio.recordingActivity ?? 0 }
+        indicator.onCancel = { [weak self] in self?.coordinator?.cancel() }
+        indicator.onCopy = { [weak self] in self?.copyResult() }
         observeLifecycle()
         if case .run(let options) = command, options.showBenchmarkWindow { showBenchmark() }
         if case .captureFlow = command { historyAllowed = false; showBenchmark() }
@@ -454,17 +456,12 @@ import WhisprLiteCore
         diagnostics?.record(.init(.state, state: coordinator.state))
         indicator.update(state: coordinator.state, message: coordinator.message,
             demo: store.preferences.backend == .demo, canCopy: coordinator.recoveryText != nil,
-            showActivity: store.preferences.showAudioActivity,
-            cancel: { [weak self] in self?.coordinator?.cancel() }, copy: { [weak self] in self?.copyResult() })
+            isCancelling: coordinator.isCancelling,
+            showActivity: store.preferences.showAudioActivity)
     }
     private func setMenuAppearance(_ state: DictationState) {
-        let symbol = switch state {
-        case .recording: "mic.fill"
-        case .processing, .inserting: "ellipsis"
-        case .error: "exclamationmark.circle"
-        case .idle: "mic"
-        }
-        item?.button?.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Whispr Lite")
+        item?.button?.image = NSImage(systemSymbolName: state.symbolName,
+            accessibilityDescription: "Whispr Lite")
         item?.button?.title = store?.preferences.backend == .demo ? " \(DemoLabel.name)" : ""
     }
     private func observeLifecycle() {

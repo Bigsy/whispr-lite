@@ -3,23 +3,31 @@ import SwiftUI
 import WhisprLiteCore
 
 /// One nonactivating panel. Its only timer exists while visible and recording.
-@MainActor final class RecordingIndicator: NSObject {
+@MainActor final class RecordingIndicator {
+    private static let meterInterval = 0.1
     private var panel: IndicatorPanel?
     private var host: NSHostingView<RecordingPill>?
     private var presentation: IndicatorPresentation?
     private let activity = AudioActivityDisplay()
     private var meterTimer: Timer?
     var activitySource: (() -> Float)?
+    var onCancel: (() -> Void)?
+    var onCopy: (() -> Void)?
+    private lazy var cancelAction: () -> Void = { [weak self] in self?.onCancel?() }
+    private lazy var copyAction: () -> Void = { [weak self] in self?.onCopy?() }
 
-    func update(state: DictationState, message: String, demo: Bool, canCopy: Bool, showActivity: Bool = true,
-                cancel: @escaping () -> Void, copy: @escaping () -> Void) {
+    func update(state: DictationState, message: String, demo: Bool, canCopy: Bool,
+                isCancelling: Bool, showActivity: Bool = true) {
         guard state != .idle else { hide(); return }
-        let next = IndicatorPresentation(state: state, message: message, demo: demo, canCopy: canCopy, showActivity: showActivity)
+        let next = IndicatorPresentation(state: state, message: message, demo: demo,
+            canCopy: canCopy, isCancelling: isCancelling, showActivity: showActivity)
         guard next != presentation else { return }
         presentation = next
         if state == .recording && showActivity {
             if meterTimer == nil {
-                let timer = Timer(timeInterval: 0.1, target: self, selector: #selector(sampleActivity), userInfo: nil, repeats: true)
+                let timer = Timer(timeInterval: Self.meterInterval, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.sampleActivity() }
+                }
                 timer.tolerance = 0.025
                 RunLoop.main.add(timer, forMode: .common); meterTimer = timer
             }
@@ -37,7 +45,8 @@ import WhisprLiteCore
         }
         guard let panel else { return }
         let wasVisible = panel.isVisible, center = panel.frame.midX, bottom = panel.frame.minY
-        let view = RecordingPill(presentation: next, activity: activity, cancel: cancel, copy: copy)
+        let view = RecordingPill(presentation: next, activity: activity,
+            cancel: cancelAction, copy: copyAction)
         if let host { host.rootView = view }
         else {
             let host = NSHostingView(rootView: view)
@@ -56,7 +65,7 @@ import WhisprLiteCore
             panel.orderFrontRegardless()
         }
     }
-    @objc private func sampleActivity() { activity.update(activitySource?() ?? 0) }
+    private func sampleActivity() { activity.update(activitySource?() ?? 0) }
     private func stopMeter() { meterTimer?.invalidate(); meterTimer = nil; activity.update(0) }
     func hide() { stopMeter(); panel?.orderOut(nil); presentation = nil }
 }
@@ -70,8 +79,19 @@ struct IndicatorPresentation: Equatable {
     let message: String
     let demo: Bool
     let canCopy: Bool
+    var isCancelling = false
     var showActivity = true
     var size: NSSize { state == .error ? NSSize(width: 360, height: 94) : NSSize(width: 238, height: 64) }
+}
+extension DictationState {
+    var symbolName: String {
+        switch self {
+        case .recording: "mic.fill"
+        case .processing, .inserting: "ellipsis"
+        case .error: "exclamationmark.circle.fill"
+        case .idle: "mic"
+        }
+    }
 }
 @MainActor final class AudioActivityDisplay: ObservableObject {
     @Published private(set) var level: CGFloat = 0
@@ -105,23 +125,18 @@ struct RecordingPill: View {
     private var title: String {
         switch presentation.state {
         case .recording: "Listening"
-        case .processing: presentation.message == "Cancelling" ? "Cancelling" : "Processing"
+        case .processing: presentation.isCancelling ? "Cancelling" : "Processing"
         case .inserting: "Inserting"
         case .error: "Needs attention"
         case .idle: "Ready"
         }
     }
-    private var symbol: String {
-        switch presentation.state {
-        case .recording: "mic.fill"
-        case .processing, .inserting: "ellipsis"
-        case .error: "exclamationmark.circle.fill"
-        case .idle: "mic"
-        }
+    private var pillShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: presentation.state == .error ? 18 : 24)
     }
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 13, weight: .semibold))
+            Image(systemName: presentation.state.symbolName).font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(presentation.state == .recording ? Color.red : presentation.state == .error ? Color.orange : Color.primary)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 4) {
@@ -140,8 +155,8 @@ struct RecordingPill: View {
                 .buttonStyle(.plain).padding(4)
                 .accessibilityLabel(presentation.state == .error ? "Dismiss dictation status" : "Cancel dictation")
         }.padding(.horizontal, 14).padding(.vertical, 10)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: presentation.state == .error ? 18 : 24))
-            .overlay(RoundedRectangle(cornerRadius: presentation.state == .error ? 18 : 24).stroke(.primary.opacity(0.12)))
+            .background(.regularMaterial, in: pillShape)
+            .overlay(pillShape.stroke(.primary.opacity(0.12)))
             .shadow(color: .black.opacity(0.15), radius: 5, y: 2)
             .padding(8)
             .help(presentation.state == .recording ? "Release to finish · Escape to cancel" : title)

@@ -797,6 +797,12 @@ Settings reports its measured header, page and footer heights through a window-s
 closure. The measurements live in one non-observable holder, so geometry callbacks do
 not refresh the whole view. The editor height range is applied by one shared clamp.
 
+The recording indicator receives its cancel/copy actions once at app startup. Its
+activity timer uses a weak block callback and runs only during recording. The
+coordinator exposes cancellation as state for the pill title, and the menu and pill
+share the same state-to-symbol mapping. The panel remains nonactivating and excluded
+from screen capture.
+
 `whispr-bench --cleanup-prefill-check` compares three synthetic outputs before/after
 the actual Swift prefix-preparation method using the saved service configuration. It
 prints only the pass count, measures no timing and does not change settings. Physical

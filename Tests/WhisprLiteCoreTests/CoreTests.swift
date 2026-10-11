@@ -241,7 +241,9 @@ private actor WarmupBackend: HoldWarmableASRBackend {
         }
         #expect(await cleanup.started)
         coordinator.cancel()
+        #expect(coordinator.isCancelling && coordinator.state == .processing)
         try await waitUntil { coordinator.state == .idle }
+        #expect(!coordinator.isCancelling)
         #expect(insertion.texts.isEmpty && capture.ends == 1 && media.ends.count == 1)
     }
     func fixture(_ config: FakeASRConfiguration = .init()) async throws -> (DictationCoordinator, FakeCapture, FakeInsertion, FakeMedia) {
