@@ -489,6 +489,8 @@ the batch adapter. Published builds include streaming bench modes. Local candida
 builds enable them with `PARAKEET_STREAMING=1` when that candidate supports sessions.
 The bench accepts one mode as its first argument, validates each mode's paths and
 options before loading a model, and exits with status 2 for malformed arguments.
+Its report builder represents a missing first partial as JSON null and lets unexpected
+cancellation errors propagate to the check failure handler.
 
 `--streaming-prototype CACHE WAV_DIRECTORY OUTPUT_JSON --repetitions 30` compares
 the pinned Unified adapter with batch on the same synthetic files. It feeds 640-sample

@@ -154,7 +154,6 @@ import WhisprLiteCore
         cancelled.cancel()
         do { _ = try await cancelled.value; throw AppError.inference }
         catch is CancellationError {}
-        catch { throw error }
         // The library must retain model ownership until cancelled work settles, then admit reuse.
         guard try await backend.transcribe(shortest).text == shortestText else { throw AppError.inference }
         try await backend.unload()
@@ -266,7 +265,7 @@ import WhisprLiteCore
                 streaming.append(["total_ms": totalMS, "residual_after_release_ms": max(0, totalMS - releaseMS),
                     "finish_call_ms": milliseconds(finishStarted.duration(to: .now)),
                     "maximum_append_lag_ms": feed.maximumAppendLagMS,
-                    "first_partial_ms": feed.firstPartialMS as Any? ?? NSNull(),
+                    "first_partial_ms": feed.firstPartialMS.map { NSNumber(value: $0) as NSObject } ?? NSNull(),
                     "partial_revisions": feed.partialRevisions, "partial_snapshots": feed.snapshots,
                     "text": final.text, "batch_text_equal": final.text == reference.text])
             }
