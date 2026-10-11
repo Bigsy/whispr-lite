@@ -6,13 +6,11 @@ import json
 from pathlib import Path
 import shutil
 import sys
-from urllib.parse import urlparse
+from cleanup_bench import SERVICE_PORT, loopback_url
 
 
 def configure(destination, source, cache, endpoint):
-    parsed = urlparse(endpoint)
-    if parsed.scheme != 'http' or parsed.hostname not in ['127.0.0.1', 'localhost', '::1'] or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path:
-        raise ValueError('Use a loopback base URL without /v1')
+    endpoint = loopback_url(endpoint)
     if not cache.is_dir(): raise ValueError('ASR cache directory does not exist')
     metadata = json.loads((source / 'cleanup-import.json').read_text())
     if metadata['cleanupInputFormat'] != 'openWhispr': raise ValueError('Unrecognized imported input format')
@@ -45,7 +43,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--import-directory', type=Path, required=True)
     parser.add_argument('--asr-cache', type=Path, required=True)
-    parser.add_argument('--endpoint', default='http://127.0.0.1:11436')
+    parser.add_argument('--endpoint', default=f'http://127.0.0.1:{SERVICE_PORT}')
     parser.add_argument('--destination', type=Path, default=Path.home() / 'Library/Application Support/WhisprLite')
     args = parser.parse_args()
     try: configure(args.destination.resolve(), args.import_directory.resolve(), args.asr_cache.resolve(), args.endpoint)

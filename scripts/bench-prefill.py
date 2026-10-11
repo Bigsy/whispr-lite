@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import time
 
-from cleanup_bench import (ALIAS, DictionaryCorrections, LocalHTTP, isolated_server,
+from cleanup_bench import (ALIAS, ISOLATED_PORT, SERVICE_PORT, DictionaryCorrections, LocalHTTP, isolated_server,
                            load_fixtures, load_saved_cleanup, loopback_url, summary,
                            words, write_report)
 
@@ -196,10 +196,11 @@ def run(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--settings-dir', type=Path, default=Path.home() / 'Library/Application Support/WhisprLite')
-    parser.add_argument('--endpoint', default='http://127.0.0.1:11436')
+    parser.add_argument('--endpoint', default=f'http://127.0.0.1:{SERVICE_PORT}')
     parser.add_argument('--repetitions', type=int, default=30)
     parser.add_argument('--hold-seconds', type=float, default=.5)
-    parser.add_argument('--isolated-server', action='store_true', help='Own a temporary server on 11437 with --cache-ram 0; reuse verified model files read-only')
+    parser.add_argument('--isolated-server', action='store_true',
+                        help=f'Own a temporary server on {ISOLATED_PORT} with --cache-ram 0; reuse verified model files read-only')
     parser.add_argument('--output', type=Path, default=ROOT / 'bench/results/prefill.json')
     try:
         args = parser.parse_args()

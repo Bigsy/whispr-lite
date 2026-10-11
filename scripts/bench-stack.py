@@ -4,9 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import time
-import urllib.request
-from cleanup_bench import write_report
-from local_http import LOCAL
+from cleanup_bench import ALIAS, SERVICE_PORT, LocalHTTP, load_fixtures, loopback_url, write_report
 root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
 parser.add_argument('--repetitions', type=int, default=30)
@@ -14,29 +12,27 @@ parser.add_argument('--idle-seconds', type=int, nargs='*', default=[])
 parser.add_argument('--prompt-file', type=Path, required=True, help='Exported/reviewed prompt; not the development substitute')
 parser.add_argument('--dictionary-file', type=Path)
 parser.add_argument('--import-file', type=Path, help='Private cleanup-import.json from export-openwhispr.py')
-parser.add_argument('--endpoint', default='http://127.0.0.1:11436')
+parser.add_argument('--endpoint', default=f'http://127.0.0.1:{SERVICE_PORT}')
 parser.add_argument('--compare-reference-budget', action='store_true', help='Compare 512-token output cap against OpenWhispr 1.8.3\'s 4096 minimum')
 args = parser.parse_args()
 if args.repetitions < 30: parser.error('At least 30 warm observations are required')
-fixtures = json.loads((root/'bench/cleanup-fixtures.json').read_text())
+fixtures = load_fixtures('cleanup-fixtures.json')
 prompt = args.prompt_file.read_text()
 metadata = json.loads(args.import_file.read_text()) if args.import_file else {}
 dictionary = args.dictionary_file.read_text() if args.dictionary_file else ''
 if dictionary: prompt += metadata.get('cleanupDictionaryPrefix', '\nCustom dictionary:\n') + dictionary
-if not args.endpoint.startswith('http://127.0.0.1:') or '/' in args.endpoint.removeprefix('http://127.0.0.1:'):
-    parser.error('Use an explicit loopback base URL without /v1')
+args.endpoint = loopback_url(args.endpoint)
+http = LocalHTTP(args.endpoint)
 observations = []
 outputs = {}
 def request(fixture, condition, maximum=512):
     raw = fixture['raw']
     if metadata.get('cleanupInputFormat') == 'openWhispr': raw = f'<transcript>\n{raw}\n</transcript>\n\nOutput only the cleaned transcript.'
-    body = dict(model='gemma4-e2b-cleanup:latest', messages=[dict(role='system', content=prompt),dict(role='user', content=raw)],
+    body = dict(model=ALIAS, messages=[dict(role='system', content=prompt),dict(role='user', content=raw)],
                 temperature=0, max_tokens=512, stream=False, chat_template_kwargs=dict(enable_thinking=False))
     body['max_tokens'] = maximum
     start = time.monotonic()
-    with LOCAL.open(urllib.request.Request(args.endpoint+'/v1/chat/completions',
-            data=json.dumps(body).encode(), headers={'Content-Type':'application/json'}), timeout=10) as response:
-        result = json.load(response)
+    result = http.post('/v1/chat/completions', body, timeout=10)
     text = result['choices'][0]['message']['content'].strip()
     if result['choices'][0].get('finish_reason') != 'stop': raise RuntimeError('Truncated cleanup result')
     previous = outputs.setdefault(fixture['id'], text)
@@ -53,6 +49,7 @@ for idle in args.idle_seconds:
     time.sleep(idle)
     request(fixtures[0], f'idle-{idle}s')
 report = dict(schema=1, mode='real-cleanup-only', observations=observations,
+              request_framing='legacy-512',
               stack_inventory=json.loads((root/'stack.lock.json').read_text()),
               visible_text_measured=False, memory_pressure_measured=False,
               original_prompt_resolved=bool(metadata), reference_budget_parity=args.compare_reference_budget,

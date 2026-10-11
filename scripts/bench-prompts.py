@@ -4,7 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import time
-from cleanup_bench import (ALIAS, LocalHTTP, SYNTHETIC_DICTIONARY, app_request,
+from cleanup_bench import (ALIAS, SERVICE_PORT, LocalHTTP, SYNTHETIC_DICTIONARY, app_request,
                            load_fixtures, loopback_url, matches_synthetic, messages,
                            summary, write_report)
 
@@ -110,7 +110,7 @@ def parser():
     result.add_argument('--dictionary-file', type=Path)
     result.add_argument('--import-file', type=Path)
     result.add_argument('--framing', choices=('plain', 'openWhispr'), default='openWhispr')
-    result.add_argument('--endpoint', default='http://127.0.0.1:11436')
+    result.add_argument('--endpoint', default=f'http://127.0.0.1:{SERVICE_PORT}')
     result.add_argument('--repetitions', type=int, default=30)
     result.add_argument('--quality-only', action='store_true')
     result.add_argument('--output', type=Path, default=ROOT / 'bench/results/prompt-review.json')

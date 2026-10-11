@@ -661,6 +661,8 @@ scoring and shared `bench/word-cases.json` vectors. Both apostrophe styles are t
 as the same contraction; the benchmark scripts share synthetic fixture loading.
 The fixed-prefix harness imports its summary helper directly from `cleanup_bench.py`;
 it no longer loads the entire prompt-comparison program during startup.
+Local benchmark endpoints and the model alias come from the pinned cleanup lock;
+`loopback_url()` validates their base URL before any request or explicit configuration.
 
 ```sh
 python3 scripts/bench-prefill.py --isolated-server --repetitions 30 --hold-seconds 0.5

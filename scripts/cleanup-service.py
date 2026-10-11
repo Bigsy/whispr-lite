@@ -150,7 +150,7 @@ def binary(directory=DEFAULT_DIRECTORY, port=None):
     if pin['version'] not in version or pin['commit'] not in version:
         raise RuntimeError('llama-server version/commit does not match the lock')
     help_text = subprocess.run([str(path), '--help'], capture_output=True, text=True, check=True, env=environment).stdout
-    flags = server_arguments(directory, port if port is not None else LOCK.get('port', 11436))
+    flags = server_arguments(directory, port if port is not None else LOCK['port'])
     required = [value for value in flags if value.startswith('--')]
     required += [flags[flags.index(option) + 1] for option in ('--spec-type', '--load-mode')]
     for flag in required:

@@ -26,10 +26,6 @@ def get(endpoint, path, timeout=2):
     return LocalHTTP(endpoint).get(path, timeout=timeout)
 
 
-def local_endpoint(value):
-    return loopback_url(value)
-
-
 def describe(reference, output):
     valid = [(left, right) for left, right in zip(reference, output) if left is not None and right is not None]
     return {
@@ -112,7 +108,7 @@ def main():
     framing = saved.input_format
     samples = load_history(args.history)
     fixtures = load_fixtures('prompt-fixtures.json', 'model-cleanup-fixtures.json')
-    endpoint = local_endpoint(saved.endpoint)
+    endpoint = loopback_url(saved.endpoint)
     baseline_alias = LOCK['alias']
     if baseline_alias not in [item['id'] for item in get(endpoint, '/v1/models')['data']]:
         raise RuntimeError('installed Gemma baseline is not ready')
