@@ -213,7 +213,7 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
                 toggleRow("Keep dictation history on this Mac", "Saves each transcript and its cleaned text in a private file on this Mac, so a better local cleanup model can be trained on your own dictation. Never uploaded or shared. Audio and cancelled dictations are not kept.",
                           isOn: $preferences.saveDictationHistory)
                 Divider()
-                row("Saved history", historyMessage.isEmpty ? "Excluded from Time Machine. Keeps up to 32 MB, removing the oldest entries first." : historyMessage) {
+                row("Saved history", historyMessage.isEmpty ? "Excluded from Time Machine. Keeps up to \(DictationHistory.maximumStorageBytes / (1024 * 1024)) MB, removing the oldest entries first." : historyMessage) {
                     Button("Show in Finder", action: app.showDictationHistory).help("~/Library/Application Support/WhisprLite/History")
                     Button("Delete…", role: .destructive) { confirmingHistoryDelete = true }
                 }
@@ -268,7 +268,7 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
                 toggleRow("Low-latency capture", "Reads the microphone about every 10 ms so text arrives sooner. Turn off if a microphone records silence or fails.",
                           isOn: $preferences.lowLatencyCapture)
                 Divider()
-                row("Response deadlines", "1–120 seconds. A cleanup failure offers the raw transcript to copy.") {
+                row("Response deadlines", "\(Int(Preferences.timeoutRange.lowerBound))–\(Int(Preferences.timeoutRange.upperBound)) seconds. A cleanup failure offers the raw transcript to copy.") {
                     Text("Speech").foregroundStyle(.secondary)
                     TextField("Speech deadline", value: $preferences.asrTimeoutSeconds, format: .number)
                         .textFieldStyle(.roundedBorder).frame(width: 48)
@@ -280,7 +280,7 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
             }
             // Demo output is a development mode set in preferences.json, not a user setting.
             section("Diagnostics") {
-                row("Record debug timings", "Timing, readiness, paste checks and media replies only; never audio, dictated text, prompts or titles. Up to 4 MB.") {
+                row("Record debug timings", "Timing, readiness, paste checks and media replies only; never audio, dictated text, prompts or titles. Up to \(DiagnosticLogger.maximumStorageBytes / (1024 * 1024)) MB.") {
                     Button("Show logs", action: app.showDiagnosticLogs)
                         .help("~/Library/Application Support/WhisprLite/Diagnostics · Enable logging and save first.")
                     Toggle("Record debug timings", isOn: $preferences.debugLogging).labelsHidden().toggleStyle(.switch).controlSize(.small)

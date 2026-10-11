@@ -241,7 +241,7 @@ import WhisprLiteCore
                 }
             }
             coordinator?.streamingEnabled = preferences.usesStreamingDemo
-            coordinator?.safetyDuration = .seconds(preferences.warmCapture ? 119.8 : 119.95)
+            coordinator?.safetyDuration = .seconds(PCM16k.maximumDuration - (preferences.warmCapture ? 0.2 : 0.05))
         } catch { update("Check private prompt and local endpoint settings", readiness: .needsAttention); return }
         coordinator?.onChange = { [weak self] in self?.refresh() }
         audio.onFailure = { [weak self] in self?.recoverCapture(epoch: epoch, preferences: preferences) }

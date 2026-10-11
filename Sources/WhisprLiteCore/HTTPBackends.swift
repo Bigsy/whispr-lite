@@ -155,7 +155,7 @@ public struct HTTPCleanup: TextCleanup {
     private func messages(_ text: String) throws -> [[String: String]] {
         let user = configuration.inputFormat == .openWhispr ? "<transcript>\n\(text)\n</transcript>\n\nOutput only the cleaned transcript." : text
         // Bound the request allocation; the exact templated token count is checked before inference.
-        guard systemPrompt.utf8.count + user.utf8.count <= 16_384 else { throw AppError.contextLimit }
+        guard systemPrompt.utf8.count + user.utf8.count <= SettingsStore.maxPrivateTextBytes else { throw AppError.contextLimit }
         return [["role": "system", "content": systemPrompt], ["role": "user", "content": user]]
     }
     private func post(_ path: String, json: [String: Any]) throws -> URLRequest {

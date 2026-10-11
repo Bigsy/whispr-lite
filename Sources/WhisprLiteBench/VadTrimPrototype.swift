@@ -100,7 +100,7 @@ extension Bench {
             }
             observations.append(["fixture": fixture.id, "audio_seconds": Double(audio.count) / Double(PCM16k.rate),
                 "vad_chunks": reference.count, "vad_repeatable": repeatable,
-                "speech_segments": ranges.map { [Double($0.lowerBound) / 16_000, Double($0.upperBound) / 16_000] },
+                "speech_segments": ranges.map { [Double($0.lowerBound) / Double(PCM16k.rate), Double($0.upperBound) / Double(PCM16k.rate)] },
                 "vad_pass_median_ms": vadPass, "vad_pass_p95_ms": percentile(passMS, 0.95),
                 "vad_chunk_median_ms": vadChunk, "vad_chunk_p95_ms": percentile(chunkMS, 0.95),
                 "conditions": conditions])

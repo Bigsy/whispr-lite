@@ -198,7 +198,7 @@ private final class PromisedText: NSObject, NSPasteboardItemDataProvider, @unche
         try Task.checkCancellation()
         let element = try validate(target)
         // AX range writes are opt-in only for our controlled benchmark target until third-party validation.
-        if NSRunningApplication(processIdentifier: target.pid)?.bundleIdentifier == "com.hedworth.whispr-lite" {
+        if target.pid == getpid() {
             var settable = DarwinBoolean(false)
             if AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable) == .success, settable.boolValue,
                attribute(element, kAXSelectedTextRangeAttribute) != nil {

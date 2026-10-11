@@ -74,7 +74,7 @@ import WhisprLiteCore
             }
             let backend = try BackendFactory.make(mode: .parakeet, endpoint: "http://127.0.0.1:11435", cacheRoot: cache)
             try await backend.prepare()
-            let result = try await backend.transcribe(PCM16k([Float](repeating: 0, count: 16_000)))
+            let result = try await backend.transcribe(PCM16k([Float](repeating: 0, count: PCM16k.rate)))
             print("candidate ready=\(await backend.readiness() == .ready) audio-seconds=\(result.audioDuration)")
             return
         }
@@ -136,7 +136,7 @@ import WhisprLiteCore
         try await backend.prepare() // Repeated preparation must remain ready.
         let empty = try await backend.transcribe(PCM16k([]))
         guard empty.text.isEmpty, empty.audioDuration == 0 else { throw AppError.inference }
-        let silence = try await backend.transcribe(PCM16k([Float](repeating: 0, count: 16_000)))
+        let silence = try await backend.transcribe(PCM16k([Float](repeating: 0, count: PCM16k.rate)))
         guard silence.text.isEmpty else { throw AppError.inference }
         let files = try PCM16k.corpus(in: corpus)
         var observations: [[String: Any]] = []
@@ -185,7 +185,7 @@ import WhisprLiteCore
         print("real-batch fixtures=\(files.count) warm-observations=\(files.count * 30) cancellation=ok unload=ok")
     }
     #if PARAKEET_STREAMING
-    private static let streamingChunkSamples = 640
+    private static let streamingChunkSamples = PCM16k.streamingChunkSamples
     private static let samplesPerMillisecond = Double(PCM16k.rate) / 1_000
     private struct StreamingFeed {
         var firstPartialMS: Double?

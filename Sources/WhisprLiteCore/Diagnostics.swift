@@ -58,8 +58,8 @@ public enum DiagnosticCode: String, Codable, Sendable {
 public enum InsertionTargetKind: String, Codable, Sendable {
     case native, appleTerminal, iterm, ghostty, other
     public static func classify(bundleIdentifier: String?) -> Self {
-        switch bundleIdentifier {
-        case "com.hedworth.whispr-lite": .native
+        if let bundleIdentifier, bundleIdentifier == Bundle.main.bundleIdentifier { return .native }
+        return switch bundleIdentifier {
         case "com.apple.Terminal": .appleTerminal
         case "com.googlecode.iterm2": .iterm
         case "com.mitchellh.ghostty": .ghostty
@@ -144,6 +144,8 @@ public struct DiagnosticRecord: Codable, Sendable {
 
 /// Opt-in, bounded, asynchronous JSONL writer. No disk access on the caller's thread.
 public final class DiagnosticLogger: @unchecked Sendable {
+    public static let defaultMaximumBytes = 2 * 1024 * 1024
+    public static let maximumStorageBytes = 2 * defaultMaximumBytes
     public let directory: URL
     private let queue = DispatchQueue(label: "WhisprLite.diagnostics", qos: .utility)
     private let lock = NSLock()
@@ -156,7 +158,7 @@ public final class DiagnosticLogger: @unchecked Sendable {
     private let maximumPending: Int
     private var handle: FileHandle?
     private var bytes = 0
-    public init(directory: URL, maximumBytes: Int = 2 * 1024 * 1024, maximumPending: Int = 128) {
+    public init(directory: URL, maximumBytes: Int = DiagnosticLogger.defaultMaximumBytes, maximumPending: Int = 128) {
         self.directory = directory; self.maximumBytes = max(1024, maximumBytes); self.maximumPending = max(1, maximumPending)
     }
     public var isEnabled: Bool { lock.withLock { enabled && !failed } }

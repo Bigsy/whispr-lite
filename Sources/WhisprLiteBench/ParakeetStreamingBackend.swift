@@ -14,7 +14,7 @@ public actor ParakeetStreamingBackend: ASRBackend {
     public init(cacheRoot: URL? = nil) {
         self.cacheRoot = cacheRoot
         engine = ParakeetEngine(configuration: .init(mode: .streaming, cacheRoot: cacheRoot, downloadPolicy: .requireCached,
-            queueCapacity: 1, queueWaitTimeout: .seconds(10), inferenceTimeout: .seconds(10), maximumStreamingChunkSamples: 640))
+            queueCapacity: 1, queueWaitTimeout: .seconds(10), inferenceTimeout: .seconds(10), maximumStreamingChunkSamples: PCM16k.streamingChunkSamples))
     }
     public func prepare() async throws { try await engine.prepare() }
     public func readiness() async -> BackendReadiness {
@@ -32,7 +32,7 @@ public actor ParakeetStreamingBackend: ASRBackend {
         if mode != desired {
             try await engine.unload()
             engine = ParakeetEngine(configuration: .init(mode: desired, cacheRoot: cacheRoot, downloadPolicy: .requireCached,
-                queueCapacity: 1, queueWaitTimeout: .seconds(10), inferenceTimeout: .seconds(10), maximumStreamingChunkSamples: 640))
+                queueCapacity: 1, queueWaitTimeout: .seconds(10), inferenceTimeout: .seconds(10), maximumStreamingChunkSamples: PCM16k.streamingChunkSamples))
             mode = desired; try await engine.prepare()
         }
     }

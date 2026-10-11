@@ -6,7 +6,7 @@ public enum AppError: Error, Sendable, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidAudio: "Invalid PCM samples."
-        case .audioLimit: "Recording exceeds the 120-second limit."
+        case .audioLimit: "Recording exceeds the \(Int(PCM16k.maximumDuration))-second limit."
         case .notReady: "The selected backend is not ready."
         case .unsupported: "This operation is unavailable in this build."
         case .inference: "Transcription failed."
@@ -25,7 +25,9 @@ public enum AppError: Error, Sendable, Equatable, LocalizedError {
 
 public struct PCM16k: Sendable, Equatable {
     public static let rate = 16_000
-    public static let maximumSamples = 120 * rate
+    public static let streamingChunkSamples = 640
+    public static let maximumDuration = 120.0
+    public static let maximumSamples = Int(maximumDuration) * rate
     public let samples: [Float]
     public var duration: Double { Double(samples.count) / Double(Self.rate) }
     public init(_ samples: [Float]) throws {
@@ -129,7 +131,7 @@ public actor FakeASRSession: ASRSession {
     private var cancelled = false
     public init(_ configuration: FakeASRConfiguration) { self.configuration = configuration }
     public func append(_ audio: PCM16k, startingAt offset: Int) throws {
-        guard !ended, offset == count, audio.samples.count <= 16_000 else { throw AppError.protocolViolation }
+        guard !ended, offset == count, audio.samples.count <= PCM16k.rate else { throw AppError.protocolViolation }
         guard audio.samples.count <= PCM16k.maximumSamples - count else { throw AppError.audioLimit }
         count += audio.samples.count
         revision += 1
@@ -149,7 +151,7 @@ public actor FakeASRSession: ASRSession {
             guard !cancelled else { throw CancellationError() }
         }
         if configuration.fails { throw AppError.inference }
-        return .init(text: count == 0 ? "" : configuration.text, audioDuration: Double(count) / 16_000)
+        return .init(text: count == 0 ? "" : configuration.text, audioDuration: Double(count) / Double(PCM16k.rate))
     }
     public func cancel() { cancelled = true; ended = true }
 }

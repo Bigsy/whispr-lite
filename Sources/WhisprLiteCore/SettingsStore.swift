@@ -18,7 +18,9 @@ public struct HotkeyConfiguration: Codable, Sendable, Equatable {
     public init(keyCode: UInt16? = nil, modifiers: UInt64 = 0) { self.keyCode = keyCode; self.modifiers = modifiers }
 }
 public struct Preferences: Codable, Sendable, Equatable {
-    public var version = 1
+    public static let currentVersion = 1
+    public static let timeoutRange: ClosedRange<Double> = 1...120
+    public var version = Self.currentVersion
     public var backend: BackendMode = .parakeet
     public var asrModel: ParakeetModel = .unified
     public var allowASRDownloads = false
@@ -76,6 +78,8 @@ public struct SettingsValidationError: Error, Equatable, Sendable {
     public init(_ field: Field, _ message: String) { self.field = field; self.message = message }
 }
 @MainActor public final class SettingsStore {
+    public nonisolated static let maxPrivateTextBytes = 16_384
+    public nonisolated static let maxDictionaryPrefixBytes = 2_048
     public let directory: URL
     public private(set) var preferences: Preferences
     public static let defaultPrompt = """
@@ -118,22 +122,22 @@ public struct SettingsValidationError: Error, Equatable, Sendable {
         let file = self.directory.appendingPathComponent("preferences.json")
         if FileManager.default.fileExists(atPath: file.path) {
             preferences = try JSONDecoder().decode(Preferences.self, from: Data(contentsOf: file))
-            guard preferences.version == 1 else { throw AppError.unsupported }
+            guard preferences.version == Preferences.currentVersion else { throw AppError.unsupported }
         } else { preferences = .init() }
     }
     /// A nil private value preserves its file, including one that could not be decoded.
     public func save(_ value: Preferences, prompt: String?, dictionary: String?) throws {
-        guard value.version == 1 else { throw SettingsValidationError(.version, "This settings version is unsupported.") }
-        guard value.asrTimeoutSeconds.isFinite, (1...120).contains(value.asrTimeoutSeconds) else {
-            throw SettingsValidationError(.asrTimeout, "Speech recognition deadline must be 1–120 seconds.")
+        guard value.version == Preferences.currentVersion else { throw SettingsValidationError(.version, "This settings version is unsupported.") }
+        guard value.asrTimeoutSeconds.isFinite, Preferences.timeoutRange.contains(value.asrTimeoutSeconds) else {
+            throw SettingsValidationError(.asrTimeout, "Speech recognition deadline must be \(Int(Preferences.timeoutRange.lowerBound))–\(Int(Preferences.timeoutRange.upperBound)) seconds.")
         }
-        guard value.cleanupTimeoutSeconds.isFinite, (1...120).contains(value.cleanupTimeoutSeconds) else {
-            throw SettingsValidationError(.cleanupTimeout, "Cleanup deadline must be 1–120 seconds.")
+        guard value.cleanupTimeoutSeconds.isFinite, Preferences.timeoutRange.contains(value.cleanupTimeoutSeconds) else {
+            throw SettingsValidationError(.cleanupTimeout, "Cleanup deadline must be \(Int(Preferences.timeoutRange.lowerBound))–\(Int(Preferences.timeoutRange.upperBound)) seconds.")
         }
-        guard (prompt?.utf8.count ?? 0) <= 16_384 else { throw SettingsValidationError(.prompt, "Prompt must be 16 KB or smaller.") }
-        guard (dictionary?.utf8.count ?? 0) <= 16_384 else { throw SettingsValidationError(.dictionary, "Dictionary must be 16 KB or smaller.") }
-        guard value.cleanupDictionaryPrefix.utf8.count <= 2048 else {
-            throw SettingsValidationError(.dictionaryPrefix, "Dictionary prefix must be 2 KB or smaller.")
+        guard (prompt?.utf8.count ?? 0) <= Self.maxPrivateTextBytes else { throw SettingsValidationError(.prompt, "Prompt must be \(Self.maxPrivateTextBytes / 1024) KB or smaller.") }
+        guard (dictionary?.utf8.count ?? 0) <= Self.maxPrivateTextBytes else { throw SettingsValidationError(.dictionary, "Dictionary must be \(Self.maxPrivateTextBytes / 1024) KB or smaller.") }
+        guard value.cleanupDictionaryPrefix.utf8.count <= Self.maxDictionaryPrefixBytes else {
+            throw SettingsValidationError(.dictionaryPrefix, "Dictionary prefix must be \(Self.maxDictionaryPrefixBytes / 1024) KB or smaller.")
         }
         guard value.asrModelDirectory.isEmpty || value.asrModelDirectory.hasPrefix("/") else {
             throw SettingsValidationError(.modelDirectory, "Model folder must be an absolute path.")
@@ -158,7 +162,7 @@ public struct SettingsValidationError: Error, Equatable, Sendable {
         guard ["prompt.txt", "dictionary.txt"].contains(name) else { throw AppError.unsupported }
         let path = directory.appendingPathComponent(name)
         guard FileManager.default.fileExists(atPath: path.path) else { return nil }
-        guard (try path.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= 16_384 else { throw AppError.contextLimit }
+        guard (try path.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= Self.maxPrivateTextBytes else { throw AppError.contextLimit }
         return try String(contentsOf: path, encoding: .utf8)
     }
 }

@@ -44,7 +44,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     private var delivery: Task<Void, Never>?
     private var earlyDelivery: Task<[DictationText], Never>?
     private var streamingFailed = false
-    public var safetyDuration: Duration = .seconds(120)
+    public var safetyDuration: Duration = .seconds(PCM16k.maximumDuration)
     public let timings: LatencyRecorder
     public var diagnostics: DiagnosticLogger?
     /// Saves completed batch dictations locally when enabled; never demo or cancelled output.
@@ -132,8 +132,9 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                 } catch { return completed }
             }
         }
+        let safetyDuration = self.safetyDuration
         ceiling = Task { [weak self] in
-            do { try await Task.sleep(for: self?.safetyDuration ?? .seconds(120)) } catch { return }
+            do { try await Task.sleep(for: safetyDuration) } catch { return }
             guard let self, self.generation == owner else { return }
             self.finish(id, target: target, copyOnly: true, boundary: self.capture.releaseBoundary())
         }
@@ -200,7 +201,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                 if let dictation { self.history?.record(dictation) }
                 self.timings.mark(.resultReady, session: id)
                 guard let text else { self.complete(); return }
-                self.recoveryText = String(text.prefix(32_768))
+                self.recoveryText = String(text.prefix(DictationHistory.maximumTextCharacters))
                 if copyOnly { self.endSession(.copyOnly); return }
                 self.insertionSession = id
                 (self.insertion as? TextInserter)?.diagnosticSession = id
@@ -212,7 +213,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
             } catch is CancellationError { if self.generation == owner { self.complete() } }
             catch let error as PipelineFailure {
                 guard self.generation == owner else { return }
-                self.recoveryText = error.rawText.map { String($0.prefix(32_768)) }; self.fail(error.reason)
+                self.recoveryText = error.rawText.map { String($0.prefix(DictationHistory.maximumTextCharacters)) }; self.fail(error.reason)
             } catch { if self.generation == owner { self.fail(error) } }
         }
     }

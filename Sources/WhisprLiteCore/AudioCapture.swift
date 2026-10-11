@@ -81,7 +81,7 @@ final class AudioWorker: @unchecked Sendable {
     init(format: AVAudioFormat, lowLatency: Bool = false) throws {
         maximumInputFrames = lowLatency ? max(4096, AVAudioFrameCount((format.sampleRate * 0.05).rounded(.up)))
             : max(8192, AVAudioFrameCount((format.sampleRate * 0.4).rounded(.up)))
-        guard let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false),
+        guard let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(PCM16k.rate), channels: 1, interleaved: false),
               let converter = AVAudioConverter(from: format, to: target),
               let output = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: 8192) else { throw AppError.capture }
         self.converter = converter; self.output = output
@@ -141,7 +141,7 @@ final class AudioWorker: @unchecked Sendable {
                 }
                 for index in 0..<Int(output.frameLength) {
                     let value = floats[index]
-                    let sampleTime = audioEpoch.map { $0 + Double(outputPosition) / 16_000 }
+                    let sampleTime = audioEpoch.map { $0 + Double(outputPosition) / Double(PCM16k.rate) }
                     outputPosition += 1
                     if recording, let endBoundary, let sampleTime, sampleTime >= endBoundary { continue }
                     if recording {
@@ -163,7 +163,7 @@ final class AudioWorker: @unchecked Sendable {
             guard !overflow else { throw AppError.overflow }
             failed = false; drainTimedOut = false; count = 0
             firstAudio = nil; timingEnabled = timings; activityEnabled = activity; meter = .init(); self.activity.publish(0)
-            streamingEnabled = streaming; chunk = []; chunk.reserveCapacity(640)
+            streamingEnabled = streaming; chunk = []; chunk.reserveCapacity(PCM16k.streamingChunkSamples)
             if streaming {
                 let pair = AsyncThrowingStream<PCM16k, any Error>.makeStream(bufferingPolicy: .bufferingOldest(16))
                 stream = pair.stream; streamContinuation = pair.continuation
@@ -195,7 +195,7 @@ final class AudioWorker: @unchecked Sendable {
         }
         guard streamingEnabled, streamContinuation != nil else { return }
         chunk.append(value)
-        if chunk.count >= 640 { flushChunk() }
+        if chunk.count >= PCM16k.streamingChunkSamples { flushChunk() }
     }
     private func flushEarlyChunk() {
         guard let continuation = earlyContinuation else { return }
@@ -228,7 +228,7 @@ final class AudioWorker: @unchecked Sendable {
                 completion = continuation; endBoundary = boundary
                 drainSerial &+= 1; let serial = drainSerial
                 if let boundary, let epoch = audioEpoch {
-                    let allowed = max(0, Int(ceil((boundary - epoch) * 16_000)))
+                    let allowed = max(0, Int(ceil((boundary - epoch) * Double(PCM16k.rate))))
                     let excess = min(count, max(0, outputPosition - allowed))
                     count -= excess
                     if excess > 0 {
@@ -236,7 +236,7 @@ final class AudioWorker: @unchecked Sendable {
                         streamContinuation?.finish(throwing: AppError.overflow); streamContinuation = nil
                     }
                 }
-                if boundary == nil || (audioEpoch.map { $0 + Double(outputPosition) / 16_000 >= boundary! } ?? false) {
+                if boundary == nil || (audioEpoch.map { $0 + Double(outputPosition) / Double(PCM16k.rate) >= boundary! } ?? false) {
                     finalize()
                 } else {
                     // Keep capture alive for the callback containing the release sample, then drain once.

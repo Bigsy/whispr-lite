@@ -5,6 +5,9 @@ import CryptoKit
 /// raw/cleaned text pairs go to one private JSONL file (0600 in a 0700 folder excluded from
 /// backups), written on a utility queue so dictation never waits for disk. Audio is not kept.
 public final class DictationHistory: @unchecked Sendable {
+    public static let maximumTextCharacters = 32_768
+    public static let defaultMaximumBytes = 16 * 1024 * 1024
+    public static let maximumStorageBytes = 2 * defaultMaximumBytes
     public struct Entry: Codable, Sendable, Equatable {
         public var schema = 1
         public let timestamp: Date
@@ -30,7 +33,7 @@ public final class DictationHistory: @unchecked Sendable {
     private var handle: FileHandle?
     private var bytes = 0
     /// Two rotating files of `maximumBytes` each; the oldest file is dropped when both are full.
-    public init(directory: URL, maximumBytes: Int = 16 * 1024 * 1024, maximumPending: Int = 64) {
+    public init(directory: URL, maximumBytes: Int = DictationHistory.defaultMaximumBytes, maximumPending: Int = 64) {
         self.directory = directory; self.maximumBytes = max(1024, maximumBytes); self.maximumPending = max(1, maximumPending)
     }
     public var isEnabled: Bool { lock.withLock { enabled && !failed } }
@@ -51,8 +54,8 @@ public final class DictationHistory: @unchecked Sendable {
         let asr = asr, promptSHA256 = promptSHA256
         pending += 1
         queue.async {
-            let entry = Entry(timestamp: timestamp, raw: String(dictation.raw.prefix(32_768)),
-                              cleaned: String(dictation.cleaned.prefix(32_768)), asr: asr, promptSHA256: promptSHA256)
+            let entry = Entry(timestamp: timestamp, raw: String(dictation.raw.prefix(Self.maximumTextCharacters)),
+                              cleaned: String(dictation.cleaned.prefix(Self.maximumTextCharacters)), asr: asr, promptSHA256: promptSHA256)
             do { try self.write(entry) }
             catch { self.lock.withLock { self.failed = true }; try? self.handle?.close(); self.handle = nil }
             self.lock.withLock { self.pending -= 1 }

@@ -20,7 +20,7 @@ public actor StreamingPipeline {
         retained.reserveCapacity(PCM16k.maximumSamples)
     }
     public func append(_ audio: PCM16k) async throws -> PartialSnapshot? {
-        guard !finished, !delivering, audio.samples.count <= 640,
+        guard !finished, !delivering, audio.samples.count <= PCM16k.streamingChunkSamples,
               audio.samples.count <= PCM16k.maximumSamples - retained.count else { throw AppError.overflow }
         guard let session else { throw AppError.notReady }
         delivering = true; defer { delivering = false }

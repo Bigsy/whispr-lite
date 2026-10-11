@@ -89,6 +89,11 @@ physical modifier definitions live with the hotkey state machine.
 The event-tap hotkey state machine dispatches key, legacy modifier chord and Fn
 gestures through separate bounded branches. Release and interruption share reset
 helpers; interrupted gestures wait for a full release before another press.
+PCM16k owns the 16 kHz rate, 640-sample streaming chunk and 120-second maximum;
+SettingsStore and Preferences own private text sizes, settings version and deadline
+range. History and diagnostics expose their default storage totals for Settings
+captions. The recording ceiling captures its duration at press. The signed bundle ID
+remains an explicit smoke-check expectation, while insertion identifies the app by PID.
 `WhisprLite --ui-preview OUTPUT_DIRECTORY` renders synthetic native settings at each page's
 fitted height and on a 560-point short screen, in light/dark appearances, plus indicator
 states. `settings-heights.json` records each fitted height; a real titled window must fit
