@@ -3,6 +3,7 @@ import ParakeetCore
 
 /// Direct PCM integration with the pinned library; models are prepared before recording.
 public actor ParakeetCoreBackend: PressWarmableASRBackend {
+    private static let warmupSilence = try! PCM16k([Float](repeating: 0, count: PCM16k.rate))
     public nonisolated let capabilities = ASRCapabilities()
     public nonisolated var modelID: String { engine.modelID }
     private let engine: ParakeetEngine
@@ -46,8 +47,7 @@ public actor ParakeetCoreBackend: PressWarmableASRBackend {
         } catch ParakeetError.cancelled { throw CancellationError() }
     }
     public func warmForRecording() async throws {
-        let silence = try PCM16k([Float](repeating: 0, count: PCM16k.rate))
-        guard try await transcribe(silence).text.isEmpty else { throw AppError.inference }
+        guard try await transcribe(Self.warmupSilence).text.isEmpty else { throw AppError.inference }
     }
 }
 
