@@ -1,16 +1,16 @@
 #!/bin/zsh
 set -eu
 cd "${0:A:h}/.."
-export CLANG_MODULE_CACHE_PATH="$PWD/.build/clang-cache"
-export SWIFTPM_MODULECACHE_OVERRIDE="$PWD/.build/swift-cache"
+source scripts/swift-env.sh
 task_scratch_path=.build
 export SWIFT_EXEC="$PWD/scripts/swiftc-app.py"
 if [[ -n "${PARAKEET_CORE_PATH:-}" ]]; then
   task_scratch_path=.build/candidate
 fi
-swift build --scratch-path "$task_scratch_path" -c release --arch arm64 --disable-sandbox --cache-path .build/package-cache --manifest-cache none --disable-keychain
+swift build --scratch-path "$task_scratch_path" -c release --arch arm64 "${swift_flags[@]}"
 scripts/build-media.sh
-binary_dir=$(swift build --scratch-path "$task_scratch_path" -c release --arch arm64 --disable-sandbox --cache-path .build/package-cache --manifest-cache none --disable-keychain --show-bin-path)
+binary_dir="$PWD/$task_scratch_path/arm64-apple-macosx/release"
+[[ -x "$binary_dir/WhisprLite" ]] || { print -u2 "Missing built app executable: $binary_dir/WhisprLite"; exit 1; }
 app="$PWD/dist/Whispr Lite.app"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"

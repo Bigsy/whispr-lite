@@ -1,9 +1,11 @@
 .PHONY: build test install uninstall status doctor bench-media check candidate-check cleanup-prepare cleanup-install cleanup-uninstall
+SWIFT_ENV = CLANG_MODULE_CACHE_PATH=$(CURDIR)/.build/clang-cache SWIFTPM_MODULECACHE_OVERRIDE=$(CURDIR)/.build/swift-cache
+SWIFT_FLAGS = --disable-sandbox --cache-path .build/package-cache --manifest-cache none --disable-keychain
 build:
 	./scripts/build-app.sh
 test:
 	python3 -c 'import ast, pathlib; [ast.parse(path.read_text(), filename=str(path)) for path in pathlib.Path("scripts").glob("*.py")]'
-	CLANG_MODULE_CACHE_PATH=$(CURDIR)/.build/clang-cache SWIFTPM_MODULECACHE_OVERRIDE=$(CURDIR)/.build/swift-cache swift test --disable-sandbox --cache-path .build/package-cache --manifest-cache none --disable-keychain
+	$(SWIFT_ENV) swift test $(SWIFT_FLAGS)
 	./scripts/test-media.py
 	python3 scripts/test-setup.py
 	python3 scripts/test-release.py
