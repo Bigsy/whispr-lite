@@ -60,6 +60,8 @@ UI work. Full-screen/Spaces/multi-display
 focus and accessibility acceptance still need the manual matrix.
 
 Open the settings directly with `open 'dist/Whispr Lite.app' --args --settings`.
+Closing Settings discards its view state; reopening builds a new view from saved
+preferences/private text and enumerates available microphones again.
 `WhisprLite --ui-preview OUTPUT_DIRECTORY` renders synthetic native settings at each page's
 fitted height and on a 560-point short screen, in light/dark appearances, plus indicator
 states. `settings-heights.json` records each fitted height; a real titled window must fit

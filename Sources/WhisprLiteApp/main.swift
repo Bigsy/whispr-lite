@@ -493,12 +493,18 @@ import WhisprLiteCore
     }
     @objc private func showSettings() {
         guard let store else { return }
-        if settingsWindow == nil {
+        if settingsWindow?.isVisible != true {
             let view = SettingsView(store: store, app: self) { [weak self] in self?.configure() }
-            let window = Self.makeSettingsWindow(NSHostingView(rootView: view))
-            settingsWindow = window
-            window.contentView?.layoutSubtreeIfNeeded()
-            window.center()
+            let host = NSHostingView(rootView: view)
+            if let window = settingsWindow {
+                host.sizingOptions = []
+                window.contentView = host
+            } else {
+                let window = Self.makeSettingsWindow(host)
+                settingsWindow = window
+                window.center()
+            }
+            settingsWindow?.contentView?.layoutSubtreeIfNeeded()
         }
         NSApp.activate(ignoringOtherApps: true); settingsWindow?.makeKeyAndOrderFront(nil)
     }
