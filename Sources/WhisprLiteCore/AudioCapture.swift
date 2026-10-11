@@ -195,7 +195,7 @@ final class AudioWorker: @unchecked Sendable {
         }
         guard streamingEnabled, streamContinuation != nil else { return }
         chunk.append(value)
-        if chunk.count == 640 { flushChunk() }
+        if chunk.count >= 640 { flushChunk() }
     }
     private func flushEarlyChunk() {
         guard let continuation = earlyContinuation else { return }
@@ -209,7 +209,13 @@ final class AudioWorker: @unchecked Sendable {
         }
     }
     private func flushChunk() {
-        guard !chunk.isEmpty, let continuation = streamContinuation, let pcm = try? PCM16k(chunk) else { return }
+        guard !chunk.isEmpty, let continuation = streamContinuation else { return }
+        guard let pcm = try? PCM16k(chunk) else {
+            chunk.removeAll(keepingCapacity: true)
+            continuation.finish(throwing: AppError.invalidAudio)
+            streamContinuation = nil
+            return
+        }
         if case .dropped = continuation.yield(pcm) {
             continuation.finish(throwing: AppError.overflow); streamContinuation = nil
         }

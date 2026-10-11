@@ -843,6 +843,19 @@ actor PrefillProbe {
     }
 }
 @Suite struct StreamingAudioTests {
+    @Test func invalidStreamingChunkFinishesInsteadOfGrowing() async throws {
+        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false))
+        let worker = try AudioWorker(format: format)
+        try worker.begin(warm: false, streaming: true)
+        let stream = try #require(worker.chunks())
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 640))
+        buffer.frameLength = 640
+        for index in 0..<640 { buffer.floatChannelData![0][index] = .nan }
+        worker.receive(buffer)
+        worker.queue.sync {}
+        _ = try? await worker.end()
+        await #expect(throws: AppError.invalidAudio) { for try await _ in stream {} }
+    }
     @Test func boundedSenderChunksMatchOwnedCaptureAndBackpressureKeepsBatchAudio() async throws {
         let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false))
         let worker = try AudioWorker(format: format)
