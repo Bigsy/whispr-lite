@@ -155,7 +155,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
             catch {
                 _ = await self.earlyDelivery?.value
                 self.draining = false; self.media.end(id)
-                if self.generation == owner { self.fail(.capture) }
+                if self.generation == owner { self.fail(AppError.capture) }
                 return
             }
             self.draining = false
@@ -205,7 +205,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
             catch let error as PipelineFailure {
                 guard self.generation == owner else { return }
                 self.recoveryText = error.rawText.map { String($0.prefix(32_768)) }; self.fail(error.reason)
-            } catch { if self.generation == owner { self.fail(error as? AppError ?? .inference) } }
+            } catch { if self.generation == owner { self.fail(error) } }
         }
     }
     public func cancel() {
@@ -271,6 +271,11 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         }
     }
     public func setMessage(_ value: String) { message = value; onChange?() }
-    private func fail(_ error: AppError) { diagnostics?.record(.init(.failure, session: session, code: .failure(error))); streaming = nil; delivery = nil; earlyDelivery = nil; partial = nil; message = error.localizedDescription; state = .error; session = nil }
+    private func fail(_ error: any Error) {
+        diagnostics?.record(.init(.failure, session: session, code: .failure(error)))
+        streaming = nil; delivery = nil; earlyDelivery = nil; partial = nil
+        message = (error as? AppError ?? .inference).localizedDescription
+        state = .error; session = nil
+    }
     private func complete() { if let session { diagnostics?.record(.init(.completed, session: session)) }; streaming = nil; delivery = nil; earlyDelivery = nil; partial = nil; session = nil; currentTarget = nil; message = ready ? "Ready" : "Not ready"; state = .idle }
 }

@@ -25,6 +25,7 @@ let package = Package(
         .executableTarget(name: "WhisprLiteBench", dependencies:
                             ["WhisprLiteCore", .product(name: "FluidAudio", package: "FluidAudio")],
                           swiftSettings: streamingCandidate ? [.define("PARAKEET_STREAMING_CANDIDATE")] : []),
-        .testTarget(name: "WhisprLiteCoreTests", dependencies: ["WhisprLiteCore"])
+        .testTarget(name: "WhisprLiteCoreTests", dependencies:
+                    ["WhisprLiteCore", .product(name: "ParakeetCore", package: "parakeet-ane-server")])
     ]
 )

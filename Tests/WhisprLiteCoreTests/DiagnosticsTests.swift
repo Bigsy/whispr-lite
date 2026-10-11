@@ -1,8 +1,14 @@
 import Testing
 import Foundation
+import ParakeetCore
 @testable import WhisprLiteCore
 
 @Suite struct DiagnosticsTests {
+    @Test func finalASRErrorsRetainLibraryDiagnosticCodes() {
+        #expect(DiagnosticCode.failure(ParakeetError.busy) == .busy)
+        #expect(DiagnosticCode.failure(ParakeetError.queueFull) == .queueFull)
+        #expect(DiagnosticCode.failure(ParakeetError.inferenceDeadlineExceeded) == .deadline)
+    }
     @MainActor @Test func disabledIsLazyAndOldPreferencesKeepLoggingOff() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let logger = DiagnosticLogger(directory: directory)
