@@ -43,6 +43,21 @@ import WhisprLiteCore
     private static let shutdownGrace: Duration = .milliseconds(700)
     private var shutdownStarted = false
     private var terminationReply: Task<Void, Never>?
+    private func isCurrent(_ epoch: UUID) -> Bool {
+        settingsEpoch == epoch && sessionAvailable && !Task.isCancelled
+    }
+    private func updateTapReadiness(_ ready: Bool) {
+        tapReady = ready
+        coordinator?.ready = ready && pipelineReady
+        diagnostics?.record(.init(.readiness, code: ready ? .ready : .notReady))
+        if ready {
+            update("Ready to dictate", readiness: .ready)
+        } else {
+            update("Input Monitoring permission needed",
+                   detail: "Enable Whispr Lite in Input Monitoring settings below, then check readiness.",
+                   readiness: .needsAttention)
+        }
+    }
     private func tearDownPipeline(bumpEpoch: Bool, clearCoordinator: Bool = false,
                                   settleClipboard: Bool = false) {
         // Invalidate queued tap callbacks before stopping the tap or cancelling preparation.
@@ -223,11 +238,11 @@ import WhisprLiteCore
                 // a busy old engine rejects unloading, so no new model is loaded yet.
                 await previousSetup?.value
                 await previousCoordinator?.settleBackendWork()
-                guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }
+                guard self.isCurrent(epoch) else { return }
                 if reused == nil {
                     self.preparedASR = nil
                     try await self.localBackend?.unload()
-                    guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }
+                    guard self.isCurrent(epoch) else { return }
                     self.localBackend = backend as? ParakeetCoreBackend
                 }
                 // A ready engine returns at once; HTTP still rechecks health.
@@ -255,16 +270,16 @@ import WhisprLiteCore
                             guard attempt < 6, !(error is CancellationError) else { throw error }
                             self.update("Waiting for cleanup service", readiness: .preparing)
                             try await Task.sleep(for: .seconds(attempt))
-                            guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }
+                            guard self.isCurrent(epoch) else { return }
                         }
                     }
-                    guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }
+                    guard self.isCurrent(epoch) else { return }
                     self.update("Preparing cleanup", readiness: .preparing)
                     try await withDeadline(.seconds(preferences.cleanupTimeoutSeconds), stage: "Cleanup preparation") {
                         try await httpCleanup.preparePrefix()
                     }
                 }
-                guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }
+                guard self.isCurrent(epoch) else { return }
                 if self.diagnostics?.isEnabled == true {
                     var permissionRecord = DiagnosticRecord(.permissions)
                     permissionRecord.accessibility = AXIsProcessTrusted()
@@ -285,7 +300,12 @@ import WhisprLiteCore
                     // The event-tap thread emits in order; FIFO dispatch keeps press/release in that order.
                     DispatchQueue.main.async {
                         guard let self, self.settingsEpoch == epoch else { return }
-                        self.diagnostics?.record(.init(.hotkey, code: action == .press ? .press : action == .release ? .release : .cancel))
+                        let code: DiagnosticCode = switch action {
+                        case .press: .press
+                        case .release: .release
+                        case .cancel: .cancel
+                        }
+                        self.diagnostics?.record(.init(.hotkey, code: code))
                         switch action {
                         case .press: self.coordinator?.press()
                         case .release: self.coordinator?.release()
@@ -294,11 +314,7 @@ import WhisprLiteCore
                     }
                 }, readiness: { [weak self] ready in DispatchQueue.main.async {
                     guard let self, self.settingsEpoch == epoch else { return }
-                    self.tapReady = ready; self.coordinator?.ready = ready && self.pipelineReady
-                    self.diagnostics?.record(.init(.readiness, code: ready ? .ready : .notReady))
-                    self.update(ready ? "Ready to dictate" : "Input Monitoring permission needed",
-                        detail: ready ? "" : "Enable Whispr Lite in Input Monitoring settings below, then check readiness.",
-                        readiness: ready ? .ready : .needsAttention)
+                    self.updateTapReadiness(ready)
                 } })
                 if preferences.pauseMedia,
                    let resources = Bundle.main.resourceURL {
@@ -341,12 +357,9 @@ import WhisprLiteCore
                 self.update("Microphone unavailable", detail: "Reconnect or choose a microphone in Advanced, then check readiness.", readiness: .needsAttention)
                 return
             }
-            self.coordinator?.ready = self.tapReady
             // Clear a "not ready" notice from a press made while reconnecting.
             if self.coordinator?.state == .error { self.coordinator?.cancel() }
-            self.update(self.tapReady ? "Ready to dictate" : "Input Monitoring permission needed",
-                        detail: self.tapReady ? "" : "Enable Whispr Lite in Input Monitoring settings below, then check readiness.",
-                        readiness: self.tapReady ? .ready : .needsAttention)
+            self.updateTapReadiness(self.tapReady)
         }
     }
     private func update(_ text: String, detail: String = "", readiness: SetupReadiness? = nil) {

@@ -35,6 +35,8 @@ App reconfiguration, session suspend, shortcut capture, probe exit and terminati
 one `tearDownPipeline` path. It advances the settings epoch before cancelling queued
 work, stops the tap, suspends capture, shuts down media and resets readiness; a new
 configuration drops the suspended old coordinator after retaining it for setup settlement.
+Setup tasks use one current-epoch/session/cancellation check after each await. Tap
+readiness and route-recovery updates share the same status and coordinator-ready setter.
 Menu Quit asks AppKit to terminate. `applicationShouldTerminate` tears down once, returns
 `terminateLater` and replies after the 700 ms media grace period, so ordinary external
 quit requests use the same wait. `applicationWillTerminate` only performs fallback
