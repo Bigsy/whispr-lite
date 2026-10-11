@@ -8,22 +8,31 @@ private final class DeadlineRace<T: Sendable>: @unchecked Sendable {
     private var outcome: Result<T, any Error>?
     private var tasks: [Task<Void, Never>] = []
     func install(_ continuation: CheckedContinuation<T, any Error>) {
-        lock.lock()
-        if let outcome { lock.unlock(); continuation.resume(with: outcome) }
-        else { self.continuation = continuation; lock.unlock() }
+        let settled = lock.withLock { () -> Result<T, any Error>? in
+            if let outcome { return outcome }
+            self.continuation = continuation
+            return nil
+        }
+        if let settled { continuation.resume(with: settled) }
     }
     func retain(_ task: Task<Void, Never>) {
-        lock.lock()
-        if outcome != nil { lock.unlock(); task.cancel() }
-        else { tasks.append(task); lock.unlock() }
+        let shouldCancel = lock.withLock { () -> Bool in
+            if outcome != nil { return true }
+            tasks.append(task)
+            return false
+        }
+        if shouldCancel { task.cancel() }
     }
     func settle(_ result: Result<T, any Error>) {
-        lock.lock()
-        guard outcome == nil else { lock.unlock(); return }
-        outcome = result
-        let continuation = self.continuation; self.continuation = nil
-        let tasks = self.tasks; self.tasks = []
-        lock.unlock()
+        let completion = lock.withLock { () -> (CheckedContinuation<T, any Error>?, [Task<Void, Never>])? in
+            guard outcome == nil else { return nil }
+            outcome = result
+            let completion = (continuation, tasks)
+            continuation = nil
+            tasks = []
+            return completion
+        }
+        guard let (continuation, tasks) = completion else { return }
         tasks.forEach { $0.cancel() }
         continuation?.resume(with: result)
     }
