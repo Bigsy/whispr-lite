@@ -178,7 +178,7 @@ private final class PromisedText: NSObject, NSPasteboardItemDataProvider, @unche
             modifierDecision = { flags, elapsed in
                 guard diagnostics.isEnabled else { return }
                 var record = DiagnosticRecord(.modifierState, session: session, code: flags.isEmpty ? .ready : .modifiersHeld,
-                    milliseconds: Double(elapsed.components.seconds) * 1000 + Double(elapsed.components.attoseconds) / 1e15)
+                    milliseconds: elapsed.milliseconds)
                 record.hardwareModifiers = InsertionModifier.held(in: flags)
                 record.sessionModifiers = InsertionModifier.held(in: CGEventSource.flagsState(.combinedSessionState))
                 diagnostics.record(record)

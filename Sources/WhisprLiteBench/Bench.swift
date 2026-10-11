@@ -146,8 +146,7 @@ import WhisprLiteCore
         return try PCM16k(Array(UnsafeBufferPointer(start: samples[0], count: Int(buffer.frameLength))))
     }
     static func milliseconds(_ duration: Duration) -> Double {
-        let value = duration.components
-        return Double(value.seconds) * 1_000 + Double(value.attoseconds) / 1e15
+        duration.milliseconds
     }
     static func pressWarmupPrototype(cache: URL, corpus: URL, output: URL,
                                      repetitions: Int, idleSeconds: Double) async throws {

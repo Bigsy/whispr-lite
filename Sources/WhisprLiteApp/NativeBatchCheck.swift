@@ -85,10 +85,6 @@ import WhisprLiteCore
                 guard field.string == text else { print("batch-flow native update did not match round=\(repetition)"); throw AppError.targetChanged }
                 field.displayIfNeeded(); window.displayIfNeeded()
                 let end = clock.now
-                func ms(_ duration: Duration) -> Double {
-                    let value = duration.components
-                    return Double(value.seconds) * 1000 + Double(value.attoseconds) / 1e15
-                }
                 let events = stages.events.filter { $0.session == session }
                 func span(_ first: TimingStage, _ last: TimingStage) throws -> Double {
                     guard let from = events.first(where: { $0.stage == first }),
@@ -98,8 +94,9 @@ import WhisprLiteCore
                 observations.append(["fixture": files[index].lastPathComponent, "condition": repetition == 0 ? "warmup" : "warm",
                     "audio_seconds": audio[index].duration, "asr_ms": try span(.asrStart, .asrEnd),
                     "cleanup_ms": try span(.cleanupStart, .cleanupEnd),
-                    "pipeline_ms": ms(start.duration(to: resultTime)), "result_to_native_update_ms": ms(resultTime.duration(to: end)),
-                    "synthetic_pcm_to_native_update_ms": ms(start.duration(to: end)), "text_equal": true])
+                    "pipeline_ms": start.duration(to: resultTime).milliseconds,
+                    "result_to_native_update_ms": resultTime.duration(to: end).milliseconds,
+                    "synthetic_pcm_to_native_update_ms": start.duration(to: end).milliseconds, "text_equal": true])
             }
             print("batch-flow round=\(repetition) native-text-updates=\(observations.count)")
         }

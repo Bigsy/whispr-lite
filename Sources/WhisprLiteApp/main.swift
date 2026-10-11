@@ -464,10 +464,7 @@ import WhisprLiteCore
         do { try await history.deleteAll(); return true } catch { return false }
     }
     var dictationHistoryFailed: Bool { history?.hasFailed == true }
-    private static func milliseconds(_ duration: Duration) -> Double {
-        let value = duration.components
-        return Double(value.seconds) * 1000 + Double(value.attoseconds) / 1e15
-    }
+    private static func milliseconds(_ duration: Duration) -> Double { duration.milliseconds }
     @objc private func copyResult() {
         guard let text = coordinator?.recoveryText else { return }
         insertion.clipboard.settle()

@@ -60,8 +60,7 @@ import AVFoundation
                 for _ in 0..<100 { worker.receive(packet); worker.queue.sync {} }
                 let audio = try await worker.end()
                 #expect(abs(audio.duration - 2) < 0.002)
-                let duration = start.duration(to: .now).components
-                let ms = Double(duration.seconds) * 1000 + Double(duration.attoseconds) / 1e15
+                let ms = start.duration(to: .now).milliseconds
                 if iteration >= 2 { if mode { enabled.append(ms) } else { disabled.append(ms) } }
             }
         }
