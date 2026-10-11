@@ -534,7 +534,8 @@ personal recordings. These are ASR-only observations, not physical dictation lat
 a general accuracy ranking.
 
 `make candidate-check` remains available for future local candidates. It archives the
-committed `v0.2.0` tag from the sibling checkout by default. `PARAKEET_CORE_PATH` and
+committed ParakeetCore revision in `Package.resolved` from the sibling checkout by default
+and restores that lockfile after the isolated candidate build. `PARAKEET_CORE_PATH` and
 `PARAKEET_CORE_REF` override source/ref; `PARAKEET_MODEL_CACHE` selects a cached model root.
 Local streaming candidates additionally use `PARAKEET_STREAMING_CANDIDATE=1`. This check
 requires cached models and never substitutes fake output or downloads weights. Run a
