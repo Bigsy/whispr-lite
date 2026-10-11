@@ -4,12 +4,14 @@ import AVFoundation
 import ApplicationServices
 import WhisprLiteCore
 
-@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+@MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, ObservableObject {
     @Published var status = "Starting"
     @Published var statusDetail = ""
     @Published var readinessState: SetupReadiness = .preparing
     @Published var mediaStatus = "Media disabled"
     private var item: NSStatusItem!
+    private var statusMenuItem: NSMenuItem?
+    private var copyMenuItem: NSMenuItem?
     /// Internal so the UI preview command can check window fitting on a real titled window.
     var settingsWindow: NSWindow?
     private var benchmarkWindow: NSWindow?
@@ -158,16 +160,27 @@ import WhisprLiteCore
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         setMenuAppearance(.idle)
         let menu = NSMenu()
-        for (title, action) in [("Starting", #selector(showStatus)), ("Copy last result", #selector(copyResult)),
-                                ("Settings…", #selector(showSettings)), ("Check readiness", #selector(retry)),
+        let statusEntry = NSMenuItem(title: status, action: nil, keyEquivalent: "")
+        statusEntry.isEnabled = false
+        statusMenuItem = statusEntry
+        menu.addItem(statusEntry)
+        let copyEntry = NSMenuItem(title: "Copy last result", action: #selector(copyResult), keyEquivalent: "")
+        copyEntry.target = self
+        copyMenuItem = copyEntry
+        menu.addItem(copyEntry)
+        for (title, action) in [("Settings…", #selector(showSettings)), ("Check readiness", #selector(retry)),
                                 ("Microphone permission", #selector(requestMicrophone)),
                                 ("Accessibility permission", #selector(requestAccessibility)),
                                 ("Input Monitoring settings", #selector(inputMonitoring)),
-                                ("Benchmark text field", #selector(showBenchmark)), ("Quit", #selector(quit))] {
+                                ("Quit", #selector(quit))] {
             let entry = NSMenuItem(title: title, action: action, keyEquivalent: "")
             entry.target = self; menu.addItem(entry)
         }
         item.menu = menu
+    }
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem === copyMenuItem { return coordinator?.recoveryText != nil }
+        return true
     }
     private func configure() {
         guard !recordingShortcut else { return }
@@ -370,7 +383,7 @@ import WhisprLiteCore
         status = store?.preferences.backend == .demo ? "DEMO — \(text)" : text
         statusDetail = detail
         if let readiness { readinessState = readiness }
-        item?.menu?.items.first?.title = status
+        statusMenuItem?.title = status
         item?.button?.toolTip = "Whispr Lite: \(status)"
     }
     private func refresh() {
@@ -429,7 +442,6 @@ import WhisprLiteCore
         recordingShortcut = false; resumeSession()
     }
     @objc private func locked() { suspendSession() }
-    @objc private func showStatus() {}
     @objc func retry() { resumeSession() }
     func showDiagnosticLogs() {
         guard let diagnostics else { return }
