@@ -13,6 +13,7 @@ import tarfile
 import types
 import unittest
 from unittest.mock import patch
+import cleanup_bench as bench_common
 from cleanup_bench import DEFAULT_PROMPT, load_saved_cleanup
 
 
@@ -42,6 +43,57 @@ def batch(sequence, operations):
 
 
 class SetupTests(unittest.TestCase):
+    def test_benchmark_url_accepts_only_loopback_with_port(self):
+        self.assertEqual(bench_common.loopback_url('http://localhost:11436/'),
+                         'http://localhost:11436')
+        for value in ('http://example.com:11436', 'http://localhost',
+                      'http://localhost:99999', 'http://localhost:11436/path'):
+            with self.assertRaises(ValueError):
+                bench_common.loopback_url(value)
+
+    def test_isolated_bench_server_uses_verified_binary_and_cleans_up(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            candidate = Path(temporary) / 'candidate.gguf'
+            candidate.write_bytes(b'synthetic model')
+            calls = []
+            flags = ['/verified/llama-server', '-m', '/baseline/model.gguf', '--spec-type', 'draft-mtp',
+                     '-md', '/baseline/drafter.gguf', '--spec-draft-n-max', '6', '--swa-full',
+                     '--alias', bench_common.ALIAS, '--host', '127.0.0.1', '--port', str(bench_common.ISOLATED_PORT)]
+            fake_service = types.SimpleNamespace(DEFAULT_DIRECTORY=Path('/synthetic'),
+                arguments=lambda directory, port: calls.append(('verify', port)) or flags,
+                free_port=lambda port: calls.append(('free_port', port)),
+                runtime_environment=lambda: {'SAFE': '1'})
+            class FakeProcess:
+                pid = 123
+                terminated = False
+                def poll(self): return None
+                def terminate(self): self.terminated = True
+                def wait(self, timeout=None): return 0
+            process = FakeProcess()
+            def response(_, path, timeout=2):
+                return {'data': [{'id': 'synthetic-candidate'}]} if path == '/v1/models' else {'status': 'ok'}
+            bench_common._verified_arguments.cache_clear()
+            try:
+                with patch.object(bench_common, 'service', return_value=fake_service), \
+                     patch.object(bench_common.subprocess, 'Popen', return_value=process) as launch, \
+                     patch.object(bench_common.LocalHTTP, 'get', response):
+                    with bench_common.isolated_server(spec_type='none', model=candidate,
+                            alias='synthetic-candidate', binary='/verified/llama-server', extra=('--cache-ram', '0')) as server:
+                        self.assertEqual(server.endpoint, f'http://127.0.0.1:{bench_common.ISOLATED_PORT}')
+                        command = launch.call_args.args[0]
+                        self.assertEqual(command[command.index('-m') + 1], str(candidate))
+                        self.assertNotIn('--spec-type', command)
+                        self.assertEqual(launch.call_args.kwargs['env'], {'SAFE': '1'})
+                    self.assertTrue(process.terminated)
+                    self.assertEqual(calls, [('verify', bench_common.ISOLATED_PORT),
+                                             ('free_port', bench_common.ISOLATED_PORT)])
+                    with self.assertRaisesRegex(ValueError, 'Unverified server binary'):
+                        with bench_common.isolated_server(binary='/unverified/server'):
+                            pass
+                    self.assertEqual(launch.call_count, 1)
+            finally:
+                bench_common._verified_arguments.cache_clear()
+
     def test_saved_cleanup_uses_app_defaults_and_preserves_private_whitespace(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

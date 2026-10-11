@@ -641,6 +641,11 @@ prefix from two synthetic continuations, evaluates that prefix at mock button pr
 then submits a normal final chat completion at mock release. A configurable hold gives
 prefill time to run; release waits if prefill has not completed. There is no microphone,
 ASR, insertion, capture workload or periodic warm-up task.
+`scripts/cleanup_bench.py` owns the proxy-free loopback client and isolated server
+lifecycle for this and the candidate cleanup-model screen. It verifies the pinned
+runtime once per run, frees the isolated port, checks health and model alias, and
+terminates the process on exit. The candidate screen accepts only that verified
+server binary; model paths may differ for a candidate comparison.
 
 ```sh
 python3 scripts/bench-prefill.py --isolated-server --repetitions 30 --hold-seconds 0.5

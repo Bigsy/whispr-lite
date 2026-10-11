@@ -13,10 +13,7 @@ import subprocess
 import time
 import unicodedata
 import urllib.error
-import urllib.request
-from urllib.parse import urlparse
-from local_http import LOCAL
-from cleanup_bench import DEFAULT_PROMPT, LOCK, load_saved_cleanup
+from cleanup_bench import DEFAULT_PROMPT, LOCK, LocalHTTP, isolated_server, load_saved_cleanup, loopback_url
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -25,24 +22,15 @@ HISTORY = pathlib.Path.home() / 'Library/Application Support/open-whispr/transcr
 
 
 def post(endpoint, path, payload, timeout=120):
-    request = urllib.request.Request(endpoint + path, data=json.dumps(payload).encode(),
-                                     headers={'Content-Type': 'application/json'})
-    with LOCAL.open(request, timeout=timeout) as response:
-        return json.load(response)
+    return LocalHTTP(endpoint).post(path, payload, timeout=timeout)
 
 
 def get(endpoint, path, timeout=2):
-    with LOCAL.open(endpoint + path, timeout=timeout) as response:
-        return json.load(response)
+    return LocalHTTP(endpoint).get(path, timeout=timeout)
 
 
 def local_endpoint(value):
-    endpoint = urlparse(value)
-    if (endpoint.scheme != 'http' or endpoint.hostname not in ('127.0.0.1', 'localhost', '::1')
-            or endpoint.username or endpoint.password or endpoint.path not in ('', '/')
-            or endpoint.query or endpoint.fragment):
-        raise ValueError('cleanup endpoint must be a loopback HTTP base URL')
-    return value.rstrip('/')
+    return loopback_url(value)
 
 
 def vocabulary_and_rules(dictionary):
@@ -108,21 +96,6 @@ def load_history(path):
         rows = connection.execute("select raw_text, text from transcriptions "
                                   "where status='completed' and deleted_at is null order by id").fetchall()
     return [(raw, cleaned) for raw, cleaned in rows if raw and raw.strip() and cleaned is not None]
-
-
-def wait_for_server(process, endpoint, alias):
-    deadline = time.monotonic() + 90
-    while time.monotonic() < deadline:
-        if process.poll() is not None:
-            raise RuntimeError(f'isolated server exited with {process.returncode}')
-        try:
-            get(endpoint, '/health')
-            if alias in [item['id'] for item in get(endpoint, '/v1/models')['data']]:
-                return
-        except (OSError, ValueError, KeyError, urllib.error.URLError):
-            pass
-        time.sleep(0.5)
-    raise TimeoutError('isolated server did not become ready')
 
 
 def clean(endpoint, alias, system, raw, framing, rules):
@@ -208,15 +181,9 @@ def main():
               'framing': framing, 'temperature': 0, 'private_text_saved': False,
               'model_results': {'gemma4-e2b': baseline_metrics}}
     for label, path, alias in args.candidate:
-        server_endpoint = 'http://127.0.0.1:11437'
-        process = subprocess.Popen([str(args.binary), '-m', path, '-c', '4096', '-np', '1', '-fa', 'on',
-                                    '--load-mode', 'mmap+mlock', '--reasoning', 'off', '--temp', '0',
-                                    '--alias', alias, '--host', '127.0.0.1', '--port', '11437',
-                                    '--no-webui', '--no-slots', '--no-context-shift', '--cache-ram', '0',
-                                    '--cors-origins', 'http://127.0.0.1:11437',
-                                    '--log-disable'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        try:
-            wait_for_server(process, server_endpoint, alias)
+        with isolated_server(spec_type='none', model=path, alias=alias, binary=args.binary,
+                             extra=('--cache-ram', '0')) as server:
+            server_endpoint = server.endpoint
             model_system = candidate_prompts.get(label, prompt) + dictionary_suffix
             model_synthetic = candidate_prompts.get(label, synthetic_prompt) + synthetic_dictionary
             output, metrics = run_model(label, server_endpoint, alias, model_system,
@@ -227,16 +194,9 @@ def main():
             consensus = [i for i, (old, gemma) in enumerate(zip(historical, baseline)) if gemma is not None and old.strip() == gemma.strip()]
             metrics['versus_consensus'] = describe([historical[i] for i in consensus], [output[i] for i in consensus])
             metrics['model_bytes'] = pathlib.Path(path).stat().st_size
-            rss = subprocess.run(['ps', '-o', 'rss=', '-p', str(process.pid)], capture_output=True, text=True, check=False)
+            rss = subprocess.run(['ps', '-o', 'rss=', '-p', str(server.process.pid)], capture_output=True, text=True, check=False)
             metrics['server_rss_kib_after'] = int(rss.stdout.strip()) if rss.stdout.strip().isdigit() else None
             report['model_results'][label] = metrics
-        finally:
-            process.terminate()
-            try:
-                process.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2) + '\n')
     print('aggregate_report', args.output, flush=True)

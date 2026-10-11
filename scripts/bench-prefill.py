@@ -4,13 +4,10 @@ import argparse
 from datetime import datetime, timezone
 import json
 from pathlib import Path
-import subprocess
 import time
-from urllib.parse import urlparse
-from urllib.request import ProxyHandler, Request, build_opener
 
 from importlib.util import spec_from_file_location, module_from_spec
-from cleanup_bench import load_saved_cleanup
+from cleanup_bench import ALIAS, LocalHTTP, isolated_server, load_saved_cleanup, loopback_url
 
 ROOT = Path(__file__).resolve().parent.parent
 spec = spec_from_file_location('prompt_bench', ROOT / 'scripts/bench-prompts.py')
@@ -31,10 +28,7 @@ def vocabulary(text):
 
 
 def run(args):
-    url = urlparse(args.endpoint)
-    if (url.scheme != 'http' or url.hostname not in ('127.0.0.1', 'localhost', '::1')
-            or url.username or url.password or url.path not in ('', '/') or url.query or url.fragment):
-        raise ValueError('Loopback base URL required')
+    endpoint = loopback_url(args.endpoint)
     if args.repetitions < 1 or not 0 <= args.hold_seconds <= 10:
         raise ValueError('Invalid benchmark bounds')
     saved = load_saved_cleanup(args.settings_dir)
@@ -43,13 +37,10 @@ def run(args):
         raise ValueError('Endpoint differs from saved configuration')
     dictionary = vocabulary(saved.dictionary)
     system = saved.prompt + (saved.dictionary_prefix + dictionary if dictionary else '')
-    opener = build_opener(ProxyHandler({}))
+    http = LocalHTTP(endpoint)
 
     def post(route, body):
-        request = Request(args.endpoint.rstrip('/') + route, data=json.dumps(body).encode(),
-                          headers={'Content-Type': 'application/json'})
-        with opener.open(request, timeout=30) as response:
-            return json.load(response)
+        return http.post(route, body)
 
     def messages(raw):
         user = f'<transcript>\n{raw}\n</transcript>\n\nOutput only the cleaned transcript.' if prefs.get('cleanupInputFormat') == 'openWhispr' else raw
@@ -67,7 +58,7 @@ def run(args):
         return tokens
 
     def complete(raw, cached):
-        result = post('/v1/chat/completions', dict(model='gemma4-e2b-cleanup:latest', messages=messages(raw),
+        result = post('/v1/chat/completions', dict(model=ALIAS, messages=messages(raw),
                       temperature=0, max_tokens=512, stream=False, cache_prompt=cached, id_slot=0,
                       chat_template_kwargs=dict(enable_thinking=False)))
         if result['choices'][0]['finish_reason'] != 'stop':
@@ -222,30 +213,15 @@ if __name__ == '__main__':
     parser.add_argument('--hold-seconds', type=float, default=.5)
     parser.add_argument('--isolated-server', action='store_true', help='Own a temporary server on 11437 with --cache-ram 0; reuse verified model files read-only')
     parser.add_argument('--output', type=Path, default=ROOT / 'bench/results/prefill.json')
-    server = None
     try:
         args = parser.parse_args()
         if args.isolated_server:
-            args.endpoint = 'http://127.0.0.1:11437'
-            service_spec = spec_from_file_location('cleanup_service', ROOT / 'scripts/cleanup-service.py')
-            service = module_from_spec(service_spec)
-            service_spec.loader.exec_module(service)
-            service.free_port(11437)
-            command = service.arguments(service.DEFAULT_DIRECTORY, 11437) + ['--cache-ram', '0']
-            server = subprocess.Popen(command, env=service.runtime_environment(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            for _ in range(120):
-                if server.poll() is not None:
-                    raise RuntimeError('Temporary server exited')
-                try:
-                    with build_opener(ProxyHandler({})).open(args.endpoint+'/health', timeout=.5) as response:
-                        if json.load(response).get('status') == 'ok':
-                            break
-                except OSError:
-                    time.sleep(.5)
-            else:
-                raise RuntimeError('Temporary server not ready')
-            print('Temporary benchmark server ready; installed service unchanged.', flush=True)
-        run(args)
+            with isolated_server(extra=('--cache-ram', '0')) as server:
+                args.endpoint = server.endpoint
+                print('Temporary benchmark server ready; installed service unchanged.', flush=True)
+                run(args)
+        else:
+            run(args)
     except KeyboardInterrupt:
         parser.exit(130, 'Prefill experiment interrupted; incomplete run discarded.\n')
     except Exception as error:
@@ -254,11 +230,3 @@ if __name__ == '__main__':
                         'Forced miss reused cache', 'Forced prefill miss reused cache', 'Unexpected prefill generation'}
         reason = str(error) if str(error) in safe_reasons else type(error).__name__
         parser.exit(1, f'Prefill experiment failed ({reason}); private request/response details suppressed.\n')
-    finally:
-        if server is not None and server.poll() is None:
-            server.terminate()
-            try:
-                server.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                server.kill()
-                server.wait()
