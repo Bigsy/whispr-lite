@@ -24,7 +24,6 @@ if [[ -n "${APP_BUILD_NUMBER:-}" ]]; then
   [[ "$APP_BUILD_NUMBER" =~ '^[0-9]+$' ]] || { print -u2 'Invalid APP_BUILD_NUMBER'; exit 1; }
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_BUILD_NUMBER" "$app/Contents/Info.plist"
 fi
-cp Resources/*.txt "$app/Contents/Resources/"
 cp Vendor/mediaremote-adapter/patches/broker.pl "$app/Contents/Resources/"
 cp Vendor/mediaremote-adapter/LICENSE "$app/Contents/Resources/MediaRemoteAdapter-LICENSE"
 cp THIRD_PARTY_NOTICES.md "$app/Contents/Resources/"

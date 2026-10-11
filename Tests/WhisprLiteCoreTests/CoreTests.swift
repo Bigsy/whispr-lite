@@ -850,6 +850,12 @@ private actor FinishGatedSession: ASRSession {
         let mode = try FileManager.default.attributesOfItem(atPath: root.appendingPathComponent("dictionary.txt").path)[.posixPermissions] as? Int
         #expect(mode == 0o600)
     }
+    @Test func bundledBenchmarkPromptMatchesAppDefault() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let file = try String(contentsOf: root.appendingPathComponent("Resources/cleanup-prompt.txt"), encoding: .utf8)
+        #expect(file.trimmingCharacters(in: .newlines) == SettingsStore.defaultPrompt.trimmingCharacters(in: .newlines))
+    }
     @Test func unreadablePromptIsPreservedWhenOtherSettingsAreSaved() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("whispr-test-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
