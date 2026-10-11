@@ -37,6 +37,9 @@ work, stops the tap, suspends capture, shuts down media and resets readiness; a 
 configuration drops the suspended old coordinator after retaining it for setup settlement.
 Setup tasks use one current-epoch/session/cancellation check after each await. Tap
 readiness and route-recovery updates share the same status and coordinator-ready setter.
+The app reads microphone, Accessibility and Input Monitoring permission state through
+`PermissionStatus.current` for setup, diagnostics, readiness reports and the status probe.
+Permission buttons open the matching privacy pane through `openSystemSettings(privacyAnchor:)`.
 Menu Quit asks AppKit to terminate. `applicationShouldTerminate` tears down once, returns
 `terminateLater` and replies after the 700 ms media grace period, so ordinary external
 quit requests use the same wait. `applicationWillTerminate` only performs fallback

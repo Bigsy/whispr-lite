@@ -1,6 +1,4 @@
 import AppKit
-import AVFoundation
-import ApplicationServices
 import WhisprLiteCore
 
 /// Exit-only commands run before the normal settings, capture and hotkey setup.
@@ -13,7 +11,8 @@ import WhisprLiteCore
         case .smokeTest:
             smokeTest()
         case .permissionStatus:
-            print("permissions accessibility=\(AXIsProcessTrusted()) microphone=\(AVCaptureDevice.authorizationStatus(for: .audio) == .authorized) input-monitoring=\(CGPreflightListenEventAccess())")
+            let permissions = PermissionStatus.current
+            print("permissions accessibility=\(permissions.accessibility) microphone=\(permissions.microphone) input-monitoring=\(permissions.inputMonitoring)")
             exit(0)
         case .batchFlow(let arguments):
             Task {

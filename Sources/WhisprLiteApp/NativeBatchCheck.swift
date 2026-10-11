@@ -1,12 +1,11 @@
 import AppKit
-import ApplicationServices
 import WhisprLiteCore
 
 /// Opt-in synthetic integration check in the signed app. No microphone or saved app settings.
 @MainActor enum NativeBatchCheck {
     static func run(arguments: [String]) async throws {
         guard arguments.count == 5 else { throw CheckFailure("Batch-flow check requires five arguments") }
-        guard AXIsProcessTrusted() else {
+        guard PermissionStatus.current.accessibility else {
             print("batch-flow blocked: enable Accessibility for this signed Whispr Lite app, then retry")
             throw CheckFailure("Accessibility permission is required for native insertion")
         }

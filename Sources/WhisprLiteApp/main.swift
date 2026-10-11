@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 import AVFoundation
-import ApplicationServices
 import WhisprLiteCore
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, ObservableObject {
@@ -130,10 +129,12 @@ import WhisprLiteCore
                 try? await Task.sleep(for: .milliseconds(100))
             }
             let ready = readinessState == .ready && pipelineReady && tapReady
+            let permissions = PermissionStatus.current
             let report: [String: Any] = ["schema": 1, "ready": ready, "status": status,
                 "asr_model": store.preferences.asrModel.rawValue,
-                "microphone_authorized": AVCaptureDevice.authorizationStatus(for: .audio) == .authorized,
-                "accessibility_authorized": AXIsProcessTrusted(), "input_monitoring_authorized": CGPreflightListenEventAccess(),
+                "microphone_authorized": permissions.microphone,
+                "accessibility_authorized": permissions.accessibility,
+                "input_monitoring_authorized": permissions.inputMonitoring,
                 "event_tap_ready": tapReady, "pipeline_ready": pipelineReady,
                 "warm_capture": store.preferences.warmCapture, "media_status": media.status,
                 "physical_hotkey_or_dictation_tested": false, "private_content_recorded": false]
@@ -280,18 +281,19 @@ import WhisprLiteCore
                     }
                 }
                 guard self.isCurrent(epoch) else { return }
+                let permissions = PermissionStatus.current
                 if self.diagnostics?.isEnabled == true {
                     var permissionRecord = DiagnosticRecord(.permissions)
-                    permissionRecord.accessibility = AXIsProcessTrusted()
-                    permissionRecord.microphone = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-                    permissionRecord.inputMonitoring = CGPreflightListenEventAccess()
+                    permissionRecord.accessibility = permissions.accessibility
+                    permissionRecord.microphone = permissions.microphone
+                    permissionRecord.inputMonitoring = permissions.inputMonitoring
                     self.diagnostics?.record(permissionRecord)
                 }
-                guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+                guard permissions.microphone else {
                     self.update("Microphone permission needed", detail: "Allow microphone access below, then check readiness.", readiness: .needsAttention); return
                 }
                 try self.audio.prepare(CaptureOptions(preferences))
-                guard AXIsProcessTrusted() else {
+                guard permissions.accessibility else {
                     self.audio.suspend(); self.update("Accessibility permission needed", detail: "Enable Whispr Lite in Accessibility settings below, then check readiness.", readiness: .needsAttention); return
                 }
                 self.pipelineReady = true
@@ -451,17 +453,19 @@ import WhisprLiteCore
         Task {
             let allowed = await AVCaptureDevice.requestAccess(for: .audio)
             if allowed { configure() }
-            else { openSettings("Privacy_Microphone") }
+            else { openSystemSettings(privacyAnchor: "Privacy_Microphone") }
         }
     }
     @objc func requestAccessibility() {
-        if !AXIsProcessTrusted() {
-            openSettings("Privacy_Accessibility")
+        if !PermissionStatus.current.accessibility {
+            openSystemSettings(privacyAnchor: "Privacy_Accessibility")
         } else { configure() }
     }
-    @objc func inputMonitoring() { openSettings("Privacy_ListenEvent") }
-    private func openSettings(_ anchor: String) {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") { NSWorkspace.shared.open(url) }
+    @objc func inputMonitoring() { openSystemSettings(privacyAnchor: "Privacy_ListenEvent") }
+    private func openSystemSettings(privacyAnchor: String) {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(privacyAnchor)") {
+            NSWorkspace.shared.open(url)
+        }
     }
     @objc private func showSettings() {
         guard let store else { return }
