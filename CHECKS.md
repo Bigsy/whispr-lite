@@ -151,7 +151,7 @@ and 137 ms for pause; partial prefill cost 45 and 48 ms before release, reducing
 final request to 90 and 132 ms. Paired projected median release savings, including any
 prefill spill past the measured lead time, were only 2.0 and 1.5 ms. This mock did not
 run Gemma concurrently with ASR or measure contention, and its projected release savings
-are not app timings. Report: ignored `bench/results/partial-prefill.json`. The temporary
+are not app timings. Report: ignored `bench/results/partial-prefill.json` (harness `ae1e6a0`). The temporary
 server stopped; the installed cleanup service remained healthy. No streaming or
 per-recording Gemma prefill was integrated.
 
@@ -163,7 +163,7 @@ The checked path spent a median 4.4–4.7 ms on the two preflight requests. Pair
 end-to-end saving without them was only 2.2 ms for correction, 4.0 ms for pause and
 3.2 ms for the one-second clip; final-request timing noise offset some preflight cost.
 The direct-request mock skipped exact preflight context validation, so it was not
-integrated. Metric-only report: ignored `bench/results/cleanup-roundtrips.json`. The
+integrated. Metric-only report: ignored `bench/results/cleanup-roundtrips.json` (harness `ae1e6a0`). The
 temporary server stopped and the installed service remained healthy.
 
 The signed app was relaunched after the model runs; startup diagnostics recorded
@@ -188,7 +188,7 @@ in RAM. The mock reused completed speculative output only for an exact raw trans
 and unchanged settings; otherwise it ran authoritative final cleanup. Trimmed outputs
 matched across all pairs. Release savings combine measured Gemma time with the single
 ASR snapshot's lead time; no concurrent ASR/Gemma, microphone or visible-text timing was
-measured. Report: ignored `bench/results/speculative-cleanup.json`.
+measured. Report: ignored `bench/results/speculative-cleanup.json` (harness `bfef7f6`).
 
 | Snapshot | Exact final match | Median extra/wasted Gemma work | Projected median release saving |
 |---|---:|---:|---:|
@@ -721,7 +721,7 @@ The GGUFs were SHA-256 verified from these pinned revisions:
 [Qwen3.5 4B](https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/tree/e87f176479d0855a907a41277aca2f8ee7a09523).
 Aggregate-only reports are ignored at `bench/results/cleanup-apple-foundation.json`,
 `cleanup-granite-ministral.json`, `cleanup-gemma-q2.json` and
-`cleanup-qwen35-4b-q3.json`. Model weights and the
+`cleanup-qwen35-4b-q3.json` (Apple harness `1c58515`). Model weights and the
 compiled Apple benchmark bridge remain in ignored `.build/`; no private transcript,
 prompt, dictionary or generated text was saved in reports. The installed Gemma
 service and settings were unchanged. Human review of real disagreements and memory
@@ -753,7 +753,7 @@ by about 40 ms, so it is not a general win for common short dictations. No servi
 setting was adopted. Results are warm cleanup HTTP calls with public text, one server
 mode loaded at a time; they exclude ASR, capture, insertion and physical contention.
 Reports: ignored `bench/results/ngram-cleanup.json` and
-`bench/results/ngram-cleanup-followup.json`; neither stores model output.
+`bench/results/ngram-cleanup-followup.json` (harness `4b97c28`); neither stores model output.
 
 For a separate 25 s public synthetic dictation, split the WAV at a quiet point at
 14.45 s. Thirty warm Unified batch calls per segment had medians of 251 ms full,

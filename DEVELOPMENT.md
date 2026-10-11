@@ -422,18 +422,6 @@ the running app during measurement, and do not supply private recordings. This b
 does not include microphone buffering, Gemma cleanup or visible insertion.
 With `--repetitions 1`, the prototype also records synthetic partial text for a
 follow-up prompt-cache mock; the 30-run report retains only partial counts and timing.
-`python3 scripts/bench-partial-prefill.py --repetitions 30` reads those synthetic
-snapshots and starts an isolated pinned Gemma server on 11437 with RAM prompt
-restoration disabled. It compares the already warm fixed prefix with prefix plus first
-partial and writes metric-only output to ignored `bench/results/partial-prefill.json`.
-The installed 11436 service is untouched. Its release savings are projections from
-measured partial lead time and request durations, not full pipeline observations.
-`python3 scripts/bench-cleanup-roundtrips.py --repetitions 30` uses the same isolated
-server and synthetic final transcripts to compare the existing exact template/token
-preflight with a direct final chat request. Its direct path is only a latency mock: it
-does not preserve the app's exact context-limit check. The metric-only report is ignored
-at `bench/results/cleanup-roundtrips.json`.
-
 `python3 -B scripts/bench-cleanup-models.py --binary /absolute/path/to/llama-server
 --candidate LABEL /absolute/path/to/model.gguf MODEL_ALIAS` compares the installed
 Gemma service with one or more smaller local cleanup models. Repeat `--candidate` for
@@ -450,41 +438,18 @@ directory, and the pinned llama-server. Historical cleaned text and Gemma output
 comparison references, not reviewed ground truth; this is cleanup-only, not an ASR or
 release-to-visible-text measurement.
 
-`python3 -B scripts/bench-ngram-cleanup.py --repetitions 10` starts the checksum-verified
-Gemma/MTP stack on isolated port 11437 and compares MTP alone with `ngram-simple`,
-`ngram-map-k` and `ngram-mod` combined with MTP at 3- and 4-token lookups. A final MTP
-pass brackets the candidates. Simple/map draft lengths are 8; mod uses minimum 4 and
-maximum 8, while the pinned MTP draft maximum stays 6. Use
-`--focus ngram-mod4 --repetitions 30` to repeat one candidate with both MTP brackets.
-It uses only public synthetic transcripts and the bundled prompt;
-responses remain in RAM. The ignored report `bench/results/ngram-cleanup.json` contains
-completion, exact-parity, draft-token and latency aggregates. Use normal Metal session
-access if the execution sandbox fails to create a command queue. The installed cleanup
-service, saved prompt and settings are untouched.
+### Retired experiment harnesses
 
-`python3 -B scripts/bench-apple-cleanup.py` compares the installed Gemma service
-with Apple's on-device Foundation Model on the same real and synthetic inputs. It
-builds `scripts/bench-apple-cleanup.swift` into ignored `.build/` using the Xcode
-macOS SDK, then passes requests and responses through in-memory pipes. The Apple
-model must be available (macOS 26+ and Apple Intelligence enabled); run with normal
-model-service access. The report at ignored
-`bench/results/cleanup-apple-foundation.json` contains only aggregate metrics and
-public synthetic case IDs. One new session is created per request to avoid carrying
-transcript context into the next sample. Apple Foundation Models is a separate
-runtime, so its call latency and memory behavior are not directly interchangeable
-with llama.cpp server metrics.
+These rejected or unintegrated experiments remain in git history. Their measured
+results and limits remain in CHECKS.md:
 
-`python3 scripts/bench-speculative-cleanup.py --repetitions 30` reads the ignored
-synthetic `streaming-snapshots.json` and `speculative-snapshots.json`. To reproduce the
-latter, append 2.7 seconds of silence to `bench/results/audio/short.wav` and 1.8 seconds
-to `correction.wav` with `sox ... pad 0 SECONDS`, put the two files in an ignored WAV
-directory, then run `--streaming-prototype CACHE WAV_DIRECTORY
-bench/results/speculative-snapshots.json --repetitions 1` with the app closed. Reopen
-the signed app afterward. The cleanup mock starts an isolated Gemma server on 11437,
-compares full partial cleanup with final-only cleanup, and overlaps stale/final requests
-on its one slot. The ignored `bench/results/speculative-cleanup.json` contains metrics
-only; the installed 11436 service and private settings remain untouched. Release savings
-combine separately measured partial lead and Gemma timing, so they are projections.
+- Partial prefill: `git show ae1e6a0:scripts/bench-partial-prefill.py`
+- Cleanup round trips: `git show ae1e6a0:scripts/bench-cleanup-roundtrips.py`
+- Speculative cleanup: `git show bfef7f6:scripts/bench-speculative-cleanup.py`
+- MTP plus n-gram: `git show 4b97c28:scripts/bench-ngram-cleanup.py`
+- Apple Foundation cleanup: `git show 1c58515:scripts/bench-apple-cleanup.py` and
+  `git show 1c58515:scripts/bench-apple-cleanup.swift`
+- Unused compact prompt: `git show 1c58515:bench/compact-cleanup-prompt.txt`
 
 The one-shot press warm-up prototype was retired after hold-time keep-warm shipped.
 Its historical measurements remain in CHECKS.md under commit `58b318f`.
