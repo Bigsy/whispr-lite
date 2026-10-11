@@ -15,43 +15,52 @@ import Darwin
         app.status = "Cleanup service unavailable"
         app.statusDetail = "Start your cleanup service and check its address in Advanced. Your speech models are ready."
         app.readinessState = .needsAttention
-        for (name, page, size) in [
-            ("general", SettingsPage.general, NSSize(width: 700, height: 740)),
-            ("general-compact", SettingsPage.general, NSSize(width: 620, height: 560)),
-            ("cleanup", SettingsPage.cleanup, NSSize(width: 700, height: 740)),
-            ("cleanup-compact", SettingsPage.cleanup, NSSize(width: 620, height: 560)),
-            ("advanced-parakeet", SettingsPage.advanced, NSSize(width: 700, height: 740))
-        ] {
-            let view = SettingsView(store: store, app: app, page: page, enumerateMicrophones: false, saved: {})
-            try snapshot(view.environment(\.colorScheme, .dark), size: size, to: directory.appendingPathComponent("\(name).png"))
+        // Pages render at the height the settings window gives them; short-screen renders
+        // check the scroll fallback when a page is taller than the display.
+        func settings(_ name: String, _ page: SettingsPage, _ scheme: ColorScheme, height: CGFloat? = nil) throws {
+            let view = SettingsView(store: store, app: app, page: page, enumerateMicrophones: false, saved: {}).environment(\.colorScheme, scheme)
+            let file = directory.appendingPathComponent("\(name).png")
+            if let height { try snapshot(view, size: NSSize(width: SettingsView.width, height: height), to: file); return }
+            app.preferredSettingsHeight = 0
+            try snapshot(view, size: NSSize(width: SettingsView.width, height: 1_400), to: file)
+            guard app.preferredSettingsHeight > 0 else { throw AppError.unsupported }
+            try snapshot(view, size: NSSize(width: SettingsView.width, height: app.preferredSettingsHeight), to: file)
+            heights[name] = app.preferredSettingsHeight
         }
-        for (name, size) in [("cleanup-light", NSSize(width: 700, height: 740)),
-                             ("cleanup-compact-light", NSSize(width: 620, height: 560))] {
-            try snapshot(SettingsView(store: store, app: app, page: .cleanup, enumerateMicrophones: false, saved: {}).environment(\.colorScheme, .light),
-                size: size, to: directory.appendingPathComponent("\(name).png"))
-        }
+        var heights: [String: CGFloat] = [:]
+        try settings("general", .general, .dark)
+        try settings("cleanup", .cleanup, .dark)
+        try settings("cleanup-light", .cleanup, .light)
+        try settings("advanced-parakeet", .advanced, .dark)
+        try settings("general-short-screen", .general, .dark, height: 560)
+        try settings("cleanup-short-screen-light", .cleanup, .light, height: 560)
         var preferences = Preferences()
         preferences.asrModel = .ultra
         try store.save(preferences, prompt: SettingsStore.defaultPrompt, dictionary: "")
-        for (name, size, scheme) in [("general-ultra", NSSize(width: 700, height: 740), ColorScheme.dark),
-                                    ("general-ultra-compact-light", NSSize(width: 620, height: 560), ColorScheme.light)] {
-            try snapshot(SettingsView(store: store, app: app, enumerateMicrophones: false, saved: {}).environment(\.colorScheme, scheme),
-                size: size, to: directory.appendingPathComponent("\(name).png"))
-        }
+        try settings("general-ultra", .general, .dark)
+        try settings("general-ultra-light", .general, .light)
         preferences.backend = .http
         preferences.hotkey = .init(keyCode: 49, modifiers: CGEventFlags.maskControl.rawValue | CGEventFlags.maskAlternate.rawValue)
         try store.save(preferences, prompt: SettingsStore.defaultPrompt, dictionary: "Whispr Lite\nParakeet\nGemma")
-        try snapshot(SettingsView(store: store, app: app, page: .advanced, enumerateMicrophones: false, saved: {}).environment(\.colorScheme, .dark),
-            size: NSSize(width: 620, height: 560), to: directory.appendingPathComponent("advanced-http-compact.png"))
-        try snapshot(SettingsView(store: store, app: app, enumerateMicrophones: false, saved: {}).environment(\.colorScheme, .light),
-            size: NSSize(width: 700, height: 740), to: directory.appendingPathComponent("general-http-light.png"))
+        try settings("advanced-http", .advanced, .dark)
+        try settings("general-http-light", .general, .light)
         preferences.hotkey = .init(keyCode: HotkeyModifier.rightControl.rawValue)
         try store.save(preferences, prompt: SettingsStore.defaultPrompt, dictionary: "Whispr Lite\nParakeet\nGemma")
-        for (name, size) in [("general-right-control", NSSize(width: 700, height: 740)),
-                             ("general-right-control-compact", NSSize(width: 620, height: 560))] {
-            try snapshot(SettingsView(store: store, app: app, enumerateMicrophones: false, saved: {}).environment(\.colorScheme, .dark),
-                size: size, to: directory.appendingPathComponent("\(name).png"))
-        }
+        try settings("general-right-control", .general, .dark)
+        // A real titled window must fit its content to the page height with the top edge fixed.
+        let window = AppDelegate.makeSettingsWindow(NSHostingView(rootView:
+            SettingsView(store: store, app: app, page: .advanced, enumerateMicrophones: false, saved: {})))
+        window.setFrameTopLeftPoint(NSPoint(x: -10_000, y: 10_000))
+        let top = window.frame.maxY
+        app.settingsWindow = window
+        window.contentView?.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+        let fitted = window.contentRect(forFrameRect: window.frame).height
+        app.settingsWindow = nil; window.close()
+        guard app.preferredSettingsHeight > 0, abs(fitted - app.preferredSettingsHeight) < 1, abs(window.frame.maxY - top) < 1 else { throw AppError.overflow }
+        heights["window-fit-advanced-http"] = fitted
+        try JSONSerialization.data(withJSONObject: heights.mapValues { Double($0) }, options: [.prettyPrinted, .sortedKeys])
+            .write(to: directory.appendingPathComponent("settings-heights.json"), options: .atomic)
         try snapshot(ShortcutRecordingSheet(captureEvents: false, recorded: { _ in }, cancelled: {}).environment(\.colorScheme, .dark),
             size: NSSize(width: 478, height: 300), to: directory.appendingPathComponent("shortcut-recorder.png"))
         for state in [DictationState.recording, .processing, .error] {

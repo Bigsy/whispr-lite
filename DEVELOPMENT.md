@@ -20,10 +20,16 @@ by default. A blank cache path uses `~/Library/Application Support/FluidAudio/Mo
 Preparation shows cache/load/warm-up/download stages and explicit library errors.
 
 Settings are split into **General**, **Cleanup** and **Advanced**. General holds recording,
-microphone, media and permission controls; Cleanup holds the private prompt/dictionary;
-Advanced holds relevant model paths/downloads, local service URLs, deadlines and explicit
-demo controls. Help/errors wrap, content scrolls and the save action remains visible at
-the minimum window size. Saving unrelated settings preserves custom hotkey configurations.
+microphone, media and permission controls; Cleanup holds the private prompt/dictionary and
+dictation history; Advanced holds relevant model paths/downloads, local service URLs,
+capture/deadlines, diagnostics and explicit demo controls. Rows are grouped with the label
+and a short caption on the left and the control on the right; longer detail is in tooltips.
+The window is 640 points wide and not user-resizable: its height follows the selected page
+with the top edge fixed, so ordinary settings fit without scrolling (635 to 751 points in
+the synthetic renders). A page taller than the screen is capped and scrolls, with Save still
+visible. The prompt and dictionary editors scroll inside; drag the grip under each to
+resize it, and the window follows. Editor heights are remembered. Help/errors wrap.
+Saving unrelated settings preserves custom hotkey configurations.
 
 Cleanup's **Use default prompt** replaces only the editor text; **Save settings** applies
 it. The general default makes minimal edits, preserves meaning and uncertainty, treats
@@ -52,9 +58,11 @@ UI work. Full-screen/Spaces/multi-display
 focus and accessibility acceptance still need the manual matrix.
 
 Open the settings directly with `open 'dist/Whispr Lite.app' --args --settings`.
-`WhisprLite --ui-preview OUTPUT_DIRECTORY` renders synthetic native settings in compact/
-full sizes and light/dark appearances plus indicator states. It starts no hotkey, audio,
-model or service, and reads/writes no real settings. Preview images are not a focus or
+`WhisprLite --ui-preview OUTPUT_DIRECTORY` renders synthetic native settings at each page's
+fitted height and on a 560-point short screen, in light/dark appearances, plus indicator
+states. `settings-heights.json` records each fitted height; a real titled window must fit
+its content to the page with the top edge fixed, or the command fails. It starts no hotkey,
+audio, model or service, and reads/writes no real settings. Preview images are not a focus or
 visible-insertion acceptance test.
 
 The build finds an existing Apple Development identity, or uses ad-hoc signing if none

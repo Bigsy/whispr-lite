@@ -10,7 +10,8 @@ import WhisprLiteCore
     @Published var readinessState: SetupReadiness = .preparing
     @Published var mediaStatus = "Media disabled"
     private var item: NSStatusItem!
-    private var settingsWindow: NSWindow?
+    /// Internal so the UI preview command can check window fitting on a real titled window.
+    var settingsWindow: NSWindow?
     private var benchmarkWindow: NSWindow?
     private var benchmarkField: MeasuredTextView?
     private var benchmarkVisible: ((Double) -> Void)?
@@ -464,14 +465,38 @@ import WhisprLiteCore
         guard let store else { return }
         if settingsWindow == nil {
             let view = SettingsView(store: store, app: self) { [weak self] in self?.configure() }
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 740), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-            let host = NSHostingView(rootView: view)
-            host.sizingOptions = []
-            window.title = "Whispr Lite Settings"; window.contentView = host
-            window.contentMinSize = NSSize(width: 620, height: 560)
-            window.isReleasedWhenClosed = false; window.center(); settingsWindow = window
+            let window = Self.makeSettingsWindow(NSHostingView(rootView: view))
+            settingsWindow = window
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.center()
         }
         NSApp.activate(ignoringOtherApps: true); settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+    /// Not user-resizable: the height follows the selected page via fitSettings(height:).
+    static func makeSettingsWindow<Content: View>(_ host: NSHostingView<Content>) -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: SettingsView.width, height: 640),
+                              styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        host.sizingOptions = []
+        window.title = "Whispr Lite Settings"; window.contentView = host
+        window.isReleasedWhenClosed = false
+        return window
+    }
+    /// The settings page's natural height, kept for the UI preview command.
+    var preferredSettingsHeight: CGFloat = 0
+    /// Sizes the settings window to the page with its top edge fixed. A page taller than the
+    /// screen is capped and scrolls instead.
+    func fitSettings(height: CGFloat) {
+        preferredSettingsHeight = height.rounded(.up)
+        guard let window = settingsWindow else { return }
+        let content = window.contentRect(forFrameRect: window.frame)
+        let visible = (window.screen ?? NSScreen.main)?.visibleFrame
+        let titlebar = window.frame.height - content.height
+        let target = min(preferredSettingsHeight, visible.map { $0.height - titlebar } ?? preferredSettingsHeight)
+        guard abs(target - content.height) >= 1 else { return }
+        var frame = window.frameRect(forContentRect: NSRect(x: content.minX, y: content.maxY - target, width: content.width, height: target))
+        if let visible, frame.minY < visible.minY { frame.origin.y = visible.minY }
+        // Animate page switches; small changes while dragging an editor follow the pointer directly.
+        window.setFrame(frame, display: true, animate: window.isVisible && abs(target - content.height) > 60)
     }
     @objc private func showBenchmark() {
         if benchmarkWindow == nil {

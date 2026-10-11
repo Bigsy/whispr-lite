@@ -259,6 +259,18 @@ order, a file error that stops saving without blocking the caller, and a coordin
 saves a completed dictation but not a cancelled one. All test text is synthetic. Physical
 dictation into the real history file and training use remain unverified.
 
+## Fitted settings layout
+
+11 October 2026: settings no longer need scrolling. The window is 640 points wide and its
+height follows each page with the top edge fixed; rows are grouped with captions on the
+left and controls on the right; the prompt and dictionary editors scroll inside and resize
+by a drag grip. Synthetic `--ui-preview` renders fit every page between 635 and 751 points:
+General 683 (635 for HTTP), Cleanup 738, Advanced 751 (661 for HTTP), in light and dark.
+At a 560-point short screen the content scrolls and Save stays visible. A real titled
+window fitted its content to the 661-point HTTP Advanced page with its top edge unchanged.
+Permission buttons are no longer truncated. Live tab switching, editor dragging and
+accessibility in the running app still need a manual look.
+
 ## Low-latency capture and read-driven clipboard restore
 
 10 October 2026: a content-free probe on this Mac's default input (44.1 kHz mono) showed

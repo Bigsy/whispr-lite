@@ -10,8 +10,10 @@ remaining gates belong in the checks.
 
 - Keep common settings short and readable. Put service URLs, deadlines, custom prompts,
   model paths and development/demo controls behind clearly labeled advanced sections.
-- Use a scrollable settings layout with a sensible minimum window size. Wrap help/error
-  text and verify compact and full-size native renders after layout changes.
+- Size the settings window to each page so ordinary settings fit without scrolling; keep
+  scrolling only as a fallback for short screens. Long editors scroll inside and can be
+  dragged taller. Wrap help/error text and verify fitted and short-screen native renders
+  after layout changes.
 - Show recording, processing and recoverable failure clearly. Recording indicators must
   not activate the app, steal keyboard focus or appear in screenshots of private text.
 - OpenWhispr can inform behavior and visuals. Check the upstream license, record the

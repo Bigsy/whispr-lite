@@ -6,7 +6,11 @@ import WhisprLiteCore
 enum SettingsPage: String, CaseIterable { case general = "General", cleanup = "Cleanup", advanced = "Advanced" }
 enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
 
+/// Fixed-width settings whose window follows each page's height, so ordinary settings never
+/// need scrolling. The scroll view is only a fallback for a page taller than the screen; the
+/// prompt and dictionary editors scroll inside and can be dragged taller.
 @MainActor struct SettingsView: View {
+    static let width: CGFloat = 640
     let store: SettingsStore
     @ObservedObject var app: AppDelegate
     let saved: () -> Void
@@ -21,6 +25,11 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
     @State private var microphones: [MicrophoneDevice] = []
     @State private var confirmingHistoryDelete = false
     @State private var historyMessage = ""
+    @State private var headerHeight: CGFloat = 0
+    @State private var contentHeight: CGFloat = 0
+    @State private var footerHeight: CGFloat = 0
+    @AppStorage("settingsPromptEditorHeight") private var promptHeight = 132.0
+    @AppStorage("settingsDictionaryEditorHeight") private var dictionaryHeight = 84.0
 
     init(store: SettingsStore, app: AppDelegate, page: SettingsPage = .general,
          enumerateMicrophones: Bool = true, saved: @escaping () -> Void) {
@@ -39,45 +48,28 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 12) {
-                    Image(systemName: "waveform").font(.title2).foregroundStyle(.tint)
-                        .frame(width: 40, height: 40).background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Whispr Lite").font(.title2.weight(.semibold))
-                        Text("Hold your shortcut, speak, then release.").font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                }
-                statusCard
-                Picker("Settings page", selection: $page) {
-                    ForEach(SettingsPage.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }.pickerStyle(.segmented).labelsHidden()
-            }.padding(24)
-            Divider()
+        VStack(spacing: 0) {
+            header
+                .overlay(alignment: .bottom) { Divider() }
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { headerHeight = $0; fitWindow() }
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 16) {
                     switch page {
                     case .general: general
                     case .cleanup: cleanup
                     case .advanced: advanced
                     }
-                }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 16)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { contentHeight = $0; fitWindow() }
             }
-            Divider()
-            VStack(alignment: .leading, spacing: 8) {
-                if !error.isEmpty {
-                    Text(error).font(.callout).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
-                }
-                HStack {
-                    Text("Changes apply when saved.").font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Save settings", action: save).keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
-                }
-            }.padding(.horizontal, 24).padding(.vertical, 16)
+            .scrollBounceBehavior(.basedOnSize)
+            footer
+                .overlay(alignment: .top) { Divider() }
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { footerHeight = $0; fitWindow() }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(width: Self.width)
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear { if enumerateMicrophones { microphones = MicrophoneDevice.available() } }
         .sheet(isPresented: $recordingShortcut, onDismiss: { app.endShortcutRecording() }) {
@@ -88,51 +80,75 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
             }, cancelled: { recordingShortcut = false })
         }
     }
+    private func fitWindow() {
+        guard headerHeight > 0, contentHeight > 0, footerHeight > 0 else { return }
+        app.fitSettings(height: headerHeight + contentHeight + footerHeight)
+    }
 
-    private var statusCard: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: app.readinessState == .ready ? "checkmark.circle.fill" : app.readinessState == .preparing ? "hourglass" : "exclamationmark.circle.fill")
-                .foregroundStyle(app.readinessState == .ready ? Color.green : Color.orange).font(.title3)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(app.status).font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
-                if !app.statusDetail.isEmpty {
-                    Text(app.statusDetail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading)
-            Button("Check readiness") { app.retry() }.disabled(app.readinessState == .preparing)
-        }.padding(14).background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+    private var header: some View {
+        VStack(spacing: 14) {
+            Picker("Settings page", selection: $page) {
+                ForEach(SettingsPage.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }.pickerStyle(.segmented).labelsHidden().frame(width: 330)
+            HStack(spacing: 10) {
+                Image(systemName: app.readinessState == .ready ? "checkmark.circle.fill" : app.readinessState == .preparing ? "hourglass" : "exclamationmark.circle.fill")
+                    .foregroundStyle(app.readinessState == .ready ? Color.green : Color.orange).font(.title3)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(app.status).font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                    if !app.statusDetail.isEmpty {
+                        Text(app.statusDetail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                Button("Check readiness") { app.retry() }.disabled(app.readinessState == .preparing)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+        }.padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 14)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            if error.isEmpty { Text("Changes apply when saved.").font(.caption).foregroundStyle(.secondary) }
+            else { Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
+            Spacer(minLength: 12)
+            Button("Save settings", action: save).keyboardShortcut(.defaultAction)
+        }.padding(.horizontal, 20).padding(.vertical, 12)
     }
 
     private var general: some View {
         Group {
-            card("Recording") {
-                row("Speech recognition") {
+            section("Recording") {
+                row("Speech recognition", preferences.backend == .parakeet ? "Runs on this Mac. Model setup is in Advanced."
+                    : preferences.backend == .http ? "Uses your local speech server. Its address is in Advanced."
+                    : "Demo produces fabricated text and bypasses real speech recognition and cleanup.") {
                     Picker("Speech recognition", selection: $preferences.backend) {
                         Text("Parakeet — on this Mac").tag(BackendMode.parakeet)
                         Text("Local HTTP server").tag(BackendMode.http)
                         if preferences.backend == .demo { Text("DEMO — simulated output").tag(BackendMode.demo) }
-                    }.labelsHidden()
+                    }.labelsHidden().fixedSize()
                 }
                 if preferences.backend == .parakeet {
-                    row("Speech model") {
+                    Divider()
+                    row("Speech model", "If a model is missing, enable downloads in Advanced.") {
                         Picker("Speech model", selection: $preferences.asrModel) {
                             ForEach(ParakeetModel.allCases, id: \.self) { Text($0.name).tag($0) }
-                        }.labelsHidden()
+                        }.labelsHidden().fixedSize()
                     }
-                    help("Models are prepared before recording. If a model is missing, enable downloads in Advanced, then save.")
                 }
+                Divider()
                 row("Hold shortcut") {
                     Picker("Hold shortcut", selection: $shortcut) {
                         Text("Globe / Fn").tag("fn")
                         Text("Control + Space").tag("ctrl-space")
                         Text("Control + Option + Space").tag("ctrl-alt-space")
                         if shortcut == "custom" { Text(ShortcutLabel.name(preferences.hotkey)).tag("custom") }
-                    }.labelsHidden()
+                    }.labelsHidden().fixedSize()
                     Button("Record…") {
                         app.beginShortcutRecording()
                         recordingShortcut = true
                     }.help("Record any hold key or combination, including Left or Right Control.")
                 }
+                Divider()
                 row("Microphone") {
                     Picker("Microphone", selection: $preferences.microphoneUID) {
                         Text("System default").tag("")
@@ -140,25 +156,23 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
                         if !preferences.microphoneUID.isEmpty && !microphones.contains(where: { $0.id == preferences.microphoneUID }) {
                             Text("Saved microphone — currently unavailable").tag(preferences.microphoneUID)
                         }
-                    }.labelsHidden()
+                    }.labelsHidden().frame(maxWidth: 260)
                 }
-                help(preferences.backend == .parakeet ? "Speech recognition runs directly on your Mac. Model setup is in Advanced." : preferences.backend == .http ? "Uses your local speech server. Its address is in Advanced." : "Demo produces fabricated text and bypasses real speech recognition and cleanup.")
             }
-            card("While recording") {
-                Toggle("Keep the microphone ready", isOn: $preferences.warmCapture)
-                help("Keeps a short audio buffer in memory to preserve the first word. The macOS microphone indicator stays on. Turn this off to reduce idle power.")
-                Toggle("Show audio activity in the listening pill", isOn: $preferences.showAudioActivity)
-                help("A small wave reacts to microphone level while recording. It does not change the audio or detect speech with a model.")
+            section("While recording") {
+                toggleRow("Keep the microphone ready", "Holds a short buffer in memory so your first word isn't cut. The microphone indicator stays on; turn off to save idle power.",
+                          isOn: $preferences.warmCapture)
                 Divider()
-                Toggle("Pause media while recording", isOn: $preferences.pauseMedia)
-                help(preferences.pauseMedia && app.readinessState == .ready ? app.mediaStatus : "Media control starts when dictation is ready. Playback resumes only when this recording owns the pause.")
+                toggleRow("Show audio activity", "A small wave in the listening pill follows your microphone level.", isOn: $preferences.showAudioActivity)
+                Divider()
+                toggleRow("Pause media while recording", preferences.pauseMedia && app.readinessState == .ready ? app.mediaStatus
+                          : "Playback resumes only if this recording paused it.", isOn: $preferences.pauseMedia)
             }
-            card("Permissions") {
-                help("Microphone, Accessibility and Input Monitoring access are needed for recording and inserting text.")
-                HStack(spacing: 10) {
-                    Button("Microphone…") { app.requestMicrophone() }
-                    Button("Accessibility…") { app.requestAccessibility() }
-                    Button("Input Monitoring…") { app.inputMonitoring() }
+            section("Permissions") {
+                row("Grant access", "Needed to record and insert text.") {
+                    Button("Microphone…") { app.requestMicrophone() }.fixedSize()
+                    Button("Accessibility…") { app.requestAccessibility() }.fixedSize()
+                    Button("Input Monitoring…") { app.inputMonitoring() }.fixedSize()
                 }
             }
         }
@@ -166,26 +180,24 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
 
     private var cleanup: some View {
         Group {
-            card("Cleanup prompt") {
-                help("The default makes minimal edits and preserves your meaning. Add a short context line for your work or terminology.")
-                editor("Cleanup prompt", text: $prompt, height: 150)
-                Button("Use default prompt") { prompt = SettingsStore.defaultPrompt }
+            editorSection("Cleanup prompt", "The default makes minimal edits and keeps your meaning. Add a short context line for your work or terminology.",
+                          text: $prompt, height: $promptHeight) {
+                Button("Use default prompt") { prompt = SettingsStore.defaultPrompt }.controlSize(.small)
                     .help("Replace the editor text with the default. Changes apply when saved.")
             }
-            card("Dictionary and phrases") {
-                help("Names and terms guide the local model. For an exact conversion, add spoken phrase > Written phrase on its own line. Conversions ignore case and keep your chosen spelling.")
-                editor("Dictionary", text: $dictionary, height: 110)
-            }
-            card("Dictation history") {
-                Toggle("Keep dictation history on this Mac", isOn: $preferences.saveDictationHistory)
-                help("Saves each transcript and its cleaned text in a private file on this Mac, so a better local cleanup model can later be trained on your own dictation. It is never uploaded or shared, and audio is not kept. Demo output and cancelled dictations are not saved.")
-                HStack(spacing: 10) {
-                    Button("Show in Finder", action: app.showDictationHistory)
-                    Button("Delete history…", role: .destructive) { confirmingHistoryDelete = true }
+            editorSection("Dictionary and phrases", "Names and terms guide the local model. For an exact conversion, write spoken phrase > Written phrase on its own line; case is ignored.",
+                          text: $dictionary, height: $dictionaryHeight) { EmptyView() }
+            section("Dictation history") {
+                toggleRow("Keep dictation history on this Mac", "Saves each transcript and its cleaned text in a private file on this Mac, so a better local cleanup model can be trained on your own dictation. Never uploaded or shared. Audio, demo output and cancelled dictations are not kept.",
+                          isOn: $preferences.saveDictationHistory)
+                Divider()
+                row("Saved history", historyMessage.isEmpty ? "Excluded from Time Machine. Keeps up to 32 MB, removing the oldest entries first." : historyMessage) {
+                    Button("Show in Finder", action: app.showDictationHistory).help("~/Library/Application Support/WhisprLite/History")
+                    Button("Delete…", role: .destructive) { confirmingHistoryDelete = true }
                 }
-                help("~/Library/Application Support/WhisprLite/History · Excluded from Time Machine. Keeps up to 32 MB, removing the oldest entries first.")
-                if !historyMessage.isEmpty { Text(historyMessage).font(.caption).foregroundStyle(.secondary) }
-                if app.dictationHistoryFailed { Text("Saving stopped after a file error. Check free space and folder permissions, then save settings to retry.").font(.caption).foregroundStyle(.orange) }
+                if app.dictationHistoryFailed {
+                    warning("Saving stopped after a file error. Check free space and folder permissions, then save settings to retry.")
+                }
             }
             .alert("Delete all dictation history?", isPresented: $confirmingHistoryDelete) {
                 Button("Delete", role: .destructive) {
@@ -193,102 +205,114 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
                 }
                 Button("Cancel", role: .cancel) {}
             } message: { Text("This permanently removes every saved transcript from this Mac.") }
-            help("The cleanup service address and response deadlines are in Advanced.")
         }
     }
 
     private var advanced: some View {
         Group {
             if preferences.backend == .parakeet {
-                card("Speech models") {
-                    Toggle("Download missing models when preparing", isOn: $preferences.allowASRDownloads)
-                    help("Downloads require internet access. Once cached, speech recognition runs locally.")
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Model cache folder").font(.callout.weight(.medium))
-                        HStack {
-                            TextField("Use the default FluidAudio model cache", text: $preferences.asrModelDirectory)
-                                .textFieldStyle(.roundedBorder)
-                            Button("Choose…", action: chooseCache)
-                        }
-                        help("Leave blank to use ~/Library/Application Support/FluidAudio/Models.")
+                section("Speech models") {
+                    toggleRow("Download missing models when preparing", "Needs internet access. Once cached, speech recognition runs locally.",
+                              isOn: $preferences.allowASRDownloads)
+                    Divider()
+                    row("Model cache folder", "Leave blank for the default FluidAudio cache.") {
+                        TextField("Default cache", text: $preferences.asrModelDirectory).textFieldStyle(.roundedBorder).frame(width: 200)
+                            .help("Blank uses ~/Library/Application Support/FluidAudio/Models.")
+                        Button("Choose…", action: chooseCache)
                     }
                 }
             }
             if preferences.backend != .demo {
-                card("Local services") {
+                section("Local services") {
                     if preferences.backend == .http {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Speech server").font(.callout.weight(.medium))
-                            TextField("http://127.0.0.1:11435", text: $preferences.asrEndpoint).textFieldStyle(.roundedBorder)
+                        row("Speech server") {
+                            TextField("http://127.0.0.1:11435", text: $preferences.asrEndpoint).textFieldStyle(.roundedBorder).frame(width: 220)
                         }
+                        Divider()
                     }
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Cleanup server").font(.callout.weight(.medium))
-                        TextField("http://127.0.0.1:11436", text: $preferences.cleanupEndpoint).textFieldStyle(.roundedBorder)
+                    row("Cleanup server", "Local base address without /v1. Saving does not start or replace a service.") {
+                        TextField("http://127.0.0.1:11436", text: $preferences.cleanupEndpoint).textFieldStyle(.roundedBorder).frame(width: 220)
                     }
-                    help("Use local base addresses without /v1. Saving settings does not start or replace a service.")
-                    Picker("Cleanup input format", selection: $preferences.cleanupInputFormat) {
-                        Text("Plain transcript").tag(CleanupInputFormat.plain)
-                        Text("OpenWhispr transcript tags").tag(CleanupInputFormat.openWhispr)
+                    Divider()
+                    row("Cleanup input format") {
+                        Picker("Cleanup input format", selection: $preferences.cleanupInputFormat) {
+                            Text("Plain transcript").tag(CleanupInputFormat.plain)
+                            Text("OpenWhispr transcript tags").tag(CleanupInputFormat.openWhispr)
+                        }.labelsHidden().fixedSize()
                     }
                 }
             }
-            card("Microphone capture") {
-                Toggle("Low-latency capture", isOn: $preferences.lowLatencyCapture)
-                help("Reads the microphone about every 10 ms instead of every 100 ms, so text arrives sooner after you release. Turn off if a microphone records silence or fails.")
-            }
-            card("Response deadlines") {
-                row("Speech recognition") {
+            section("Performance") {
+                toggleRow("Low-latency capture", "Reads the microphone about every 10 ms so text arrives sooner. Turn off if a microphone records silence or fails.",
+                          isOn: $preferences.lowLatencyCapture)
+                Divider()
+                row("Response deadlines", "1–120 seconds. A cleanup failure offers the raw transcript to copy.") {
+                    Text("Speech").foregroundStyle(.secondary)
                     TextField("Speech deadline", value: $preferences.asrTimeoutSeconds, format: .number)
-                        .textFieldStyle(.roundedBorder).frame(width: 80)
-                    Text("seconds").foregroundStyle(.secondary)
-                }
-                row("Cleanup") {
+                        .textFieldStyle(.roundedBorder).frame(width: 48)
+                    Text("Cleanup").foregroundStyle(.secondary).padding(.leading, 4)
                     TextField("Cleanup deadline", value: $preferences.cleanupTimeoutSeconds, format: .number)
-                        .textFieldStyle(.roundedBorder).frame(width: 80)
-                    Text("seconds").foregroundStyle(.secondary)
+                        .textFieldStyle(.roundedBorder).frame(width: 48)
+                    Text("s").foregroundStyle(.secondary)
                 }
-                help("Allowed range: 1–120 seconds. A cleanup failure offers the raw transcript for copying.")
             }
-            card("Diagnostics") {
-                Toggle("Record debug timings", isOn: $preferences.debugLogging)
-                help("Logs timing stages, readiness, paste checks and media replies locally. Audio, dictated text, prompts, clipboard contents and media titles are excluded. Two files retain up to 4 MB in total.")
-                Button("Show logs in Finder", action: app.showDiagnosticLogs)
-                help("~/Library/Application Support/WhisprLite/Diagnostics · Enable logging and save first.")
-                if app.diagnosticLogFailed { Text("Logging stopped after a file error. Check free space and folder permissions, then turn logging off and on.").font(.caption).foregroundStyle(.orange) }
-            }
-            card("Development") {
-                Toggle("Use demo output", isOn: Binding(get: { preferences.backend == .demo }, set: { preferences.backend = $0 ? .demo : .parakeet }))
-                help("Demo fabricates text and bypasses real speech recognition and cleanup. It is visibly marked while enabled.")
+            section("Diagnostics and development") {
+                row("Record debug timings", "Timing, readiness, paste checks and media replies only; never audio, dictated text, prompts or titles. Up to 4 MB.") {
+                    Button("Show logs", action: app.showDiagnosticLogs)
+                        .help("~/Library/Application Support/WhisprLite/Diagnostics · Enable logging and save first.")
+                    Toggle("Record debug timings", isOn: $preferences.debugLogging).labelsHidden().toggleStyle(.switch).controlSize(.small)
+                }
+                if app.diagnosticLogFailed {
+                    warning("Logging stopped after a file error. Check free space and folder permissions, then turn logging off and on.")
+                }
+                Divider()
+                toggleRow("Use demo output", "Fabricates text and bypasses real speech recognition and cleanup. It is visibly marked while on.",
+                          isOn: Binding(get: { preferences.backend == .demo }, set: { preferences.backend = $0 ? .demo : .parakeet }))
                 if preferences.backend == .demo {
-                    Toggle("Exercise streaming in demo mode", isOn: $preferences.streamingDemo)
+                    Divider()
+                    toggleRow("Exercise streaming in demo mode", isOn: $preferences.streamingDemo)
                 }
             }
         }
     }
 
-    private func row<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
-            Text(title).font(.callout).frame(width: 140, alignment: .leading)
-            HStack(spacing: 8, content: content).frame(maxWidth: .infinity, alignment: .leading)
+    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionTitle(title)
+            VStack(alignment: .leading, spacing: 0, content: content)
+                .padding(.horizontal, 14)
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.08)))
         }
     }
-    private func card<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title).font(.headline)
-            content()
-        }.frame(maxWidth: .infinity, alignment: .leading).padding(18)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary).padding(.leading, 2)
     }
-    private func help(_ text: String) -> some View {
-        Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
+    /// Label and optional caption on the left, controls on the right.
+    private func row<Controls: View>(_ title: String, _ caption: String? = nil, @ViewBuilder controls: () -> Controls) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if let caption, !caption.isEmpty {
+                    Text(caption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8, content: controls)
+        }.padding(.vertical, 8)
     }
-    private func editor(_ title: String, text: Binding<String>, height: CGFloat) -> some View {
-        TextEditor(text: text).font(.body).scrollContentBackground(.hidden).padding(8).frame(height: height)
-            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(.secondary.opacity(0.2)))
-            .accessibilityLabel(title)
+    private func toggleRow(_ title: String, _ caption: String? = nil, isOn: Binding<Bool>) -> some View {
+        row(title, caption) { Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small) }
+    }
+    private func warning(_ text: String) -> some View {
+        Text(text).font(.caption).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true).padding(.bottom, 8)
+    }
+    private func editorSection<Accessory: View>(_ title: String, _ caption: String, text: Binding<String>, height: Binding<Double>,
+                                                @ViewBuilder accessory: () -> Accessory) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) { sectionTitle(title); Spacer(); accessory() }
+            Text(caption).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true).padding(.leading, 2)
+            ResizableEditor(title: title, text: text, height: height)
+        }
     }
     private func chooseCache() {
         let panel = NSOpenPanel()
@@ -310,4 +334,46 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
             self.error = "Check local server addresses, the model folder, deadlines (1–120 seconds) and prompt/dictionary size."
         }
     }
+}
+
+/// A text editor that scrolls inside and can be dragged taller or shorter by its bottom grip.
+private struct ResizableEditor: View {
+    static let heights = 56.0...520.0
+    let title: String
+    @Binding var text: String
+    @Binding var height: Double
+    @State private var dragStart: Double?
+    @State private var cursorPushed = false
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TextEditor(text: $text).font(.body).scrollContentBackground(.hidden)
+                .padding(.horizontal, 6).padding(.top, 6)
+                .frame(height: min(max(height, Self.heights.lowerBound), Self.heights.upperBound))
+                .accessibilityLabel(title)
+            Capsule().fill(Color.secondary.opacity(0.4)).frame(width: 36, height: 4)
+                .frame(maxWidth: .infinity, minHeight: 14)
+                .contentShape(Rectangle())
+                .onHover { inside in
+                    hovering = inside
+                    if inside, !cursorPushed { NSCursor.resizeUpDown.push(); cursorPushed = true }
+                    else if !inside, dragStart == nil { popCursor() }
+                }
+                // Window coordinates stay put while the window grows downward, so the grip tracks the pointer.
+                .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { value in
+                        let start = dragStart ?? height
+                        dragStart = start
+                        height = min(max(start + value.translation.height, Self.heights.lowerBound), Self.heights.upperBound)
+                    }
+                    .onEnded { _ in dragStart = nil; if !hovering { popCursor() } })
+                .help("Drag to resize")
+                .accessibilityHidden(true)
+        }
+        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.secondary.opacity(0.25)))
+        .onDisappear { popCursor() }
+    }
+    private func popCursor() { if cursorPushed { NSCursor.pop(); cursorPushed = false } }
 }
