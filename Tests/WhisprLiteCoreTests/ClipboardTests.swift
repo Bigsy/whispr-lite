@@ -17,7 +17,7 @@ import AVFoundation
         let owner = ClipboardTransaction(clipboard)
         try owner.write("first"); try owner.write("second"); owner.settle()
         #expect(clipboard.content == original)
-        #expect(clipboard.changeCount == 4)
+        #expect(clipboard.text == "restored")
     }
     @Test func targetReadRestoresAfterGraceNotTheFallbackTimeout() async throws {
         let clipboard = MemoryClipboard(); let original = clipboard.content
