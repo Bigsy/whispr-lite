@@ -13,11 +13,15 @@ public struct DictationText: Sendable, Equatable {
     public let cleaned: String
     public init(raw: String, cleaned: String) { self.raw = raw; self.cleaned = cleaned }
 }
+extension String {
+    var endsSentence: Bool { last.map { ".!?".contains($0) } == true }
+}
 public struct PipelineFailure: Error, Sendable {
     public let reason: AppError
     public let rawText: String?
 }
 public struct BatchPipeline: Sendable {
+    private static let wordPattern = try! NSRegularExpression(pattern: #"[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}\p{N}]+)*"#)
     public let backend: any ASRBackend
     public let cleanup: any TextCleanup
     public var asrDeadline: Duration = .seconds(10)
@@ -66,30 +70,34 @@ public struct BatchPipeline: Sendable {
     }
     private static func reusablePrefix(in full: String, chunks: [DictationText]) -> (cleaned: String, tail: String)? {
         guard !chunks.isEmpty else { return nil }
-        let pattern = try! NSRegularExpression(pattern: #"[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}\p{N}]+)*"#)
         func words(_ text: String) -> [String] {
             let range = NSRange(text.startIndex..<text.endIndex, in: text)
-            return pattern.matches(in: text, range: range).compactMap { match in
+            return wordPattern.matches(in: text, range: range).compactMap { match in
                 Range(match.range, in: text).map { String(text[$0]).lowercased() }
             }
         }
-        let fullWords = words(full)
+        let fullMatches = wordPattern.matches(in: full, range: NSRange(full.startIndex..<full.endIndex, in: full))
+        let fullWords = fullMatches.compactMap { match in
+            Range(match.range, in: full).map { String(full[$0]).lowercased() }
+        }
         var prefix: [String] = []
         for chunk in chunks {
             let raw = chunk.raw.trimmingCharacters(in: .whitespacesAndNewlines)
             let clean = chunk.cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard raw.last.map({ ".!?".contains($0) }) == true,
-                  clean.last.map({ ".!?".contains($0) }) == true else { return nil }
+            guard raw.endsSentence, clean.endsSentence else { return nil }
             let chunkWords = words(raw)
             guard !chunkWords.isEmpty else { return nil }
             prefix.append(contentsOf: chunkWords)
         }
-        guard prefix.count <= fullWords.count, Array(fullWords.prefix(prefix.count)) == prefix else { return nil }
-        let matches = pattern.matches(in: full, range: NSRange(full.startIndex..<full.endIndex, in: full))
+        guard fullWords.starts(with: prefix) else { return nil }
         let tail: String
-        if prefix.count == matches.count { tail = "" }
+        if prefix.count == fullMatches.count { tail = "" }
         else {
-            guard let start = Range(matches[prefix.count].range, in: full)?.lowerBound else { return nil }
+            guard let end = Range(fullMatches[prefix.count - 1].range, in: full)?.upperBound else { return nil }
+            var start = end
+            while start < full.endIndex, ".!?".contains(full[start]) || full[start].isWhitespace {
+                start = full.index(after: start)
+            }
             tail = String(full[start...])
         }
         return (chunks.map { $0.cleaned.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: " "), tail)

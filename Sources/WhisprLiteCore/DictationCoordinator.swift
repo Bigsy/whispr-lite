@@ -116,10 +116,9 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                         self.pressWarmup?.cancel()
                         await self.pressWarmup?.value
                         guard self.generation == owner, self.state == .recording else { break }
-                        guard let raw = try await pipeline.transcribe(chunk),
-                              raw.last.map({ ".!?".contains($0) }) == true else { break }
+                        guard let raw = try await pipeline.transcribe(chunk), raw.endsSentence else { break }
                         let result = try await pipeline.finish(raw)
-                        guard result.cleaned.trimmingCharacters(in: .whitespacesAndNewlines).last.map({ ".!?".contains($0) }) == true else { break }
+                        guard result.cleaned.trimmingCharacters(in: .whitespacesAndNewlines).endsSentence else { break }
                         completed.append(result)
                     }
                     return completed

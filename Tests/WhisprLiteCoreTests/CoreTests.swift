@@ -542,6 +542,17 @@ private actor WarmupBackend: PressWarmableASRBackend {
         #expect(result.cleaned == "First sentence. Second sentence.")
         #expect(await cleanup.inputs == ["Second sentence."])
     }
+    @Test func reusedPrefixKeepsLeadingSymbolsInTail() async throws {
+        let backend = FakeASRBackend(); try await backend.prepare()
+        let cleanup = RecordingCleanup()
+        let pipeline = BatchPipeline(backend: backend, cleanup: cleanup)
+        let early = [DictationText(raw: "First sentence.", cleaned: "First sentence.")]
+        #expect(try await pipeline.finish("First sentence. £5 is fine.", early: early).cleaned
+            == "First sentence. £5 is fine.")
+        #expect(try await pipeline.finish("First sentence. “Quoted words.”", early: early).cleaned
+            == "First sentence. “Quoted words.”")
+        #expect(await cleanup.inputs == ["£5 is fine.", "“Quoted words.”"])
+    }
     @Test func mismatchOrUnfinishedSentenceFallsBackToFullCleanup() async throws {
         let backend = FakeASRBackend(); try await backend.prepare()
         let cleanup = RecordingCleanup()
