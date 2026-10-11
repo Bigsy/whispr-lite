@@ -825,6 +825,8 @@ without depending on the number of intermediate pasteboard writes.
 HTTP adapter tests use structured JSON response fixtures and a unique URL path per
 test. The test URL's fixed loopback port is intercepted by its private URLProtocol;
 these checks do not contact a local service.
+History and diagnostics tests decode their synthetic JSONL records through one helper
+with the same ISO-8601 date strategy as the writers.
 HTTP request builders, WAV encoding, clipboard snapshots/system access, history entry
 schema/file names and internal diagnostic counters likewise stay inside Core. The app
 constructs `TextInserter()` and can settle its clipboard transaction; tests retain

@@ -5,12 +5,8 @@ import Foundation
 @Suite struct DictationHistoryTests {
     func temporaryDirectory() -> URL { FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString) }
     func entries(in directory: URL) throws -> [DictationHistory.Entry] {
-        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-        return try [DictationHistory.previousFileName, DictationHistory.fileName].flatMap { name -> [DictationHistory.Entry] in
-            let file = directory.appendingPathComponent(name)
-            guard FileManager.default.fileExists(atPath: file.path) else { return [] }
-            return try String(contentsOf: file, encoding: .utf8).split(separator: "\n")
-                .map { try decoder.decode(DictationHistory.Entry.self, from: Data($0.utf8)) }
+        try [DictationHistory.previousFileName, DictationHistory.fileName].flatMap { name in
+            try decodeJSONLines(directory.appendingPathComponent(name), as: DictationHistory.Entry.self)
         }
     }
     @Test func newAndOldPreferencesKeepHistoryOnByDefault() throws {

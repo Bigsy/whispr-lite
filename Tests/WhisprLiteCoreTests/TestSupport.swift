@@ -26,6 +26,15 @@ func filledBuffer(format: AVAudioFormat, frames: AVAudioFrameCount,
     return buffer
 }
 
+func decodeJSONLines<Value: Decodable>(_ file: URL, as type: Value.Type) throws -> [Value] {
+    guard FileManager.default.fileExists(atPath: file.path) else { return [] }
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return try String(contentsOf: file, encoding: .utf8)
+        .split(separator: "\n")
+        .map { try decoder.decode(type, from: Data($0.utf8)) }
+}
+
 actor CountingCleanup: TextCleanup {
     var calls = 0
     func clean(_ text: String) -> String { calls += 1; return text }

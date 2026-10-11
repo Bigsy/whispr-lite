@@ -59,8 +59,7 @@ import ParakeetCore
             #expect(try file.resourceValues(forKeys: [.fileSizeKey]).fileSize! <= 1024)
             let contents = try String(contentsOf: file, encoding: .utf8)
             #expect(!contents.contains("PRIVATE") && !contents.contains("PASSWORD") && !contents.contains("MEDIA TITLE"))
-            let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-            for line in contents.split(separator: "\n") { _ = try decoder.decode(DiagnosticRecord.self, from: Data(line.utf8)) }
+            #expect(try !decodeJSONLines(file, as: DiagnosticRecord.self).isEmpty)
             let mode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
             #expect(mode == 0o600)
         }
