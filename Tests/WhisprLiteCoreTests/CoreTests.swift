@@ -146,16 +146,34 @@ private actor EarlyBackend: ASRBackend {
     func begin(_ session: UUID) { begins.append(session) }
     func end(_ session: UUID) { ends.append(session) }
 }
+private actor AsyncGate {
+    private var entered = false
+    private var entryWaiter: CheckedContinuation<Void, Never>?
+    private var exitWaiter: CheckedContinuation<Void, Never>?
+    func waitUntilEntered() async {
+        if entered { return }
+        await withCheckedContinuation { entryWaiter = $0 }
+    }
+    func enterAndWait() async {
+        entered = true
+        entryWaiter?.resume(); entryWaiter = nil
+        await withCheckedContinuation { exitWaiter = $0 }
+    }
+    func open() { exitWaiter?.resume(); exitWaiter = nil }
+}
 private actor WarmupBackend: PressWarmableASRBackend {
     nonisolated let capabilities = ASRCapabilities()
+    private let warmGate: AsyncGate?
     private(set) var warmCalls = 0
     private(set) var finalBeforeWarmSettled = false
     private var warmSettled = false
+    init(warmGate: AsyncGate? = nil) { self.warmGate = warmGate }
     func prepare() async throws {}
     func readiness() async -> BackendReadiness { .ready }
     func warmForRecording() async throws {
         warmCalls += 1
-        try await Task.sleep(for: .milliseconds(80))
+        if let warmGate { await warmGate.enterAndWait() }
+        else { try await Task.sleep(for: .milliseconds(80)) }
         warmSettled = true
     }
     func transcribe(_ audio: PCM16k) async throws -> ASRResult {
@@ -330,13 +348,17 @@ private actor WarmupBackend: PressWarmableASRBackend {
         #expect(await backend.warmCalls == held)
     }
     @Test func cancelledPressWarmupSettlesBeforeNextFinalASR() async throws {
-        let backend = WarmupBackend(), capture = FakeCapture(), insertion = FakeInsertion(), media = FakeMedia()
+        let gate = AsyncGate()
+        let backend = WarmupBackend(warmGate: gate), capture = FakeCapture(), insertion = FakeInsertion(), media = FakeMedia()
         let coordinator = DictationCoordinator(capture: capture, insertion: insertion, media: media,
             pipeline: .init(backend: backend, cleanup: DemoCleanup()))
         coordinator.ready = true
-        coordinator.press(); coordinator.cancel()
+        coordinator.press()
+        await gate.waitUntilEntered()
+        coordinator.cancel()
         try await waitUntil { coordinator.state == .idle }
         coordinator.press(); coordinator.release()
+        await gate.open()
         try await waitUntil { coordinator.state == .idle && insertion.texts.count == 1 }
         await coordinator.settlePressWarmup()
         #expect(await backend.warmCalls == 1)
@@ -648,15 +670,37 @@ private actor WarmupBackend: PressWarmableASRBackend {
 
 @Suite struct StreamingCancellationTests {
     @Test func cancellationWhileFinishAwaitsSuppressesLateFinal() async throws {
-        var configuration = FakeASRConfiguration(); configuration.inferenceDelay = .milliseconds(100)
-        let backend = FakeASRBackend(configuration); try await backend.prepare()
+        let gate = AsyncGate()
+        let backend = FinishGatedBackend(gate: gate); try await backend.prepare()
         let pipeline = StreamingPipeline(backend: backend); try await pipeline.start()
         _ = try await pipeline.append(PCM16k([0.1]))
         let final = Task { try await pipeline.finish(cleanup: DemoCleanup()) }
-        try await Task.sleep(for: .milliseconds(5))
+        await gate.waitUntilEntered()
         await pipeline.cancel()
+        await gate.open()
         await #expect(throws: CancellationError.self) { try await final.value }
     }
+}
+
+private actor FinishGatedBackend: ASRBackend {
+    nonisolated let capabilities = ASRCapabilities(streaming: true)
+    private let gate: AsyncGate
+    init(gate: AsyncGate) { self.gate = gate }
+    func prepare() async throws {}
+    func readiness() async -> BackendReadiness { .ready }
+    func transcribe(_ audio: PCM16k) async throws -> ASRResult { .init(text: "Synthetic words", audioDuration: audio.duration) }
+    func makeSession() async throws -> any ASRSession { FinishGatedSession(gate: gate) }
+}
+private actor FinishGatedSession: ASRSession {
+    private let gate: AsyncGate
+    init(gate: AsyncGate) { self.gate = gate }
+    func append(_ audio: PCM16k, startingAt offset: Int) async throws {}
+    func partial() async throws -> PartialSnapshot? { nil }
+    func finish() async throws -> ASRResult {
+        await gate.enterAndWait()
+        return .init(text: "Synthetic words", audioDuration: 0.1)
+    }
+    func cancel() async {}
 }
 
 @Suite struct AdditionalHotkeyTests {
