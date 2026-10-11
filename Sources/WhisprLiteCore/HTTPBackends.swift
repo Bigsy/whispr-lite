@@ -45,18 +45,6 @@ public final class LocalHTTP: Sendable {
             }
         } catch is HTTPFailure { throw AppError.notReady }
     }
-    public func cleanupReadiness(_ endpoint: LocalEndpoint, model: String = "gemma4-e2b-cleanup:latest") async throws {
-        try await health(endpoint)
-        try await withDeadline(.seconds(2), stage: "Cleanup model") {
-            struct Models: Decodable { struct Model: Decodable { let id: String }; let data: [Model] }
-            let data: Data
-            do { data = try await self.send(URLRequest(url: endpoint.url.appendingPathComponent("v1/models")), limit: 16_384) }
-            catch is HTTPFailure { throw AppError.notReady }
-            guard try JSONDecoder().decode(Models.self, from: data).data.contains(where: { $0.id == model }) else {
-                throw AppError.notReady
-            }
-        }
-    }
 }
 public enum WAVEncoder {
     public static func encode(_ audio: PCM16k) -> Data {
@@ -111,8 +99,9 @@ public actor HTTPASRBackend: ASRBackend {
 }
 public enum CleanupInputFormat: String, Codable, CaseIterable, Sendable { case plain, openWhispr }
 public struct CleanupConfiguration: Sendable {
+    public static let defaultModel = "gemma4-e2b-cleanup:latest"
     public var endpoint: LocalEndpoint
-    public var model = "gemma4-e2b-cleanup:latest"
+    public var model = Self.defaultModel
     public var prompt: String
     public var dictionary: String
     public var inputFormat: CleanupInputFormat
@@ -147,6 +136,18 @@ public struct HTTPCleanup: TextCleanup {
         dictionary = corrections
         systemPrompt = configuration.prompt + (corrections.vocabulary.isEmpty
             ? "" : configuration.dictionaryPrefix + corrections.vocabulary)
+    }
+    public func checkReadiness() async throws {
+        try await http.health(configuration.endpoint)
+        try await withDeadline(.seconds(2), stage: "Cleanup model") {
+            struct Models: Decodable { struct Model: Decodable { let id: String }; let data: [Model] }
+            let data: Data
+            do { data = try await http.send(URLRequest(url: configuration.endpoint.url.appendingPathComponent("v1/models")), limit: 16_384) }
+            catch is HTTPFailure { throw AppError.notReady }
+            guard try JSONDecoder().decode(Models.self, from: data).data.contains(where: { $0.id == configuration.model }) else {
+                throw AppError.notReady
+            }
+        }
     }
     /// Cleanup output is about as long as its input. A fixed 512 cut off long fast dictations,
     /// and let a short input the model answers instead of cleans run on for hundreds of tokens.

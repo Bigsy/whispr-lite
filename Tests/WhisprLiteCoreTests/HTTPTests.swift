@@ -106,7 +106,12 @@ private final class FixtureProtocol: URLProtocol, @unchecked Sendable {
         let (endpoint, http) = try fixture()
         FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("health"), body: Data("{}".utf8))
         FixtureProtocol.responses.set(endpoint.url.appendingPathComponent("v1/models"), body: Data("{\"data\":[{\"id\":\"different-model\"}]}".utf8))
-        await #expect(throws: AppError.notReady) { try await http.cleanupReadiness(endpoint) }
+        var configuration = CleanupConfiguration(endpoint: endpoint, prompt: "Synthetic prompt")
+        configuration.model = "expected-model"
+        let cleanup = HTTPCleanup(configuration, http: http)
+        await #expect(throws: AppError.notReady) { try await cleanup.checkReadiness() }
+        configuration.model = "different-model"
+        try await HTTPCleanup(configuration, http: http).checkReadiness()
     }
     @Test func prefixPreparationIncludesBOSAndDiscardsSpeculativeOutput() async throws {
         let (endpoint, http) = try fixture()

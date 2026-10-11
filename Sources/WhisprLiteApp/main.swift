@@ -281,10 +281,10 @@ import WhisprLiteCore
                 if preferences.backend != .demo {
                     checkingCleanup = true
                     self.update("Checking cleanup service", readiness: .preparing)
-                    let cleanupEndpoint = try LocalEndpoint(preferences.cleanupEndpoint)
+                    guard let httpCleanup = cleanup as? HTTPCleanup else { throw AppError.unsupported }
                     // The service may still be loading (login, restart); wait about 15 s before asking the user.
                     for attempt in 1... {
-                        do { try await LocalHTTP.shared.cleanupReadiness(cleanupEndpoint); break }
+                        do { try await httpCleanup.checkReadiness(); break }
                         catch {
                             guard attempt < 6, !(error is CancellationError) else { throw error }
                             self.update("Waiting for cleanup service", readiness: .preparing)
@@ -293,11 +293,9 @@ import WhisprLiteCore
                         }
                     }
                     guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }
-                    if let cleanup = cleanup as? HTTPCleanup {
-                        self.update("Preparing cleanup", readiness: .preparing)
-                        try await withDeadline(.seconds(preferences.cleanupTimeoutSeconds), stage: "Cleanup preparation") {
-                            try await cleanup.preparePrefix()
-                        }
+                    self.update("Preparing cleanup", readiness: .preparing)
+                    try await withDeadline(.seconds(preferences.cleanupTimeoutSeconds), stage: "Cleanup preparation") {
+                        try await httpCleanup.preparePrefix()
                     }
                 }
                 guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }

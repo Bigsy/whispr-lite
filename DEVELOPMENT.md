@@ -8,6 +8,8 @@ passes; physical capture, other destinations, playback and daily-use acceptance 
 Cleanup prepares its fixed system prompt once per configuration. Chat, template and
 tokenizer requests share bounded message construction and JSON POST framing, while
 the prepared prefix retains its exact server token budget and BOS handling.
+Cleanup readiness checks health and the configured model using that cleanup instance's
+endpoint and HTTP client; app startup retains the roughly 15-second retry sequence.
 
 ## Build and run
 
