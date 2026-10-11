@@ -69,31 +69,3 @@ public actor StreamingPipeline {
     }
     public func cancel() async { cancelled = true; finished = true; await session?.cancel(); retained.removeAll(); session = nil }
 }
-/// Useful changed partials only; one request in flight and latest snapshot coalesced.
-/// This schedules an injectable experiment, not an assertion that llama-server supports prefill.
-public actor PrefillScheduler {
-    private let operation: @Sendable (PartialSnapshot) async throws -> Void
-    private var latest: PartialSnapshot?
-    private var lastRevision = 0
-    private var lastText = ""
-    private var worker: Task<Void, Never>?
-    private var ended = false
-    public init(operation: @escaping @Sendable (PartialSnapshot) async throws -> Void) { self.operation = operation }
-    public func submit(_ snapshot: PartialSnapshot) {
-        guard !ended, snapshot.revision > lastRevision else { return }
-        lastRevision = snapshot.revision
-        guard !snapshot.text.isEmpty, snapshot.text != lastText else { return }
-        lastText = snapshot.text; latest = snapshot
-        guard worker == nil else { return }
-        worker = Task { await self.drain() }
-    }
-    private func drain() async {
-        while !ended, let snapshot = latest {
-            latest = nil
-            do { try await withDeadline(.seconds(2), stage: "Prefill") { try await self.operation(snapshot) } }
-            catch { latest = nil; break }
-        }
-        worker = nil
-    }
-    public func stop() async { ended = true; latest = nil; worker?.cancel(); await worker?.value; worker = nil }
-}

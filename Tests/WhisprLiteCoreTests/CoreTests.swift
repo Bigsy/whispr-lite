@@ -795,31 +795,6 @@ private actor FinishGatedSession: ASRSession {
     }
 }
 
-actor PrefillProbe {
-    var calls: [Int] = []
-    private var first: CheckedContinuation<Void, Never>?
-    func evaluate(_ snapshot: PartialSnapshot) async {
-        calls.append(snapshot.revision)
-        if snapshot.revision == 1 { await withCheckedContinuation { first = $0 } }
-    }
-    func release() { first?.resume(); first = nil }
-}
-@Suite struct PrefillTests {
-    @Test func coalescesChangedPartialsAndSettlesBeforeFinal() async throws {
-        let probe = PrefillProbe()
-        let scheduler = PrefillScheduler { await probe.evaluate($0) }
-        await scheduler.submit(.init(revision: 1, text: "Thursday"))
-        for _ in 0..<500 { if await probe.calls.count == 1 { break }; try await Task.sleep(for: .milliseconds(1)) }
-        await scheduler.submit(.init(revision: 2, text: "Thursday afternoon"))
-        await scheduler.submit(.init(revision: 3, text: "Friday afternoon"))
-        await scheduler.submit(.init(revision: 4, text: "Friday afternoon"))
-        await probe.release()
-        for _ in 0..<500 { if await probe.calls.count == 2 { break }; try await Task.sleep(for: .milliseconds(1)) }
-        await scheduler.stop()
-        await scheduler.submit(.init(revision: 5, text: "ignored"))
-        #expect(await probe.calls == [1, 3])
-    }
-}
 @MainActor final class FakeStreamCapture: CaptureDriver {
     private var stream: AsyncThrowingStream<PCM16k, any Error>?
     private var continuation: AsyncThrowingStream<PCM16k, any Error>.Continuation?
@@ -849,7 +824,6 @@ actor PrefillProbe {
         #expect(insertion.texts == ["Demo dictation. This is fabricated text."])
         #expect(await cleanup.calls == 1)
         #expect(media.begins == media.ends)
-        #expect(coordinator.partial == nil)
     }
     @Test func privatePreferencesVersionAndOldConfigDefaultSafely() throws {
         let old = try JSONDecoder().decode(Preferences.self, from: Data("{\"version\":1,\"backend\":\"http\"}".utf8))

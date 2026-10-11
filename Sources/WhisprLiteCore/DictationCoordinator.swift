@@ -39,8 +39,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     /// nothing to do while the key is held. One small inference this often keeps them up until
     /// release (147 to 89 ms median on a synthetic 4 s hold); nil disables. Idle is unaffected.
     public var holdWarmupInterval: Duration? = .milliseconds(500)
-    public var prefill: PrefillScheduler?
-    public private(set) var partial: PartialSnapshot?
+    private var partial: PartialSnapshot?
     private var streaming: StreamingPipeline?
     private var delivery: Task<Void, Never>?
     private var earlyDelivery: Task<[DictationText], Never>?
@@ -103,7 +102,6 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                         try Task.checkCancellation()
                         if let snapshot = try await streaming.append(chunk), self.generation == owner {
                             self.partial = snapshot
-                            if self.state == .recording { await self.prefill?.submit(snapshot) }
                         }
                     }
                 } catch { await streaming.cancel(); if self.generation == owner { self.streamingFailed = true } }
@@ -185,7 +183,6 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                 var dictation: DictationText?
                 if let streaming = self.streaming {
                     await self.delivery?.value
-                    await self.prefill?.stop()
                     guard self.generation == owner, !Task.isCancelled else { return }
                     if !self.streamingFailed { text = try await streaming.finish(cleanup: self.pipeline.cleanup) }
                     else { text = try await self.pipeline.run(audio, mark: mark) }
@@ -229,8 +226,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         task?.cancel(); task = nil; ceiling?.cancel(); ceiling = nil
         delivery?.cancel(); delivery = nil
         let oldStream = streaming; streaming = nil
-        let oldPrefill = prefill
-        Task { await oldStream?.cancel(); await oldPrefill?.stop() }
+        if let oldStream { Task { await oldStream.cancel() } }
         if let id = session, !finalized {
             finalized = true; draining = true
             // Serialize the end before allowing another recording to own the capture buffers.
@@ -281,7 +277,6 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
             self.pressWarmup = nil
         }
     }
-    public func setMessage(_ value: String) { message = value; onChange?() }
     private enum SessionEnd { case completed, failed(any Error), copyOnly }
     private func endSession(_ result: SessionEnd) {
         if let session {
