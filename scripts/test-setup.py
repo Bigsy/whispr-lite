@@ -40,6 +40,14 @@ def batch(sequence, operations):
 
 
 class SetupTests(unittest.TestCase):
+    def test_missing_runtime_release_is_rejected_before_creating_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / 'owned'
+            with patch.object(service, 'LOCK', dict(artifacts={}, llama_server={})):
+                with self.assertRaisesRegex(RuntimeError, 'release is missing'):
+                    service.prepare(directory)
+            self.assertFalse(directory.exists())
+
     def test_pinned_dependency_used_for_verification_and_server_launch(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -49,8 +57,11 @@ class SetupTests(unittest.TestCase):
             pin = dict(path='server', version='1.2', commit='synthetic', release=dict(directory='llama-synthetic'),
                        sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
                        files_sha256={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in [binary, library]})
-            lock = dict(llama_server=pin, port=11436)
-            help_text = '--spec-type draft-mtp --spec-draft-n-max --swa-full --load-mode mmap+mlock --reasoning --no-webui --log-disable --no-context-shift --cors-origins'
+            lock = dict(llama_server=pin, port=11436, alias='synthetic-cleanup',
+                        artifacts=dict(model=dict(file='model.gguf'), drafter=dict(file='draft.gguf')))
+            help_text = ' '.join(['--spec-type', 'draft-mtp', '--spec-draft-n-max', '--swa-full',
+                '--load-mode', 'mmap+mlock', '--reasoning', '--temp', '--alias', '--host',
+                '--port', '--no-webui', '--no-slots', '--no-context-shift', '--cors-origins', '--log-disable'])
             def command(argv, **kwargs):
                 self.assertNotIn('DYLD_LIBRARY_PATH', kwargs['env'])
                 self.assertNotIn('LLAMA_ARG_MODEL', kwargs['env'])
@@ -63,6 +74,9 @@ class SetupTests(unittest.TestCase):
                 service.main()
                 self.assertNotIn('DYLD_LIBRARY_PATH', launch.call_args.args[2])
                 self.assertNotIn('LLAMA_ARG_MODEL', launch.call_args.args[2])
+                with patch.object(service, 'digest', wraps=service.digest) as digest:
+                    service.binary(directory)
+                    self.assertEqual(digest.call_count, 2)
                 library.write_bytes(b'changed dependency')
                 with self.assertRaisesRegex(RuntimeError, 'runtime file missing/changed'):
                     service.binary(directory)
@@ -149,11 +163,13 @@ class SetupTests(unittest.TestCase):
             directory = Path(temporary)
             payload = b'synthetic model'
             artifact = dict(file='model.gguf', bytes=len(payload), sha256=hashlib.sha256(payload).hexdigest())
-            lock = dict(repository='synthetic', revision='pinned', artifacts=dict(model=artifact))
+            lock = dict(repository='synthetic', revision='pinned', artifacts=dict(model=artifact),
+                        llama_server=dict(release=dict(directory='llama-synthetic')))
             def download(argv, **kwargs):
                 self.assertIn('--continue-at', argv)
                 Path(argv[argv.index('--output') + 1]).write_bytes(payload)
-            with patch.object(service, 'LOCK', lock), patch.object(service.subprocess, 'run', side_effect=download) as curl:
+            with patch.object(service, 'LOCK', lock), patch.object(service.subprocess, 'run', side_effect=download) as curl, \
+                 patch.object(service, 'prepare_runtime'):
                 service.prepare(directory); service.prepare(directory)
                 self.assertEqual(curl.call_count, 1)
                 self.assertFalse((directory / 'model.gguf.partial').exists())
@@ -163,9 +179,11 @@ class SetupTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             artifact = dict(file='model.gguf', bytes=3, sha256=hashlib.sha256(b'yes').hexdigest())
-            lock = dict(repository='synthetic', revision='pinned', artifacts=dict(model=artifact))
+            lock = dict(repository='synthetic', revision='pinned', artifacts=dict(model=artifact),
+                        llama_server=dict(release=dict(directory='llama-synthetic')))
             def download(argv, **kwargs): Path(argv[argv.index('--output') + 1]).write_bytes(b'bad')
-            with patch.object(service, 'LOCK', lock), patch.object(service.subprocess, 'run', side_effect=download):
+            with patch.object(service, 'LOCK', lock), patch.object(service.subprocess, 'run', side_effect=download), \
+                 patch.object(service, 'prepare_runtime'):
                 with self.assertRaisesRegex(RuntimeError, 'SHA-256'): service.prepare(directory)
             self.assertFalse((directory / 'model.gguf').exists())
 

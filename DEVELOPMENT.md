@@ -276,7 +276,8 @@ fresh-machine installer, notarization and other-machine provisioning validation 
 
 Setup scripts require Python 3.9+. The tested server/model inventory is in
 `Resources/cleanup-stack.json`: llama.cpp 0.4.0 at revision
-`5266f24da75dc449bd56cbed7addb9c8e4a6a73e`, with binary/linked-library SHA-256 checks;
+`5266f24da75dc449bd56cbed7addb9c8e4a6a73e`, with SHA-256 checks for every file in
+the owned standalone release, including the binary and its non-system libraries;
 Gemma 4 E2B QAT UD-Q4_K_XL and matching root QAT MTP from pinned Hugging Face revision
 `66a399f68ddd113b06dff02fca9523e55465d11d`. Cleanup uses the official
 [b10809 macOS ARM64 release](https://github.com/ggml-org/llama.cpp/releases/tag/b10809),

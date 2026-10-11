@@ -19,6 +19,14 @@ ROOT = Path(__file__).resolve().parent.parent
 LOCK = json.loads((ROOT / 'Resources/cleanup-stack.json').read_text())
 LABEL = 'com.hedworth.whispr-lite.cleanup'
 DEFAULT_DIRECTORY = Path.home() / 'Library/Application Support/WhisprLite/Cleanup'
+METAL_RESIDENCY_SECONDS = '86400'
+
+
+def release_pin():
+    release = LOCK.get('llama_server', {}).get('release')
+    if not isinstance(release, dict):
+        raise RuntimeError('Pinned llama-server release is missing from the lock')
+    return release
 
 
 def digest(path):
@@ -35,6 +43,7 @@ def verified(path, artifact):
 
 
 def prepare(directory):
+    release_pin()  # Reject an incomplete lock before touching the owned directory.
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     for artifact in LOCK['artifacts'].values():
         path = directory / artifact['file']
@@ -58,12 +67,11 @@ def prepare(directory):
         partial.chmod(0o600)
         partial.replace(path)
         print(f"Verified {artifact['file']}", flush=True)
-    if LOCK.get('llama_server', {}).get('release'):
-        prepare_runtime(directory)
+    prepare_runtime(directory)
 
 
 def runtime_directory(directory):
-    name = LOCK['llama_server']['release']['directory']
+    name = release_pin()['directory']
     if not re.fullmatch(r'llama-[A-Za-z0-9.-]+', name):
         raise RuntimeError('Invalid release directory')
     if (directory / 'Binaries').is_symlink(): raise RuntimeError('Runtime parent must be an owned directory')
@@ -97,7 +105,7 @@ def extract_runtime(archive, destination):
 
 
 def prepare_runtime(directory):
-    artifact = LOCK['llama_server']['release']
+    artifact = release_pin()
     runtime = runtime_directory(directory)
     if runtime.exists():
         verify_runtime(runtime)
@@ -127,29 +135,24 @@ def prepare_runtime(directory):
     print('Verified and installed standalone llama.cpp release', flush=True)
 
 
-def binary(directory=DEFAULT_DIRECTORY):
+def binary(directory=DEFAULT_DIRECTORY, port=None):
     pin = LOCK['llama_server']
-    if pin.get('release'):
-        runtime = runtime_directory(directory)
-        verify_runtime(runtime)
-        path = runtime / pin['path']
-    else:
-        path = Path(pin['path'])
-    if not path.is_file() or digest(path) != pin['sha256']:
+    release_pin()
+    runtime = runtime_directory(directory)
+    verify_runtime(runtime)
+    path = runtime / pin['path']
+    if not path.is_file() or pin['files_sha256'].get(pin['path']) != pin['sha256']:
         raise RuntimeError('Pinned llama-server is missing or changed. Run cleanup-prepare for the locked release.')
-    for filename, expected in pin.get('libraries_sha256', {}).items():
-        library = Path(filename)
-        if not library.is_file() or digest(library) != expected:
-            raise RuntimeError(f'Pinned llama-server dependency changed: {library.name}; re-test/re-pin the build')
     environment = runtime_environment()
     result = subprocess.run([str(path), '--version'], capture_output=True, text=True, check=True, env=environment)
     version = result.stdout + result.stderr
     if pin['version'] not in version or pin['commit'] not in version:
         raise RuntimeError('llama-server version/commit does not match the lock')
     help_text = subprocess.run([str(path), '--help'], capture_output=True, text=True, check=True, env=environment).stdout
-    for flag in ['--spec-type', 'draft-mtp', '--spec-draft-n-max', '--swa-full',
-                 '--load-mode', 'mmap+mlock', '--reasoning', '--no-webui', '--log-disable',
-                 '--no-context-shift', '--cors-origins']:
+    flags = server_arguments(directory, port if port is not None else LOCK.get('port', 11436))
+    required = [value for value in flags if value.startswith('--')]
+    required += [flags[flags.index(option) + 1] for option in ('--spec-type', '--load-mode')]
+    for flag in required:
         if flag not in help_text:
             raise RuntimeError(f'Incompatible llama-server: missing {flag}')
     return str(path)
@@ -158,21 +161,26 @@ def binary(directory=DEFAULT_DIRECTORY):
 def runtime_environment():
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(('LLAMA_ARG_', 'DYLD_'))}
-    env['GGML_METAL_RESIDENCY_KEEP_ALIVE_S'] = '86400'
+    env['GGML_METAL_RESIDENCY_KEEP_ALIVE_S'] = METAL_RESIDENCY_SECONDS
     return env
 
 
-def arguments(directory, port):
-    for artifact in LOCK['artifacts'].values():
-        if not verified(directory / artifact['file'], artifact):
-            raise RuntimeError(f"Missing/unverified {artifact['file']}; run cleanup-prepare first")
-    return [binary(directory), '-m', str(directory / LOCK['artifacts']['model']['file']),
+def server_arguments(directory, port):
+    return ['-m', str(directory / LOCK['artifacts']['model']['file']),
             '--spec-type', 'draft-mtp', '-md', str(directory / LOCK['artifacts']['drafter']['file']),
             '--spec-draft-n-max', '6', '--swa-full', '-c', '4096', '-np', '1', '-fa', 'on',
             '--load-mode', 'mmap+mlock', '--reasoning', 'off', '--temp', '0',
             '--alias', LOCK['alias'], '--host', '127.0.0.1', '--port', str(port),
             '--no-webui', '--no-slots', '--no-context-shift',
             '--cors-origins', f'http://127.0.0.1:{port}', '--log-disable']
+
+
+def arguments(directory, port):
+    for artifact in LOCK['artifacts'].values():
+        if not verified(directory / artifact['file'], artifact):
+            raise RuntimeError(f"Missing/unverified {artifact['file']}; run cleanup-prepare first")
+    flags = server_arguments(directory, port)
+    return [binary(directory, port), *flags]
 
 
 def free_port(port):
@@ -217,7 +225,7 @@ def stop_owned(plist, domain):
 
 
 def install(directory, port):
-    argv = arguments(directory, port)  # Validate before touching any login item.
+    arguments(directory, port)  # Validate before touching any login item.
     # Each launch rechecks the binary/libraries/models. Updates must not silently
     # change an accepted stack. Keep immutable runners so rollback retains
     # the previous script and lock as well as the previous plist.
@@ -243,7 +251,7 @@ def install(directory, port):
         plist.parent.mkdir(parents=True, exist_ok=True)
         data = dict(Label=LABEL, ProgramArguments=runner, RunAtLoad=True,
                     KeepAlive=dict(SuccessfulExit=False), ThrottleInterval=10,
-                    EnvironmentVariables=dict(GGML_METAL_RESIDENCY_KEEP_ALIVE_S='86400'),
+                    EnvironmentVariables=dict(GGML_METAL_RESIDENCY_KEEP_ALIVE_S=METAL_RESIDENCY_SECONDS),
                     StandardOutPath='/dev/null', StandardErrorPath='/dev/null', WhisprLiteOwner=LABEL)
         temporary = plist.with_suffix('.plist.tmp')
         temporary.write_bytes(plistlib.dumps(data)); temporary.chmod(0o600); temporary.replace(plist)
