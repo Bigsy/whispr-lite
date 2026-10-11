@@ -75,6 +75,7 @@ keeps its chosen spelling/case. Longer overlapping phrases take precedence. Rule
 cascade, regex characters are literal, and conflicting spellings for the same alias are
 ignored. Unrelated words such as “doctor” are untouched. Parsing/regex compilation happens
 when preparing settings, with no audio callback work, extra inference or timing collection.
+The POSIX locale used for alias keys is shared instead of allocated for each match.
 `whispr-bench --dictionary-check` runs five synthetic inputs through the actual saved
 cleanup configuration (requires the private Doccla conversion); the HAPI FHIR rule is
 added in RAM for that check. It records only the pass count, never private text or outputs.

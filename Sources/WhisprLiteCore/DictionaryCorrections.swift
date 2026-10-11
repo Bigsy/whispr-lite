@@ -3,6 +3,7 @@ import Foundation
 /// Plain entries remain model vocabulary. Explicit aliases are literal, whole-phrase
 /// replacements, compiled once when settings prepare the cleanup adapter.
 public struct DictionaryCorrections: Sendable {
+    private static let posixLocale = Locale(identifier: "en_US_POSIX")
     public let vocabulary: String
     private let expression: NSRegularExpression?
     private let replacements: [String: String]
@@ -51,6 +52,6 @@ public struct DictionaryCorrections: Sendable {
     }
 
     private static func key(_ value: String) -> String {
-        value.lowercased(with: Locale(identifier: "en_US_POSIX"))
+        value.lowercased(with: posixLocale)
     }
 }
