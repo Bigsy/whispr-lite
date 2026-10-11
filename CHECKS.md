@@ -6,6 +6,7 @@ third-party insertion, actual media playback compatibility or release acceptance
 
 | Check | Result |
 |---|---|
+| 11 October timing span helper, Apple M1 Max | `make test` passed with 104 Swift, 17 native broker, 16 synthetic setup and 6 release tests. A new recorder test covers session isolation and batched 1024-event trimming. No physical release-to-visible-text timing was measured. |
 | 11 October cleanup readiness ownership, Apple M1 Max | `make test` passed with 103 Swift, 17 native broker, 16 synthetic setup and 6 release tests. The HTTP fixture rejects a healthy service with the wrong configured model and accepts its configured model through the injected client. No live service was changed. |
 | 11 October cleanup HTTP request consolidation, Apple M1 Max | `make test` passed with 103 Swift, 17 native broker, 16 synthetic setup and 6 release tests. Existing HTTP tests cover request keys, model, prompt framing and prepared-prefix tokenizer fast path. No live cleanup inference or installed service change was performed. |
 | 11 October cleanup download refactor, Apple M1 Max | `make test` passed with 103 Swift, 17 native broker, 16 synthetic setup and 6 release tests. A complete synthetic `model.gguf.partial` was hashed once, published atomically and required no curl call; existing download, corrupt-checksum and release archive tests still pass. No real download or installed service change was performed. |

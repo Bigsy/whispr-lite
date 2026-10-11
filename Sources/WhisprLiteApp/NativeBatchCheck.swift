@@ -75,11 +75,9 @@ import WhisprLiteCore
                 guard field.string == text else { print("batch-flow native update did not match round=\(repetition)"); throw AppError.targetChanged }
                 field.displayIfNeeded(); window.displayIfNeeded()
                 let end = clock.now
-                let events = stages.events.filter { $0.session == session }
                 func span(_ first: TimingStage, _ last: TimingStage) throws -> Double {
-                    guard let from = events.first(where: { $0.stage == first }),
-                          let to = events.first(where: { $0.stage == last }) else { throw AppError.inference }
-                    return (to.seconds - from.seconds) * 1000
+                    guard let value = stages.span(from: first, to: last, session: session) else { throw AppError.inference }
+                    return value
                 }
                 observations.append(["fixture": files[index].lastPathComponent, "condition": repetition == 0 ? "warmup" : "warm",
                     "audio_seconds": audio[index].duration, "asr_ms": try span(.asrStart, .asrEnd),

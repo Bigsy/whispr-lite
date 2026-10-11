@@ -25,11 +25,18 @@ public struct TimingEvent: Codable, Sendable {
         events.removeAll()
         origin = enabled ? now() : nil
     }
-    public func mark(_ stage: TimingStage, session: UUID, uptime: Double? = nil) {
-        guard isEnabled, let origin else { return }
+    @discardableResult public func mark(_ stage: TimingStage, session: UUID, uptime: Double? = nil) -> TimingEvent? {
+        guard isEnabled, let origin else { return nil }
         let event = TimingEvent(session: session, stage: stage, seconds: (uptime ?? now()) - origin)
         events.append(event)
-        if events.count > 1024 { events.removeFirst(events.count - 1024) }
+        if events.count > 1280 { events.removeFirst(events.count - 1024) }
         onEvent?(event)
+        return event
+    }
+    public func span(from start: TimingStage, to end: TimingStage, session: UUID) -> Double? {
+        guard let first = events.last(where: { $0.session == session && $0.stage == start }),
+              let last = events.last(where: { $0.session == session && $0.stage == end }),
+              last.seconds >= first.seconds else { return nil }
+        return (last.seconds - first.seconds) * 1000
     }
 }

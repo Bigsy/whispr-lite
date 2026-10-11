@@ -10,6 +10,9 @@ tokenizer requests share bounded message construction and JSON POST framing, whi
 the prepared prefix retains its exact server token budget and BOS handling.
 Cleanup readiness checks health and the configured model using that cleanup instance's
 endpoint and HTTP client; app startup retains the roughly 15-second retry sequence.
+LatencyRecorder supplies session-scoped millisecond spans for app and synthetic native
+reports. Its event buffer trims from 1281 to 1024 records in batches, avoiding a
+per-event array shift after saturation.
 
 ## Build and run
 

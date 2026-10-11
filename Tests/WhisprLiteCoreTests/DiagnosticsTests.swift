@@ -85,4 +85,17 @@ import ParakeetCore
         #expect(observed.count == 3 && observed.allSatisfy { $0.session == session })
         #expect(observed[2].seconds >= observed[0].seconds && observed[2].seconds <= observed[1].seconds)
     }
+    @MainActor @Test func timingSpanIsSessionScopedAndBufferTrimsInBatches() {
+        var tick = 0.0
+        let recorder = LatencyRecorder(enabled: true, now: { tick += 1; return tick })
+        let session = UUID(), other = UUID()
+        #expect(recorder.span(from: .release, to: .visibleText, session: session) == nil)
+        #expect(recorder.mark(.release, session: session) != nil)
+        recorder.mark(.visibleText, session: other)
+        #expect(recorder.span(from: .release, to: .visibleText, session: session) == nil)
+        recorder.mark(.visibleText, session: session)
+        #expect(recorder.span(from: .release, to: .visibleText, session: session) == 2_000)
+        for _ in 0..<1278 { recorder.mark(.press, session: other) }
+        #expect(recorder.events.count == 1024)
+    }
 }

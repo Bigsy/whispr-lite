@@ -616,13 +616,11 @@ import WhisprLiteCore
                 try await Task.sleep(for: .milliseconds(10))
             }
             guard let visibleMS, !field.string.isEmpty else { throw AppError.inference }
-            let events = coordinator.timings.events
-            guard let session = events.last(where: { $0.stage == .visibleText })?.session else { throw AppError.inference }
-            let owned = events.filter { $0.session == session }
+            let timings = coordinator.timings
+            guard let session = timings.events.last(where: { $0.stage == .visibleText })?.session else { throw AppError.inference }
             func span(_ start: TimingStage, _ end: TimingStage) throws -> Double {
-                guard let left = owned.first(where: { $0.stage == start }),
-                      let right = owned.first(where: { $0.stage == end }), right.seconds >= left.seconds else { throw AppError.inference }
-                return (right.seconds - left.seconds) * 1000
+                guard let value = timings.span(from: start, to: end, session: session) else { throw AppError.inference }
+                return value
             }
             observations.append(["repetition": repetition, "condition": repetition == 0 ? "first" : "warm",
                 "release_to_visible_ms": visibleMS,

@@ -252,9 +252,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     public func recordVisibleText() -> Double? {
         guard let id = insertionSession else { return nil }
         insertionSession = nil; timings.mark(.visibleText, session: id)
-        guard let release = timings.events.last(where: { $0.session == id && $0.stage == .release }),
-              let visible = timings.events.last(where: { $0.session == id && $0.stage == .visibleText }) else { return nil }
-        return (visible.seconds - release.seconds) * 1000
+        return timings.span(from: .release, to: .visibleText, session: id)
     }
     public func suspend() {
         ready = false
