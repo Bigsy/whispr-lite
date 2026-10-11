@@ -216,8 +216,23 @@ is the general default; a saved prompt overrides it. The configured development 
 retains its private import until changed in Settings. Historical cleanup output parity is
 not established. Service URLs
 are loopback HTTP **base URLs without `/v1`**. Invalid settings fail
-clearly. No dictation history, clipboard content or media titles are logged/persisted.
+clearly. No clipboard content or media titles are logged/persisted; dictated text is
+persisted only by the local dictation history below.
 The last result is bounded to 32,768 characters in RAM and cleared on the next recording.
+
+**Keep dictation history on this Mac** (Cleanup page) is on by default, including for saved
+preferences without the key, to collect local training data for the cleanup model. Each
+completed batch dictation appends one JSON line to `History/dictations.jsonl`: schema,
+timestamp, raw transcript, final cleaned text (after phrase conversions), the speech model
+and a 16-hex SHA-256 prefix of the cleanup prompt, so pairs from different prompts can be
+separated. The prompt, audio, target app and timings are not stored. Demo output, cancelled
+dictations, empty results, cleanup failures and `--capture-flow-check` runs are skipped.
+The coordinator only enqueues before insertion; encoding and writes run on a utility queue
+with at most 64 pending entries. The folder is 0700 and excluded from backups; the file is
+0600 and rotates at 16 MiB into `dictations.previous.jsonl`, so at most 32 MiB is kept.
+**Delete history…** removes both files after confirmation, and saving continues while
+enabled. A file error stops saving and shows a warning; saving settings or a readiness
+check retries. Nothing is uploaded. Checks and benchmarks keep using synthetic fixtures.
 
 Insertion snapshots the PID/focused AX element and rechecks it after a 250 ms bounded
 physical-modifier wait. This checks HID hardware state, since combined session state

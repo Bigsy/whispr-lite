@@ -7,6 +7,12 @@ public struct DemoCleanup: TextCleanup {
     public init() {}
     public func clean(_ text: String) async throws -> String { try Task.checkCancellation(); return text }
 }
+/// The final transcript and the cleaned text made from it.
+public struct DictationText: Sendable, Equatable {
+    public let raw: String
+    public let cleaned: String
+    public init(raw: String, cleaned: String) { self.raw = raw; self.cleaned = cleaned }
+}
 public struct PipelineFailure: Error, Sendable {
     public let reason: AppError
     public let rawText: String?
@@ -18,6 +24,9 @@ public struct BatchPipeline: Sendable {
     public var cleanupDeadline: Duration = .seconds(10)
     public init(backend: any ASRBackend, cleanup: any TextCleanup) { self.backend = backend; self.cleanup = cleanup }
     public func run(_ audio: PCM16k, mark: (@Sendable (TimingStage) async -> Void)? = nil) async throws -> String? {
+        try await process(audio, mark: mark)?.cleaned
+    }
+    public func process(_ audio: PCM16k, mark: (@Sendable (TimingStage) async -> Void)? = nil) async throws -> DictationText? {
         await mark?(.asrStart)
         let result = try await withDeadline(asrDeadline, stage: "ASR") { try await backend.transcribe(audio) }
         await mark?(.asrEnd)
@@ -30,7 +39,7 @@ public struct BatchPipeline: Sendable {
             await mark?(.cleanupEnd)
             try Task.checkCancellation()
             guard !cleaned.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AppError.cleanup }
-            return cleaned
+            return DictationText(raw: raw, cleaned: cleaned)
         } catch is CancellationError { throw CancellationError() }
         catch { throw PipelineFailure(reason: error as? AppError ?? .cleanup, rawText: raw) }
     }

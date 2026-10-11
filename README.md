@@ -60,8 +60,13 @@ explicit demo mode and optional private import from OpenWhispr.
 
 ## Privacy and microphone
 
-Audio is processed locally and is not saved as dictation history. Prompts, dictionaries
-and settings stay in your private application-support folder. Debug logging is off by default.
+Audio is processed locally and is never saved. **Keep dictation history on this Mac**
+(Settings → Cleanup, on by default) saves each transcript and its cleaned text to a private
+file in `~/Library/Application Support/WhisprLite/History`, so a better local cleanup model
+can later be trained on your own dictation. It never leaves your Mac, is excluded from Time
+Machine, keeps at most 32 MB and can be turned off or deleted at any time. Prompts,
+dictionaries and settings stay in your private application-support folder. Debug logging
+is off by default.
 
 **Keep the microphone ready** maintains a 150 ms rolling buffer in memory and shows the
 macOS microphone indicator. Turn it off to start capture only when you press the shortcut.

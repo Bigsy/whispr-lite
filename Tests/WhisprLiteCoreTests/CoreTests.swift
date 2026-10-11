@@ -151,6 +151,24 @@ private actor WarmupBackend: PressWarmableASRBackend {
         #expect(insertion.texts.count == 1)
         #expect(media.begins == media.ends)
     }
+    @Test func historySavesCompletedDictationButNotCancelled() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let history = DictationHistory(directory: directory)
+        history.configure(enabled: true, asr: "test", prompt: "")
+        var config = FakeASRConfiguration(); config.inferenceDelay = .milliseconds(60)
+        let (coordinator, _, insertion, _) = try await fixture(config)
+        coordinator.history = history
+        coordinator.press(); coordinator.release()
+        try await waitUntil { coordinator.state == .idle }
+        coordinator.press(); coordinator.release(); coordinator.cancel()
+        try await waitUntil { coordinator.state == .idle }
+        try await Task.sleep(for: .milliseconds(100)) // Past the cancelled inference.
+        await history.flush()
+        let lines = try String(contentsOf: directory.appendingPathComponent(DictationHistory.fileName), encoding: .utf8)
+            .split(separator: "\n")
+        #expect(lines.count == 1 && insertion.texts.count == 1)
+    }
     @Test func busyPressIsIgnoredThroughItsRelease() async throws {
         let (coordinator, capture, _, _) = try await fixture()
         coordinator.press(); coordinator.release(); coordinator.press()

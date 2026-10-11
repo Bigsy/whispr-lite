@@ -248,6 +248,17 @@ while held and never between dictations. The probe was removed. Physical release
 gain and power use remain to be confirmed from debug logs. `make check` passed with 83 Swift
 tests in 24 suites, including a hold that repeats passes and stops them at release.
 
+## Local dictation history
+
+11 October 2026: **Keep dictation history on this Mac** (Cleanup page, on by default) saves
+completed batch raw/cleaned pairs locally as training data for the cleanup model. `make test`
+passed with 88 Swift tests in 25 suites plus broker, setup and release tests. New tests cover
+the default for new and old preferences, 0700/0600 modes, backup exclusion, the prompt kept
+only as a fingerprint, disabled and deleted states, rotation keeping the newest entries in
+order, a file error that stops saving without blocking the caller, and a coordinator that
+saves a completed dictation but not a cancelled one. All test text is synthetic. Physical
+dictation into the real history file and training use remain unverified.
+
 ## Low-latency capture and read-driven clipboard restore
 
 10 October 2026: a content-free probe on this Mac's default input (44.1 kHz mono) showed

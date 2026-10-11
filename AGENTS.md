@@ -40,8 +40,10 @@ remaining gates belong in the checks.
 
 * That project is available locally here /Users/hedworth/workspace/mystuff/mac/parakeet-ane-server and can be modified freely from this project we careful not to break the current interface as it is publically available
 
-* Keep prompts, dictionaries and settings private. Do not persist or log personal audio,
-  dictation, clipboard contents or media titles. Use synthetic fixtures for checks.
+* Keep prompts, dictionaries, settings and dictation history private. Do not persist or log
+  personal audio, clipboard contents or media titles. Dictated text is persisted only by the
+  clearly labelled, deletable local dictation history (on by default); never log it elsewhere
+  or send it off the Mac. Use synthetic fixtures for checks, never real history.
 
 * Keep model weights, build products and raw benchmark results out of source control.
 

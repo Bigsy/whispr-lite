@@ -30,6 +30,8 @@ public struct Preferences: Codable, Sendable {
     public var streamingDemo = false
     public var showAudioActivity = true
     public var debugLogging = false
+    /// Raw/cleaned text pairs kept only on this Mac, for training a local cleanup model.
+    public var saveDictationHistory = true
     public var microphoneUID = ""
     public var asrEndpoint = "http://127.0.0.1:11435"
     public var cleanupEndpoint = "http://127.0.0.1:11436"
@@ -39,7 +41,7 @@ public struct Preferences: Codable, Sendable {
     public var cleanupTimeoutSeconds = 10.0
     public init() {}
     private enum CodingKeys: String, CodingKey {
-        case version, backend, asrModel, allowASRDownloads, asrModelDirectory, hotkey, warmCapture, lowLatencyCapture, pauseMedia, streamingDemo, showAudioActivity, debugLogging, microphoneUID
+        case version, backend, asrModel, allowASRDownloads, asrModelDirectory, hotkey, warmCapture, lowLatencyCapture, pauseMedia, streamingDemo, showAudioActivity, debugLogging, saveDictationHistory, microphoneUID
         case asrEndpoint, cleanupEndpoint, cleanupInputFormat, cleanupDictionaryPrefix, asrTimeoutSeconds, cleanupTimeoutSeconds
     }
     public init(from decoder: Decoder) throws {
@@ -57,6 +59,7 @@ public struct Preferences: Codable, Sendable {
         streamingDemo = try container.decodeIfPresent(Bool.self, forKey: .streamingDemo) ?? false
         showAudioActivity = try container.decodeIfPresent(Bool.self, forKey: .showAudioActivity) ?? true
         debugLogging = try container.decodeIfPresent(Bool.self, forKey: .debugLogging) ?? false
+        saveDictationHistory = try container.decodeIfPresent(Bool.self, forKey: .saveDictationHistory) ?? true
         microphoneUID = try container.decodeIfPresent(String.self, forKey: .microphoneUID) ?? ""
         asrEndpoint = try container.decodeIfPresent(String.self, forKey: .asrEndpoint) ?? asrEndpoint
         cleanupEndpoint = try container.decodeIfPresent(String.self, forKey: .cleanupEndpoint) ?? cleanupEndpoint

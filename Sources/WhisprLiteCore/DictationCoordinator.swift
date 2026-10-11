@@ -41,6 +41,8 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     public var safetyDuration: Duration = .seconds(120)
     public let timings: LatencyRecorder
     public var diagnostics: DiagnosticLogger?
+    /// Saves completed batch dictations locally when enabled; never demo or cancelled output.
+    public var history: DictationHistory?
     private let capture: any CaptureDriver
     private let insertion: any InsertionDriver
     private let media: any MediaDriver
@@ -146,6 +148,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                 var mark: (@Sendable (TimingStage) async -> Void)?
                 if recorder.isEnabled { mark = { stage in await recorder.mark(stage, session: id) } }
                 let text: String?
+                var dictation: DictationText?
                 if let streaming = self.streaming {
                     await self.delivery?.value
                     await self.prefill?.stop()
@@ -153,9 +156,11 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                     if !self.streamingFailed { text = try await streaming.finish(cleanup: self.pipeline.cleanup) }
                     else { text = try await self.pipeline.run(audio, mark: mark) }
                 } else {
-                    text = try await self.pipeline.run(audio, mark: mark)
+                    dictation = try await self.pipeline.process(audio, mark: mark)
+                    text = dictation?.cleaned
                 }
                 guard self.generation == owner, !Task.isCancelled else { return }
+                if let dictation { self.history?.record(dictation) }
                 self.timings.mark(.resultReady, session: id)
                 guard let text else { self.complete(); return }
                 self.recoveryText = String(text.prefix(32_768))

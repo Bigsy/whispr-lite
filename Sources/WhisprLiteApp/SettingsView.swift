@@ -19,6 +19,8 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
     @State private var shortcut: String
     @State private var recordingShortcut = false
     @State private var microphones: [MicrophoneDevice] = []
+    @State private var confirmingHistoryDelete = false
+    @State private var historyMessage = ""
 
     init(store: SettingsStore, app: AppDelegate, page: SettingsPage = .general,
          enumerateMicrophones: Bool = true, saved: @escaping () -> Void) {
@@ -174,6 +176,23 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
                 help("Names and terms guide the local model. For an exact conversion, add spoken phrase > Written phrase on its own line. Conversions ignore case and keep your chosen spelling.")
                 editor("Dictionary", text: $dictionary, height: 110)
             }
+            card("Dictation history") {
+                Toggle("Keep dictation history on this Mac", isOn: $preferences.saveDictationHistory)
+                help("Saves each transcript and its cleaned text in a private file on this Mac, so a better local cleanup model can later be trained on your own dictation. It is never uploaded or shared, and audio is not kept. Demo output and cancelled dictations are not saved.")
+                HStack(spacing: 10) {
+                    Button("Show in Finder", action: app.showDictationHistory)
+                    Button("Delete history…", role: .destructive) { confirmingHistoryDelete = true }
+                }
+                help("~/Library/Application Support/WhisprLite/History · Excluded from Time Machine. Keeps up to 32 MB, removing the oldest entries first.")
+                if !historyMessage.isEmpty { Text(historyMessage).font(.caption).foregroundStyle(.secondary) }
+                if app.dictationHistoryFailed { Text("Saving stopped after a file error. Check free space and folder permissions, then save settings to retry.").font(.caption).foregroundStyle(.orange) }
+            }
+            .alert("Delete all dictation history?", isPresented: $confirmingHistoryDelete) {
+                Button("Delete", role: .destructive) {
+                    Task { historyMessage = await app.deleteDictationHistory() ? "Dictation history deleted." : "Dictation history could not be deleted." }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { Text("This permanently removes every saved transcript from this Mac.") }
             help("The cleanup service address and response deadlines are in Advanced.")
         }
     }

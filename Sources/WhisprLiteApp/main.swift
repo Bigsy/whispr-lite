@@ -16,6 +16,9 @@ import WhisprLiteCore
     private var benchmarkVisible: ((Double) -> Void)?
     private var store: SettingsStore!
     private var diagnostics: DiagnosticLogger?
+    private var history: DictationHistory?
+    /// Synthetic acoustic benchmark runs never become dictation history.
+    private static let historyAllowed = !CommandLine.arguments.contains("--capture-flow-check")
     private let audio = AudioCapture()
     private let insertion = TextInserter()
     private let media = MediaBroker()
@@ -87,6 +90,7 @@ import WhisprLiteCore
         createMenu()
         diagnostics = DiagnosticLogger(directory: store.directory.appendingPathComponent("Diagnostics", isDirectory: true))
         diagnostics?.setEnabled(store.preferences.debugLogging)
+        history = DictationHistory(directory: store.directory.appendingPathComponent("History", isDirectory: true))
         indicator.activitySource = { [weak self] in self?.audio.recordingActivity ?? 0 }
         observeLifecycle()
         if CommandLine.arguments.contains("--benchmark-window") { showBenchmark() }
@@ -192,6 +196,10 @@ import WhisprLiteCore
             pipeline.cleanupDeadline = .seconds(preferences.cleanupTimeoutSeconds)
             coordinator = DictationCoordinator(capture: audio, insertion: insertion, media: media, pipeline: pipeline)
             coordinator?.diagnostics = debug ? diagnostics : nil
+            history?.configure(enabled: preferences.saveDictationHistory && preferences.backend != .demo && Self.historyAllowed,
+                asr: preferences.backend == .parakeet ? "parakeet-\(preferences.asrModel.rawValue)" : preferences.backend.rawValue,
+                prompt: prompt)
+            coordinator?.history = history
             if let timings = coordinator?.timings {
                 timings.setEnabled(debug)
                 insertion.timings = debug ? timings : nil
@@ -418,6 +426,15 @@ import WhisprLiteCore
         if FileManager.default.fileExists(atPath: diagnostics.directory.path) { NSWorkspace.shared.open(diagnostics.directory) }
     }
     var diagnosticLogFailed: Bool { diagnostics?.hasFailed == true }
+    func showDictationHistory() {
+        guard let history else { return }
+        if FileManager.default.fileExists(atPath: history.directory.path) { NSWorkspace.shared.open(history.directory) }
+    }
+    func deleteDictationHistory() async -> Bool {
+        guard let history else { return false }
+        do { try await history.deleteAll(); return true } catch { return false }
+    }
+    var dictationHistoryFailed: Bool { history?.hasFailed == true }
     private static func milliseconds(_ duration: Duration) -> Double {
         let value = duration.components
         return Double(value.seconds) * 1000 + Double(value.attoseconds) / 1e15
