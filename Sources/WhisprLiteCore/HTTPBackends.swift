@@ -61,15 +61,21 @@ public final class LocalHTTP: Sendable {
 public enum WAVEncoder {
     public static func encode(_ audio: PCM16k) -> Data {
         var data = Data()
+        data.reserveCapacity(44 + audio.samples.count * MemoryLayout<Int16>.size)
         func word<T: FixedWidthInteger>(_ value: T) {
             var little = value.littleEndian
             withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
         }
         data.append(contentsOf: "RIFF".utf8); word(UInt32(36 + audio.samples.count * 2))
         data.append(contentsOf: "WAVEfmt ".utf8); word(UInt32(16)); word(UInt16(1)); word(UInt16(1))
-        word(UInt32(16_000)); word(UInt32(32_000)); word(UInt16(2)); word(UInt16(16))
+        word(UInt32(PCM16k.rate)); word(UInt32(PCM16k.rate * 2)); word(UInt16(2)); word(UInt16(16))
         data.append(contentsOf: "data".utf8); word(UInt32(audio.samples.count * 2))
-        for sample in audio.samples { word(Int16((max(-1, min(1, sample)) * 32767).rounded())) }
+        var samples: [Int16] = []
+        samples.reserveCapacity(audio.samples.count)
+        for sample in audio.samples {
+            samples.append(Int16((max(-1, min(1, sample)) * 32767).rounded()).littleEndian)
+        }
+        samples.withUnsafeBytes { data.append(contentsOf: $0) }
         return data
     }
 }
