@@ -17,6 +17,7 @@ import AVFoundation
         var unfinished = BrokerLineDecoder(); _ = try unfinished.append(Data("{".utf8))
         #expect(throws: AppError.protocolViolation) { try unfinished.finish() }
         for invalid in [
+            "{\"type\":\"ready\",\"generation\":\"g\",\"request\":\"\",\"session\":\"\"}\n",
             "{\"version\":2,\"type\":\"ready\",\"generation\":\"g\",\"request\":\"\",\"session\":\"\"}\n",
             "{\"version\":1,\"type\":\"unknown\",\"generation\":\"g\",\"request\":\"\",\"session\":\"\"}\n",
             "{\"version\":1,\"type\":\"ready\",\"generation\":\"\(String(repeating: "g", count: 65))\",\"request\":\"\",\"session\":\"\"}\n"

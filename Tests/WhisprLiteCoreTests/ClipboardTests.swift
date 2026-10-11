@@ -36,7 +36,7 @@ import AVFoundation
         #expect(clipboard.text == "second")
         owner.settle()
     }
-    @Test func cancelledDelayedRestoreCannotClobberNewCopy() async throws {
+    @Test func delayedRestoreCannotClobberNewCopy() async throws {
         let clipboard = MemoryClipboard(); let owner = ClipboardTransaction(clipboard)
         try owner.write("result", delay: .milliseconds(5)); clipboard.write("user copy")
         try await Task.sleep(for: .milliseconds(20))

@@ -29,7 +29,7 @@ import AVFoundation
     func write(_ text: String, onRead: @escaping @MainActor () -> Void) { write(text); reader = onRead }
     func restore(_ snapshot: ClipboardSnapshot) { content = snapshot; text = "restored"; changeCount += 1 }
 }
-@Suite struct AdditionalHotkeyTests {
+@Suite struct ModifierOnlyHotkeyTests {
     @Test func modifierOnlyAndFnModifierShortcutsKeepOrdinaryShortcuts() {
         let modifiers = CGEventFlags.maskControl.rawValue | CGEventFlags.maskAlternate.rawValue
         var machine = HotkeyMachine(.init(modifiers: modifiers))

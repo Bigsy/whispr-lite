@@ -812,6 +812,10 @@ The package exposes the app and bench executables. `WhisprLiteCore` remains an i
 target shared by those executables and the tests. Shortcut recording passes the event's
 source marker into `HotkeyInput`, which compares it inside Core; the marker constant and
 the hotkey state machine instance methods are not part of the module's public API.
+Settings persistence cases live in `SettingsTests`; synthetic coverage includes a
+rejected unsupported preferences version. Broker protocol fixtures include a missing
+version, and the modifier-only hotkey and delayed clipboard restore tests use names
+that describe the actions they exercise.
 HTTP request builders, WAV encoding, clipboard snapshots/system access, history entry
 schema/file names and internal diagnostic counters likewise stay inside Core. The app
 constructs `TextInserter()` and can settle its clipboard transaction; tests retain
