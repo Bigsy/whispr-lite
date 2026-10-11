@@ -149,6 +149,57 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         timings.mark(.release, session: id)
         finish(id, target: target, copyOnly: false, boundary: boundary)
     }
+    private func handoffCapture(session id: UUID, owner: UInt64,
+                                boundary: Double?) async -> PCM16k? {
+        // Even cancellation must wait for capture handoff before ending its media lease.
+        let audio: PCM16k
+        do { audio = try await capture.end(at: boundary) }
+        catch {
+            _ = await earlyDelivery?.value
+            draining = false; media.end(id)
+            if generation == owner { fail(AppError.capture) }
+            return nil
+        }
+        draining = false
+        timings.mark(.captureFinalized, session: id)
+        if timings.isEnabled, let first = capture.firstAudioUptime {
+            timings.mark(.firstAudio, session: id, uptime: first)
+        }
+        diagnostics?.record(.init(.capture, session: id,
+            code: capture.drainTimedOut ? .drainTimeout : nil,
+            sampleCount: audio.samples.count))
+        media.end(id)
+        return audio
+    }
+    private struct FinalTranscription {
+        let text: String?
+        let dictation: DictationText?
+    }
+    private func transcribeFinalAudio(_ audio: PCM16k, session id: UUID,
+                                      owner: UInt64) async throws -> FinalTranscription {
+        // CoreML can continue after cancellation. The final pass waits for hold warm-up.
+        await holdWarmup?.value
+        guard generation == owner, !Task.isCancelled else { throw CancellationError() }
+        let recorder = timings
+        var mark: (@Sendable (TimingStage) async -> Void)?
+        if recorder.isEnabled { mark = { stage in await recorder.mark(stage, session: id) } }
+        if let streaming {
+            await delivery?.value
+            guard generation == owner, !Task.isCancelled else { throw CancellationError() }
+            let text = try await (streamingFailed
+                ? pipeline.run(audio, mark: mark)
+                : streaming.finish(audio: audio))
+            return .init(text: text, dictation: nil)
+        }
+        let early = earlyDelivery
+        // The structured child settles the early worker even when final ASR throws.
+        async let prepared = early?.value
+        let dictation: DictationText?
+        if let raw = try await pipeline.transcribe(audio, mark: mark) {
+            dictation = try await pipeline.finish(raw, early: await prepared ?? [], mark: mark)
+        } else { dictation = nil }
+        return .init(text: dictation?.cleaned, dictation: dictation)
+    }
     private func finish(_ id: UUID, target: UUID, copyOnly: Bool, boundary: Double?) {
         guard session == id, !finalized else { return }
         holdWarmup?.cancel() // No new pass after release; final ASR awaits any pass in flight.
@@ -157,50 +208,15 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         let owner = generation
         task = Task { [weak self] in
             guard let self else { return }
-            // Even cancellation must wait for capture handoff before ending its media lease.
-            let audio: PCM16k
-            do { audio = try await self.capture.end(at: boundary) }
-            catch {
-                _ = await self.earlyDelivery?.value
-                self.draining = false; self.media.end(id)
-                if self.generation == owner { self.fail(AppError.capture) }
-                return
-            }
-            self.draining = false
-            self.timings.mark(.captureFinalized, session: id)
-            if self.timings.isEnabled, let first = self.capture.firstAudioUptime { self.timings.mark(.firstAudio, session: id, uptime: first) }
-            self.diagnostics?.record(.init(.capture, session: id, code: self.capture.drainTimedOut ? .drainTimeout : nil, sampleCount: audio.samples.count))
-            self.media.end(id)
+            guard let audio = await self.handoffCapture(session: id, owner: owner,
+                boundary: boundary) else { return }
             guard self.generation == owner, !Task.isCancelled else { return }
             do {
-                // A cancelled task can return before CoreML has settled. The warm-up
-                // itself is never cancelled; final ASR and model replacement await it.
-                await self.holdWarmup?.value
+                let result = try await self.transcribeFinalAudio(audio, session: id, owner: owner)
                 guard self.generation == owner, !Task.isCancelled else { return }
-                let recorder = self.timings
-                var mark: (@Sendable (TimingStage) async -> Void)?
-                if recorder.isEnabled { mark = { stage in await recorder.mark(stage, session: id) } }
-                let text: String?
-                var dictation: DictationText?
-                if let streaming = self.streaming {
-                    await self.delivery?.value
-                    guard self.generation == owner, !Task.isCancelled else { return }
-                    if !self.streamingFailed { text = try await streaming.finish(audio: audio) }
-                    else { text = try await self.pipeline.run(audio, mark: mark) }
-                } else {
-                    let early = self.earlyDelivery
-                    // The structured child is awaited even if final ASR throws, so the
-                    // early worker has settled before this task releases the engine.
-                    async let prepared = early?.value
-                    if let raw = try await self.pipeline.transcribe(audio, mark: mark) {
-                        dictation = try await self.pipeline.finish(raw, early: await prepared ?? [], mark: mark)
-                    } else { dictation = nil }
-                    text = dictation?.cleaned
-                }
-                guard self.generation == owner, !Task.isCancelled else { return }
-                if let dictation { self.history?.record(dictation) }
+                if let dictation = result.dictation { self.history?.record(dictation) }
                 self.timings.mark(.resultReady, session: id)
-                guard let text else { self.complete(); return }
+                guard let text = result.text else { self.complete(); return }
                 self.recoveryText = String(text.prefix(DictationHistory.maximumTextCharacters))
                 if copyOnly { self.endSession(.copyOnly); return }
                 self.insertionSession = id

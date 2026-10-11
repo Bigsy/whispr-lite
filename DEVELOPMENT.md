@@ -820,6 +820,11 @@ Coordinator tests use a shared async condition poll for actor state and one reco
 cleanup fake with an optional delay, instead of copied polling loops and separate
 fast/slow cleanup actors.
 
+Coordinator finalization has separate capture handoff and final-transcription helpers.
+The handoff always ends its media lease after the capture worker settles. The final pass
+then waits for hold warm-up, settles early chunk work through a structured child task,
+checks session generation after asynchronous work, and only inserts the final result.
+
 `whispr-bench --cleanup-prefill-check` compares three synthetic outputs before/after
 the actual Swift prefix-preparation method using the saved service configuration. It
 prints only the pass count, measures no timing and does not change settings. Physical
