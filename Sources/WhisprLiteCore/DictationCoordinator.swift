@@ -57,7 +57,6 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     private var generation: UInt64 = 0
     private var task: Task<Void, Never>?
     private var pressWarmup: Task<Void, Never>?
-    private var pressWarmupSerial: UInt64 = 0
     private var ceiling: Task<Void, Never>?
     private var finalized = false
     private var activationHeld = false
@@ -265,16 +264,13 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     private func startHoldWarmup() {
         guard !streamingEnabled, pressWarmup == nil, let interval = holdWarmupInterval,
               let backend = pipeline.backend as? any PressWarmableASRBackend else { return }
-        pressWarmupSerial &+= 1
-        let serial = pressWarmupSerial
         pressWarmup = Task { [weak self] in
             repeat {
                 // Its own task: cancelling the loop never cancels CoreML mid-inference.
                 await Task { _ = try? await backend.warmForRecording() }.value
                 do { try await Task.sleep(for: interval) } catch { break }
             } while !Task.isCancelled && self?.state == .recording
-            guard let self, self.pressWarmupSerial == serial else { return }
-            self.pressWarmup = nil
+            self?.pressWarmup = nil
         }
     }
     private enum SessionEnd { case completed, failed(any Error), copyOnly }
