@@ -40,6 +40,9 @@ import WhisprLiteCore
     private var recordingShortcut = false
     private var observers: [NSObjectProtocol] = []
     private var settingsEpoch = UUID()
+    private static let shutdownGrace: Duration = .milliseconds(700)
+    private var shutdownStarted = false
+    private var terminationReply: Task<Void, Never>?
     private func tearDownPipeline(bumpEpoch: Bool, clearCoordinator: Bool = false,
                                   settleClipboard: Bool = false) {
         // Invalidate queued tap callbacks before stopping the tap or cancelling preparation.
@@ -606,13 +609,26 @@ import WhisprLiteCore
             "display_compositor_latency_measured": false, "private_content_recorded": false]
         try JSONReport.write(report, to: output)
     }
-    @objc private func quit() {
-        tearDownPipeline(bumpEpoch: true, settleClipboard: true)
-        Task { try? await Task.sleep(for: .milliseconds(700)); NSApp.terminate(nil) }
+    @objc private func quit() { NSApp.terminate(nil) }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard !shutdownStarted else { return .terminateLater }
+        beginShutdown()
+        terminationReply = Task {
+            try? await Task.sleep(for: Self.shutdownGrace)
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
-    func applicationWillTerminate(_ notification: Notification) {
+    private func beginShutdown() {
+        guard !shutdownStarted else { return }
+        shutdownStarted = true
         diagnostics?.record(.init(.shutdown))
         tearDownPipeline(bumpEpoch: true, settleClipboard: true)
+    }
+    func applicationWillTerminate(_ notification: Notification) {
+        // A forceful path can skip the termination query; normal quit already settled once.
+        beginShutdown()
+        terminationReply?.cancel(); terminationReply = nil
     }
 }
 /// Settings that select and load the ASR model; anything else can change without a reload.

@@ -35,6 +35,10 @@ App reconfiguration, session suspend, shortcut capture, probe exit and terminati
 one `tearDownPipeline` path. It advances the settings epoch before cancelling queued
 work, stops the tap, suspends capture, shuts down media and resets readiness; a new
 configuration drops the suspended old coordinator after retaining it for setup settlement.
+Menu Quit asks AppKit to terminate. `applicationShouldTerminate` tears down once, returns
+`terminateLater` and replies after the 700 ms media grace period, so ordinary external
+quit requests use the same wait. `applicationWillTerminate` only performs fallback
+teardown if the earlier query did not run.
 ASR preparation progress stores stable enum codes in diagnostics and exposes separate
 display labels for the Settings status line.
 LatencyRecorder supplies session-scoped millisecond spans for app and synthetic native
