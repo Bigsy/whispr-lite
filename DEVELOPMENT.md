@@ -7,6 +7,8 @@ passes; physical capture, other destinations, playback and daily-use acceptance 
 Python cleanup harnesses load saved settings through `cleanup_bench.load_saved_cleanup`:
 missing prompt/dictionary files use the app defaults, saved prompt whitespace is kept,
 and symlink or oversized private files are rejected without printing their contents.
+The optional OpenWhispr archive exporter opens the ASAR header and individual entries
+only for each read, closing the file before it writes any private export.
 The synthetic setup suite checks the benchmark stack lock against the pinned cleanup
 runtime, model artifacts and actual server arguments. The media probe reads its adapter
 revision from the benchmark lock.

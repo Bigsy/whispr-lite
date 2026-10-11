@@ -15,19 +15,21 @@ storage = importlib.util.module_from_spec(spec); spec.loader.exec_module(storage
 
 class Archive:
     def __init__(self, path):
-        self.file = path.open('rb')
-        prefix = self.file.read(16)
-        length = struct.unpack_from('<I', prefix, 12)[0]
-        if length > 16 * 1024 * 1024: raise ValueError('Oversized app archive header')
-        self.header = json.loads(self.file.read(length))
-        self.start = 8 + struct.unpack_from('<I', prefix, 4)[0]
+        self.path = path
+        with path.open('rb') as file:
+            prefix = file.read(16)
+            length = struct.unpack_from('<I', prefix, 12)[0]
+            if length > 16 * 1024 * 1024: raise ValueError('Oversized app archive header')
+            self.header = json.loads(file.read(length))
+            self.start = 8 + struct.unpack_from('<I', prefix, 4)[0]
 
     def read(self, path):
         entry = self.header
         for component in path.split('/'): entry = entry['files'][component]
         if entry['size'] > 16 * 1024 * 1024: raise ValueError('Oversized archive entry')
-        self.file.seek(self.start + int(entry['offset']))
-        data = self.file.read(entry['size'])
+        with self.path.open('rb') as file:
+            file.seek(self.start + int(entry['offset']))
+            data = file.read(entry['size'])
         if len(data) != entry['size']: raise ValueError('Incomplete archive entry')
         return data
 

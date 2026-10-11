@@ -29,6 +29,7 @@ def module(name, filename):
 service = module('cleanup', 'cleanup-service.py')
 storage = module('storage', 'chromium-settings.py')
 configuration = module('configuration', 'configure-local-stack.py')
+exporter = module('exporter', 'export-openwhispr.py')
 
 
 def integer(value):
@@ -46,6 +47,15 @@ def batch(sequence, operations):
 
 
 class SetupTests(unittest.TestCase):
+    def test_archive_reads_entries_without_retaining_an_open_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'synthetic.asar'
+            header = json.dumps({'files': {'entry.txt': {'size': 3, 'offset': '0'}}}).encode()
+            path.write_bytes(struct.pack('<IIII', 0, 8 + len(header), 0, len(header)) + header + b'abc')
+            archive = exporter.Archive(path)
+            self.assertEqual(archive.read('entry.txt'), b'abc')
+            self.assertFalse(hasattr(archive, 'file'))
+
     def test_broker_client_timeout_and_request_correlation(self):
         client = BrokerClient.__new__(BrokerClient)
         client.events = queue.Queue()
