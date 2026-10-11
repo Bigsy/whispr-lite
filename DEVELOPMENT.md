@@ -271,7 +271,10 @@ of at least 50 ms each. Turning it off uses the former input tap, which delivers
 0.4 s at the hardware rate (minimum 8,192 frames); 96 and 192 kHz devices fit. The
 callback claims slots in order through a counting semaphore and the serial worker returns
 them in the same order, so the callback never takes a lock. Release waits for the packet
-containing the accepted release boundary, trims it and drains the converter once. If that
+containing the accepted release boundary, trims it and drains the converter once.
+The worker computes the first excluded 16 kHz sample once per output buffer, adjusts
+the result at the boundary for host-time rounding, and copies the accepted PCM in bulk.
+The same sample count governs already-buffered trimming and completion. If the release
 packet is late (about 100 ms beyond the last packet's duration, 0.15 to 0.5 s), the
 recording is kept without the unseen tail and debug diagnostics record `capture/drainTimeout`.
 Capture starts before the AX target snapshot, and AX calls into the target are bounded to

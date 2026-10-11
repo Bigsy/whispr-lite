@@ -124,6 +124,23 @@ final class AudioWorker: @unchecked Sendable {
     private func markOverflow() { queue.async { self.callbackOverflow = true } }
     // Runs only on the conversion queue. Host/sample time is checked before receive in the tap owner.
     func markDiscontinuity() { queue.async { self.failed = true } }
+    /// The first excluded sample begins at the release boundary. Only the serial worker calls this.
+    private func allowedSamples(until boundary: Double?) -> Int? {
+        guard let boundary, let audioEpoch, boundary.isFinite else { return nil }
+        let value = ceil((boundary - audioEpoch) * Double(PCM16k.rate))
+        guard !value.isNaN else { return nil }
+        if value <= 0 { return 0 }
+        if value >= Double(Int.max) { return Int.max }
+        var allowed = Int(value)
+        // Subtracting large host timestamps can shift ceil by one. Match the previous
+        // per-sample comparison at the two candidate positions without scanning samples.
+        if allowed > 0, audioEpoch + Double(allowed - 1) / Double(PCM16k.rate) >= boundary {
+            allowed -= 1
+        } else if allowed < Int.max, audioEpoch + Double(allowed) / Double(PCM16k.rate) < boundary {
+            allowed += 1
+        }
+        return allowed
+    }
     private func convert(_ input: AVAudioPCMBuffer?) {
         let supply = ConverterInput(input)
         while true {
@@ -135,20 +152,32 @@ final class AudioWorker: @unchecked Sendable {
             }
             if error != nil || status == .error { failed = true; return }
             if let floats = output.floatChannelData?[0] {
-                if recording, output.frameLength > 0 {
+                let produced = Int(output.frameLength)
+                if recording, produced > 0 {
                     if timingEnabled && firstAudio == nil { firstAudio = ProcessInfo.processInfo.systemUptime }
-                    if activityEnabled, let value = meter.consume(UnsafeBufferPointer(start: floats, count: Int(output.frameLength))) { activity.publish(value) }
+                    if activityEnabled, let value = meter.consume(UnsafeBufferPointer(start: floats, count: produced)) {
+                        activity.publish(value)
+                    }
                 }
-                for index in 0..<Int(output.frameLength) {
-                    let value = floats[index]
-                    let sampleTime = audioEpoch.map { $0 + Double(outputPosition) / Double(PCM16k.rate) }
-                    outputPosition += 1
-                    if recording, let endBoundary, let sampleTime, sampleTime >= endBoundary { continue }
-                    if recording {
-                        if count < samples.count { samples[count] = value; count += 1; deliver(value) }
-                        else { failed = true }
-                    } else {
-                        preRoll[rollHead] = value; rollHead = (rollHead + 1) % preRoll.count
+                let start = outputPosition
+                outputPosition += produced
+                if recording {
+                    let allowed = allowedSamples(until: endBoundary)
+                    let withinBoundary = allowed.map { max(0, min(produced, $0 - start)) } ?? produced
+                    let copied = min(withinBoundary, samples.count - count)
+                    if copied < withinBoundary { failed = true }
+                    if copied > 0 {
+                        samples.withUnsafeMutableBufferPointer { destination in
+                            _ = memcpy(destination.baseAddress!.advanced(by: count), floats,
+                                       copied * MemoryLayout<Float>.stride)
+                        }
+                        // Deliver still advances each count for early-chunk and streaming boundaries.
+                        for index in 0..<copied { count += 1; deliver(floats[index]) }
+                    }
+                } else {
+                    for index in 0..<produced {
+                        preRoll[rollHead] = floats[index]
+                        rollHead = (rollHead + 1) % preRoll.count
                         rollCount = min(preRoll.count, rollCount + 1)
                     }
                 }
@@ -227,8 +256,7 @@ final class AudioWorker: @unchecked Sendable {
                 guard recording else { continuation.resume(throwing: AppError.capture); return }
                 completion = continuation; endBoundary = boundary
                 drainSerial &+= 1; let serial = drainSerial
-                if let boundary, let epoch = audioEpoch {
-                    let allowed = max(0, Int(ceil((boundary - epoch) * Double(PCM16k.rate))))
+                if let allowed = allowedSamples(until: boundary) {
                     let excess = min(count, max(0, outputPosition - allowed))
                     count -= excess
                     if excess > 0 {
@@ -236,7 +264,7 @@ final class AudioWorker: @unchecked Sendable {
                         streamContinuation?.finish(throwing: AppError.overflow); streamContinuation = nil
                     }
                 }
-                if boundary == nil || (audioEpoch.map { $0 + Double(outputPosition) / Double(PCM16k.rate) >= boundary! } ?? false) {
+                if boundary == nil || (allowedSamples(until: boundary).map { outputPosition >= $0 } ?? false) {
                     finalize()
                 } else {
                     // Keep capture alive for the callback containing the release sample, then drain once.
