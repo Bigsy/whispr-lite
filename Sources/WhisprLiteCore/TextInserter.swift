@@ -10,14 +10,10 @@ public struct ClipboardSnapshot: Sendable, Equatable {
     var changeCount: Int { get }
     var text: String? { get }
     func snapshot() throws -> ClipboardSnapshot
-    func write(_ text: String) throws
     /// Writes text that reports when another app first reads it. Without that signal the
     /// transaction falls back to its timeout.
     func write(_ text: String, onRead: @escaping @MainActor () -> Void) throws
     func restore(_ snapshot: ClipboardSnapshot) throws
-}
-public extension ClipboardAccess {
-    func write(_ text: String, onRead: @escaping @MainActor () -> Void) throws { try write(text) }
 }
 @MainActor public final class ClipboardTransaction {
     private let clipboard: any ClipboardAccess
@@ -95,11 +91,6 @@ private final class PromisedText: NSObject, NSPasteboardItemDataProvider, @unche
             result.append(types)
         }
         return .init(items: result)
-    }
-    public func write(_ text: String) throws {
-        let item = NSPasteboardItem()
-        guard item.setString(text, forType: .string) else { throw AppError.clipboard }
-        try write(item)
     }
     public func write(_ text: String, onRead: @escaping @MainActor () -> Void) throws {
         let promise = PromisedText(text, onRead: onRead), item = NSPasteboardItem()
