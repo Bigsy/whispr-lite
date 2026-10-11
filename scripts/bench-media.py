@@ -2,13 +2,11 @@
 """Read-only media spike. Control cycles are opt-in; submission != observed transition."""
 import argparse
 import json
-import os
 from pathlib import Path
-import queue
 import statistics
 import subprocess
-import threading
 import time
+from broker_client import BrokerClient
 from cleanup_bench import nearest_rank, run_guarded, write_report
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -51,33 +49,14 @@ def main():
         one_shot.append((time.monotonic()-start)*1000)
     process = subprocess.Popen(['/usr/bin/perl', str(VENDOR / 'patches/broker.pl'), str(FRAMEWORK / 'MediaRemoteAdapter')],
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    events = queue.Queue()
-    def read():
-        for line in process.stdout:
-            try:
-                events.put(json.loads(line))
-            except ValueError:
-                events.put(dict(type='invalid'))
-    thread = threading.Thread(target=read, daemon=True); thread.start()
-    def wait(kind, request=None):
-        deadline = time.monotonic()+5
-        while time.monotonic() < deadline:
-            event = events.get(timeout=max(.001, deadline-time.monotonic()))
-            if event.get('type') == kind and (request is None or event.get('request') == request):
-                return event
-        raise RuntimeError('Media response deadline')
-    start = time.monotonic()
-    generation = wait('ready')['generation']
-    startup_ms = (time.monotonic()-start)*1000
-    def send(operation, session=''):
-        request = str(time.monotonic_ns())
-        data = dict(version=1, operation=operation, generation=generation,
-                    request=request, session=session, deadlineMS=500)
-        process.stdin.write(json.dumps(data).encode()+b'\n'); process.stdin.flush()
-        return request
+    client = BrokerClient(process)
+    wait, send = client.wait, client.send
     snapshots = []; state = {}
     pauses = []; resumes = []
     try:
+        start = time.monotonic()
+        wait('ready')
+        startup_ms = (time.monotonic()-start)*1000
         for _ in range(30):
             start = time.monotonic(); request = send('snapshot')
             state = wait('snapshot', request).get('state', {})
@@ -90,6 +69,7 @@ def main():
                 start = time.monotonic(); request = send('begin', session)
                 wait('paused', request); pauses.append((time.monotonic()-start)*1000)
                 start = time.monotonic(); send('end', session)
+                # Resume belongs to the lease opened by begin, so it carries the begin request ID.
                 wait('resumed', request); resumes.append((time.monotonic()-start)*1000)
         try:
             usage = subprocess.check_output(['ps', '-o', 'rss=,%cpu=', '-p', str(process.pid)], text=True).strip()
@@ -110,10 +90,7 @@ def main():
         print(json.dumps({k:v for k,v in report.items() if not isinstance(v, list)}, indent=2))
     finally:
         # EOF settles an owned lease even if an observation wait failed.
-        process.stdin.close()
-        try: process.wait(timeout=2)
-        except subprocess.TimeoutExpired: process.terminate(); process.wait(timeout=2)
-        thread.join(timeout=1); process.stdout.close()
+        client.close()
 
 if __name__ == '__main__':
     run_guarded(main, 'Media probe', {'Media response deadline',

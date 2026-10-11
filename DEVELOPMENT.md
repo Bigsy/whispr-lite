@@ -450,6 +450,9 @@ SIGTERM handling, and its real-framework process test checks that termination ex
 The broker keeps bounded track identity in helper-local named fields, strips it from
 wire replies, and compares a single track match when deciding whether a refreshed
 opaque media item still belongs to the owned player.
+The native broker tests and optional media probe use the same Python `BrokerClient`
+for line decoding, generation/request IDs, deadline errors and process teardown.
+The probe waits for a `resumed` event with its lease's original begin request ID.
 Explicit `make install` stages and verifies the signed app before replacing the old copy.
 An optional model argument selects another cached stack, for example
 `WhisprLite --asr-check /absolute/path/to/Models ultra`.

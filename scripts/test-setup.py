@@ -7,6 +7,7 @@ import io
 import json
 from pathlib import Path
 import plistlib
+import queue
 import socket
 import struct
 import tempfile
@@ -15,6 +16,7 @@ import types
 import unittest
 from unittest.mock import patch
 import cleanup_bench as bench_common
+from broker_client import BrokerClient
 from cleanup_bench import DEFAULT_PROMPT, load_saved_cleanup
 
 
@@ -44,6 +46,15 @@ def batch(sequence, operations):
 
 
 class SetupTests(unittest.TestCase):
+    def test_broker_client_timeout_and_request_correlation(self):
+        client = BrokerClient.__new__(BrokerClient)
+        client.events = queue.Queue()
+        client.events.put({'type': 'paused', 'request': 'old'})
+        client.events.put({'type': 'paused', 'request': 'current'})
+        self.assertEqual(client.wait('paused', 'current', timeout=.01)['request'], 'current')
+        with self.assertRaisesRegex(RuntimeError, 'Media response deadline'):
+            client.wait('resumed', timeout=.01)
+
     def test_benchmark_guard_redacts_exception_text(self):
         stderr = io.StringIO()
         def private_error():

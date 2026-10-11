@@ -3,13 +3,11 @@
 import json
 import os
 from pathlib import Path
-import queue
 import select
 import signal
 import subprocess
-import threading
-import time
 import unittest
+from broker_client import BrokerClient
 
 ROOT = Path(__file__).resolve().parent.parent
 BINARY = ROOT / '.build/media-test/broker'
@@ -29,45 +27,23 @@ def build():
 
 class Broker:
     def __init__(self, **env):
-        self.process = subprocess.Popen([str(BINARY)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        stderr=subprocess.DEVNULL, env={**os.environ, 'WHISPR_DEBUG_DIAGNOSTICS': '1', **env})
-        self.events = queue.Queue()
+        process = subprocess.Popen([str(BINARY)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL, env={**os.environ, 'WHISPR_DEBUG_DIAGNOSTICS': '1', **env})
         self.commands = []
-        self.generation = None
-        def read():
-            for line in self.process.stdout:
-                event = json.loads(line)
-                if event['type'] == 'testCommand':
-                    self.commands.append(event['command'])
-                self.events.put(event)
-        self.thread = threading.Thread(target=read, daemon=True)
-        self.thread.start()
+        self.client = BrokerClient(process, on_event=lambda event: self.commands.append(event['command'])
+                                   if event.get('type') == 'testCommand' else None)
+        self.process = process
         self.wait('ready')
+        self.generation = self.client.generation
 
     def wait(self, event_type, timeout=2):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            event = self.events.get(timeout=max(.001, deadline - time.monotonic()))
-            if event['type'] == 'ready':
-                self.generation = event['generation']
-            if event['type'] == event_type:
-                return event
-        raise AssertionError(f'Missing {event_type}')
+        return self.client.wait(event_type, timeout=timeout)
 
     def send(self, operation, session='s1', **extra):
-        body = dict(version=1, operation=operation, session=session, request=f'{time.monotonic_ns()}',
-                    generation=self.generation, deadlineMS=500)
-        body.update(extra)
-        self.process.stdin.write(json.dumps(body).encode() + b'\n')
-        self.process.stdin.flush()
-        return body['request']
+        return self.client.send(operation, session=session, **extra)
 
     def close(self):
-        if not self.process.stdin.closed:
-            self.process.stdin.close()
-        self.process.wait(timeout=2)
-        self.thread.join(timeout=1)
-        self.process.stdout.close()
+        self.client.close()
 
 
 class LeaseTests(unittest.TestCase):
