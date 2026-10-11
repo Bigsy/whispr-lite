@@ -75,6 +75,8 @@ Saving settings reports the invalid field for deadlines, local URLs, model folde
 private text limits. File-system failures get a separate save error.
 Clipboard restoration keeps a named pending snapshot and uses one delayed-settlement
 path for the fallback timer and the paste-read grace period, preserving owner checks.
+Media broker shutdown sends end/shutdown before a shared transport reset; failures use
+the same reset, which invalidates the process epoch before clearing queued state.
 `WhisprLite --ui-preview OUTPUT_DIRECTORY` renders synthetic native settings at each page's
 fitted height and on a 560-point short screen, in light/dark appearances, plus indicator
 states. `settings-heights.json` records each fitted height; a real titled window must fit

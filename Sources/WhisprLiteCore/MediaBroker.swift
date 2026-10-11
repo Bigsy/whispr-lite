@@ -227,20 +227,23 @@ public enum MediaReadiness: Sendable, Equatable { case disabled, starting, ready
         enabled = false; restartTask?.cancel(); restartTask = nil
         if let session { end(session) }
         send("shutdown", session: nil)
-        writes.close(input); input = nil
-        let old = process; settling = old ?? settling
-        epoch = UUID(); process = nil; generation = nil; session = nil; pending.removeAll(); decoder = .init()
+        let old = resetTransport()
         setStatus(.disabled, "Media disabled")
         Task {
             try? await Task.sleep(for: .milliseconds(700))
             if old?.isRunning == true { old?.terminate() }
         }
     }
-    private func failed(permanent: Bool = false) {
+    private func resetTransport() -> Process? {
         epoch = UUID() // Invalidate queued reads, writes, timers and termination callbacks first.
         generation = nil; session = nil; pending.removeAll(); decoder = .init()
         writes.close(input); input = nil
-        let old = process; process = nil; settling = old ?? settling
+        let old = process; settling = old ?? settling
+        process = nil
+        return old
+    }
+    private func failed(permanent: Bool = false) {
+        let old = resetTransport()
         if old?.isRunning == true { old?.terminate() }
         guard enabled else { return }
         if permanent || recoveries >= 2 {
