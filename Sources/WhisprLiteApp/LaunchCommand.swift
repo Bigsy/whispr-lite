@@ -5,13 +5,20 @@ struct RunOptions {
     let showSettings: Bool
     let showBenchmarkWindow: Bool
 }
+struct BatchFlowArguments {
+    let cache: URL
+    let corpus: URL
+    let privateDirectory: URL
+    let endpoint: LocalEndpoint
+    let output: URL
+}
 
 enum LaunchCommand {
     case run(RunOptions)
     case uiPreview(URL)
     case smokeTest
     case permissionStatus
-    case batchFlow([String])
+    case batchFlow(BatchFlowArguments)
     case asrCheck(cache: URL, model: ParakeetModel)
     case captureFlow([String])
     case readinessReport(URL)
@@ -44,7 +51,15 @@ enum LaunchCommand {
             guard values.count == 5, values.allSatisfy({ !$0.hasPrefix("--") }) else {
                 throw CheckFailure("--batch-flow-check requires five arguments")
             }
-            return .batchFlow(values)
+            guard let endpoint = try? LocalEndpoint(values[3]) else {
+                throw CheckFailure("--batch-flow-check requires a local HTTP cleanup address")
+            }
+            return .batchFlow(.init(
+                cache: URL(fileURLWithPath: values[0], isDirectory: true),
+                corpus: URL(fileURLWithPath: values[1], isDirectory: true),
+                privateDirectory: URL(fileURLWithPath: values[2], isDirectory: true),
+                endpoint: endpoint,
+                output: URL(fileURLWithPath: values[4])))
         case "--asr-check":
             guard (1...2).contains(values.count), !values[0].hasPrefix("--") else {
                 throw CheckFailure("--asr-check requires a model cache path and optional model")

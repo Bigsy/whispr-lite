@@ -813,6 +813,8 @@ attributes Accessibility to the app. Direct tool execution can attribute permiss
 the invoking process instead. It runs one warmup plus 30 interleaved rounds per fixture,
 verifies exact repeat output/native NSTextView contents, requests a native draw and
 records monotonic ASR/cleanup/insertion spans without prompt, dictionary or result text.
+Its launch parser validates the five arguments and the loopback cleanup endpoint before
+normal app setup; the probe then uses typed paths and the parsed endpoint directly.
 Keep the Mac unlocked and the controlled benchmark window focused; a changed/locked
 destination is rejected by the same target-validation path as normal dictation.
 

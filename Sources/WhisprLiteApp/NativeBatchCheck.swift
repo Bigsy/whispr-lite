@@ -3,38 +3,35 @@ import WhisprLiteCore
 
 /// Opt-in synthetic integration check in the signed app. No microphone or saved app settings.
 @MainActor enum NativeBatchCheck {
-    static func run(arguments: [String]) async throws {
-        guard arguments.count == 5 else { throw CheckFailure("Batch-flow check requires five arguments") }
+    private static let expectedFixtureCount = 6
+    static func run(arguments: BatchFlowArguments) async throws {
         guard PermissionStatus.current.accessibility else {
             print("batch-flow blocked: enable Accessibility for this signed Whispr Lite app, then retry")
             throw CheckFailure("Accessibility permission is required for native insertion")
         }
-        let cache = URL(fileURLWithPath: arguments[0], isDirectory: true)
-        let corpus = URL(fileURLWithPath: arguments[1], isDirectory: true)
-        let privateDirectory = URL(fileURLWithPath: arguments[2], isDirectory: true)
-        let output = URL(fileURLWithPath: arguments[4])
-        let store = try SettingsStore(directory: privateDirectory)
+        let store = try SettingsStore(directory: arguments.privateDirectory)
         struct Import: Decodable { let cleanupInputFormat: CleanupInputFormat; let cleanupDictionaryPrefix: String }
-        let metadataURL = privateDirectory.appendingPathComponent("cleanup-import.json")
+        let metadataURL = arguments.privateDirectory.appendingPathComponent("cleanup-import.json")
         guard try metadataURL.resourceValues(forKeys: [.fileSizeKey]).fileSize.map({ $0 <= 65_536 }) == true else {
             throw CheckFailure("Cleanup import metadata is missing or too large")
         }
         let metadata = try JSONDecoder().decode(Import.self, from: Data(contentsOf: metadataURL))
-        var preferences = store.preferences
-        preferences.cleanupEndpoint = arguments[3]
-        preferences.cleanupInputFormat = metadata.cleanupInputFormat
-        preferences.cleanupDictionaryPrefix = metadata.cleanupDictionaryPrefix
-        let cleanup = HTTPCleanup(try .init(preferences: preferences, prompt: store.prompt(), dictionary: store.dictionary()))
+        let cleanup = HTTPCleanup(.init(endpoint: arguments.endpoint,
+            prompt: try store.prompt(), dictionary: try store.dictionary(),
+            inputFormat: metadata.cleanupInputFormat,
+            dictionaryPrefix: metadata.cleanupDictionaryPrefix))
         try await cleanup.checkReadiness()
-        let backend = ParakeetCoreBackend(cacheRoot: cache)
+        let backend = ParakeetCoreBackend(cacheRoot: arguments.cache)
         try await backend.prepare()
         let pipeline = BatchPipeline(backend: backend, cleanup: cleanup)
         guard try await pipeline.run(PCM16k([])) == nil,
               try await pipeline.run(PCM16k([Float](repeating: 0, count: PCM16k.rate / 2))) == nil else {
             throw CheckFailure("Batch-flow empty or silence check failed")
         }
-        let files = try PCM16k.corpus(in: corpus)
-        guard files.count == 6 else { throw CheckFailure("Batch-flow corpus must contain six WAV fixtures") }
+        let files = try PCM16k.corpus(in: arguments.corpus)
+        guard files.count == Self.expectedFixtureCount else {
+            throw CheckFailure("Batch-flow corpus must contain \(Self.expectedFixtureCount) WAV fixtures")
+        }
         let audio = try files.map { try PCM16k(contentsOfWAV: $0) }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 650, height: 240),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
@@ -73,7 +70,11 @@ import WhisprLiteCore
                 else { references[index] = text }
                 do { try await insertion.insert(text, target: target) }
                 catch {
-                    print("batch-flow insertion failed round=\(repetition) fixture=\(files[index].lastPathComponent) own-focus=\(NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier) key-window=\(window.isKeyWindow) own-responder=\(window.firstResponder === field)")
+                    let ownFocus = NSWorkspace.shared.frontmostApplication?.processIdentifier
+                        == ProcessInfo.processInfo.processIdentifier
+                    print("batch-flow insertion failed round=\(repetition) " +
+                        "fixture=\(files[index].lastPathComponent) own-focus=\(ownFocus) " +
+                        "key-window=\(window.isKeyWindow) own-responder=\(window.firstResponder === field)")
                     throw error
                 }
                 let until = clock.now.advanced(by: .seconds(1))
@@ -104,6 +105,6 @@ import WhisprLiteCore
             "empty_silence": "passed", "repeat_output_parity": true, "native_text_update_and_draw": true,
             "physical_release_capture_measured": false, "display_compositor_latency_measured": false,
             "third_party_insertion_measured": false, "private_content_recorded": false]
-        try JSONReport.write(report, to: output)
+        try JSONReport.write(report, to: arguments.output)
     }
 }

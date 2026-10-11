@@ -17,6 +17,8 @@ class AppCLITests(unittest.TestCase):
             (['--asr-check', '/tmp', 'invalid'], 'Unknown speech model'),
             (['--readiness-report'], 'output path'),
             (['--batch-flow-check'], 'five arguments'),
+            (['--batch-flow-check', '/tmp/cache', '/tmp/corpus', '/tmp/private',
+              'https://example.com', '/tmp/out.json'], 'local HTTP cleanup address'),
             (['--capture-flow-check'], 'requires WAV'),
             (['--capture-flow-check', 'a', 'b', 'c', 'd', 'e', '0'], '1...31 repetitions'),
             (['--smoke-test', '--settings'], 'takes no arguments'),
