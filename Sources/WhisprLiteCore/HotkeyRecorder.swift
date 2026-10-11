@@ -72,8 +72,8 @@ public struct HotkeyRecorderMachine: Sendable {
     public init() {}
     public mutating func consume(_ input: HotkeyInput) -> HotkeyRecordingResult? {
         guard !input.injected else { return nil }
-        if input.kind == .down, input.code == 53 { self = .init(); return .cancelled }
-        if input.code == 57 { self = .init(); return .unsupported } // Caps Lock toggles rather than holds.
+        if input.kind == .down, input.code == KeyCode.escape { self = .init(); return .cancelled }
+        if input.code == KeyCode.capsLock { self = .init(); return .unsupported } // Caps Lock toggles rather than holds.
         if input.kind == .flags, let modifier = HotkeyModifier(rawValue: input.code) {
             if modifier.isDown(flags: input.flags, previouslyDown: heldModifiers.contains(modifier)) {
                 heldModifiers.insert(modifier)

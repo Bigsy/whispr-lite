@@ -49,7 +49,7 @@ import Darwin
         try settings("general-ultra", .general, .dark)
         try settings("general-ultra-light", .general, .light)
         preferences.backend = .http
-        preferences.hotkey = .init(keyCode: 49, modifiers: CGEventFlags.maskControl.rawValue | CGEventFlags.maskAlternate.rawValue)
+        preferences.hotkey = .init(keyCode: KeyCode.space, modifiers: CGEventFlags.maskControl.rawValue | CGEventFlags.maskAlternate.rawValue)
         try store.save(preferences, prompt: SettingsStore.defaultPrompt, dictionary: "Whispr Lite\nParakeet\nGemma")
         try settings("advanced-http", .advanced, .dark)
         try settings("general-http-light", .general, .light)

@@ -2,6 +2,11 @@ import Foundation
 import CoreGraphics
 
 public let injectedEventMarker: Int64 = 0x5748535052
+public enum KeyCode {
+    public static let escape: UInt16 = 53
+    public static let space: UInt16 = 49
+    public static let capsLock: UInt16 = 57
+}
 public enum HotkeyAction: Sendable, Equatable { case press, release, cancel }
 public struct HotkeyInput: Sendable {
     public enum Kind: Sendable { case down, up, flags }
@@ -26,7 +31,7 @@ public struct HotkeyMachine: Sendable {
     public init(_ configuration: HotkeyConfiguration) { self.configuration = configuration }
     public mutating func consume(_ input: HotkeyInput) -> (HotkeyAction?, Bool) {
         guard !input.injected else { return (nil, false) }
-        if input.kind == .down, input.code == 53 { return (.cancel, held) }
+        if input.kind == .down, input.code == KeyCode.escape { return (.cancel, held) }
         if let code = configuration.keyCode {
             if let modifier = HotkeyModifier(rawValue: code) { return consumeModifier(input, modifier: modifier) }
             if input.kind == .down, input.code == code,
@@ -54,7 +59,7 @@ public struct HotkeyMachine: Sendable {
                     return (wasHeld ? .release : nil, wasHeld)
                 }
             }
-            if input.kind == .down, fn, input.code != 63 {
+            if input.kind == .down, fn, input.code != HotkeyModifier.fn.rawValue {
                 let wasHeld = held; held = false; fnShortcut = true
                 return (wasHeld ? .cancel : nil, false)
             }

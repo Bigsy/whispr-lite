@@ -56,8 +56,8 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
     }
     private static func selection(for hotkey: HotkeyConfiguration) -> String {
         if hotkey == .init() { return "fn" }
-        else if hotkey == .init(keyCode: 49, modifiers: CGEventFlags.maskControl.rawValue) { return "ctrl-space" }
-        else if hotkey == .init(keyCode: 49, modifiers: CGEventFlags.maskControl.rawValue | CGEventFlags.maskAlternate.rawValue) { return "ctrl-alt-space" }
+        else if hotkey == .init(keyCode: KeyCode.space, modifiers: CGEventFlags.maskControl.rawValue) { return "ctrl-space" }
+        else if hotkey == .init(keyCode: KeyCode.space, modifiers: CGEventFlags.maskControl.rawValue | CGEventFlags.maskAlternate.rawValue) { return "ctrl-alt-space" }
         else { return "custom" }
     }
 
@@ -339,8 +339,8 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
     private func save() {
         do {
             switch shortcut {
-            case "ctrl-space": preferences.hotkey = .init(keyCode: 49, modifiers: CGEventFlags.maskControl.rawValue)
-            case "ctrl-alt-space": preferences.hotkey = .init(keyCode: 49, modifiers: CGEventFlags.maskControl.rawValue | CGEventFlags.maskAlternate.rawValue)
+            case "ctrl-space": preferences.hotkey = .init(keyCode: KeyCode.space, modifiers: CGEventFlags.maskControl.rawValue)
+            case "ctrl-alt-space": preferences.hotkey = .init(keyCode: KeyCode.space, modifiers: CGEventFlags.maskControl.rawValue | CGEventFlags.maskAlternate.rawValue)
             case "fn": preferences.hotkey = .init()
             default: break // Preserve custom saved gestures when changing unrelated settings.
             }

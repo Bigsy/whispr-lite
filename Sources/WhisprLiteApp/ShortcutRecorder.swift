@@ -4,6 +4,10 @@ import SwiftUI
 import WhisprLiteCore
 
 @MainActor enum ShortcutLabel {
+    private static let special: [UInt16: String] = [36: "Return", 48: "Tab", KeyCode.space: "Space", 51: "Delete", 76: "Enter",
+        115: "Home", 119: "End", 116: "Page Up", 121: "Page Down", 117: "Forward Delete",
+        123: "Left Arrow", 124: "Right Arrow", 125: "Down Arrow", 126: "Up Arrow"]
+    private static let functionKeys: [UInt16] = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, 105, 107, 113, 106, 64, 79, 80, 90]
     static func name(_ configuration: HotkeyConfiguration) -> String {
         let primary = configuration.keyCode.flatMap(HotkeyModifier.init(rawValue:))
         let flags = configuration.modifiers & HotkeyMachine.shortcutModifiers & ~(primary?.flag ?? 0)
@@ -18,11 +22,7 @@ import WhisprLiteCore
         return names.joined(separator: " + ")
     }
     private static func keyName(_ code: UInt16) -> String {
-        let special: [UInt16: String] = [36: "Return", 48: "Tab", 49: "Space", 51: "Delete", 76: "Enter",
-            115: "Home", 119: "End", 116: "Page Up", 121: "Page Down", 117: "Forward Delete",
-            123: "Left Arrow", 124: "Right Arrow", 125: "Down Arrow", 126: "Up Arrow"]
         if let name = special[code] { return name }
-        let functionKeys: [UInt16] = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, 105, 107, 113, 106, 64, 79, 80, 90]
         if let index = functionKeys.firstIndex(of: code) { return "F\(index + 1)" }
         if let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
            let raw = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) {
