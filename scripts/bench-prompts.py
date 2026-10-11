@@ -7,11 +7,9 @@ from pathlib import Path
 import re
 import statistics
 import time
-from urllib.parse import urlparse
-from urllib.request import ProxyHandler, Request, build_opener
+from cleanup_bench import ALIAS, LocalHTTP, SYNTHETIC_DICTIONARY, app_request, loopback_url, messages
 
 ROOT = Path(__file__).resolve().parent.parent
-SYNTHETIC_DICTIONARY = '\nCustom dictionary:\nClojure, mapv, Parakeet, Gemma, Whispr Lite'
 
 
 def words(text):
@@ -33,11 +31,7 @@ def summary(values):
 
 
 def run(args, extra_context=''):
-    endpoint = urlparse(args.endpoint)
-    if (endpoint.scheme != 'http' or endpoint.hostname not in ('127.0.0.1', 'localhost', '::1')
-            or endpoint.username or endpoint.password or endpoint.path not in ('', '/')
-            or endpoint.query or endpoint.fragment):
-        raise ValueError('Use a loopback base URL without /v1')
+    http = LocalHTTP(loopback_url(args.endpoint))
     if not args.quality_only and args.repetitions < 30:
         raise ValueError('At least 30 observations per performance condition are required')
     fixtures = json.loads((ROOT / 'bench/prompt-fixtures.json').read_text())
@@ -51,25 +45,10 @@ def run(args, extra_context=''):
         prefix = json.loads(args.import_file.read_text()).get('cleanupDictionaryPrefix', prefix)
     dictionary = prefix + dictionary if dictionary else ''
     observations, quality, variants = [], [], {}
-    local_http = build_opener(ProxyHandler({}))
-
-    def post(route, body):
-        request = Request(args.endpoint.rstrip('/') + route, data=json.dumps(body).encode(),
-                          headers={'Content-Type': 'application/json'})
-        with local_http.open(request, timeout=20) as response:
-            return json.load(response)
-
-    def message_list(prompt, raw, framing, vocabulary):
-        user = '<transcript>\n' + raw + '\n</transcript>\n\nOutput only the cleaned transcript.' if framing == 'openWhispr' else raw
-        system = prompt + vocabulary
-        if len(system.encode()) + len(user.encode()) > 16_384:
-            raise ValueError('Request exceeds the app byte budget')
-        return [dict(role='system', content=system), dict(role='user', content=user)]
-
-    def complete(messages, cached):
-        return post('/v1/chat/completions', dict(model='gemma4-e2b-cleanup:latest', messages=messages,
-                    temperature=0, max_tokens=512, stream=False, cache_prompt=cached,
-                    chat_template_kwargs=dict(enable_thinking=False)))
+    def complete(chat_messages, raw, cached):
+        body, count = app_request(http, ALIAS, chat_messages, raw, cache_prompt=cached)
+        inference_start = time.monotonic()
+        return http.post('/v1/chat/completions', body, timeout=20), count, inference_start
 
     def output(result):
         choice = result['choices'][0]
@@ -81,7 +60,8 @@ def run(args, extra_context=''):
         for condition, prompt in prompts.items():
             passed, failed = [], []
             for fixture in fixtures:
-                text = output(complete(message_list(prompt, fixture['raw'], framing, SYNTHETIC_DICTIONARY), True))
+                chat_messages = messages(prompt + SYNTHETIC_DICTIONARY, fixture['raw'], framing)
+                text = output(complete(chat_messages, fixture['raw'], True)[0])
                 (passed if matches(fixture, text) else failed).append(fixture['id'])
             quality.append(dict(condition=condition, framing=framing, passed=len(passed), total=len(fixtures), failed=failed))
             print(json.dumps(quality[-1]), flush=True)
@@ -96,15 +76,12 @@ def run(args, extra_context=''):
                     prompt = prompts[condition]
                     if cache_mode == 'warm':
                         # Re-prime each interleaved block so prompt switching is not called warm use.
-                        output(complete(message_list(prompt, 'the next dictation is ready', args.framing, dictionary), True))
+                        primer = 'the next dictation is ready'
+                        output(complete(messages(prompt + dictionary, primer, args.framing), primer, True)[0])
                     for fixture in cases:
-                        messages = message_list(prompt, fixture['raw'], args.framing, dictionary)
+                        chat_messages = messages(prompt + dictionary, fixture['raw'], args.framing)
                         start = time.monotonic()
-                        rendered = post('/apply-template', dict(messages=messages, chat_template_kwargs=dict(enable_thinking=False)))['prompt']
-                        count = len(post('/tokenize', dict(content=rendered, add_special=False, parse_special=True))['tokens'])
-                        if count + 512 > 4096: raise ValueError('Request exceeds the app context budget')
-                        inference_start = time.monotonic()
-                        result = complete(messages, cache_mode == 'warm')
+                        result, count, inference_start = complete(chat_messages, fixture['raw'], cache_mode == 'warm')
                         end = time.monotonic()
                         text = output(result)
                         timing = result['timings']
@@ -132,6 +109,7 @@ def run(args, extra_context=''):
             aggregates.append(value)
             print(json.dumps(value), flush=True)
     report = dict(schema=1, mode='synthetic-cleanup-prompt-comparison', quality=quality,
+                  request_framing='app-proportional-exact-token-budget',
                   prompt_characters={name: len(prompt) for name, prompt in prompts.items()},
                   dictionary_in_performance=bool(dictionary), context_in_candidate=bool(context),
                   aggregates=aggregates, observations=observations,

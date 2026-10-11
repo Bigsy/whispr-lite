@@ -43,6 +43,29 @@ def batch(sequence, operations):
 
 
 class SetupTests(unittest.TestCase):
+    def test_app_request_framing_and_budget(self):
+        class SyntheticHTTP:
+            def __init__(self): self.calls = []
+            def post(self, path, body):
+                self.calls.append((path, body))
+                return {'prompt': 'synthetic template'} if path == '/apply-template' else {'tokens': [1, 2, 3]}
+        http = SyntheticHTTP()
+        chat_messages = bench_common.messages('Synthetic system', 'hello', 'openWhispr')
+        self.assertIn('<transcript>\nhello\n</transcript>', chat_messages[1]['content'])
+        body, count = bench_common.app_request(http, bench_common.ALIAS, chat_messages, 'hello')
+        self.assertEqual(count, 3)
+        self.assertEqual(body['max_tokens'], 128)
+        self.assertEqual(http.calls[1][1]['add_special'], True)
+        http.calls.clear()
+        body, count = bench_common.app_request(http, bench_common.ALIAS, chat_messages,
+                                               'hello', fixed_tokens=100)
+        self.assertIsNone(count)
+        self.assertEqual(http.calls, [])
+        self.assertEqual(body['max_tokens'], 128)
+        self.assertEqual(bench_common.output_limit('x' * 2000), 1024)
+        with self.assertRaisesRegex(ValueError, 'byte budget'):
+            bench_common.messages('x' * 16_384, 'more')
+
     def test_shared_dictionary_cases(self):
         cases = json.loads((Path(__file__).resolve().parent.parent / 'bench/dictionary-cases.json').read_text())
         for item in cases:

@@ -12,16 +12,12 @@ import subprocess
 import time
 import urllib.error
 from cleanup_bench import (DEFAULT_PROMPT, LOCK, DictionaryCorrections, LocalHTTP,
-                           isolated_server, load_saved_cleanup, loopback_url)
+                           app_request, isolated_server, load_saved_cleanup, loopback_url, messages)
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SUPPORT = pathlib.Path.home() / 'Library/Application Support/WhisprLite'
 HISTORY = pathlib.Path.home() / 'Library/Application Support/open-whispr/transcriptions.db'
-
-
-def post(endpoint, path, payload, timeout=120):
-    return LocalHTTP(endpoint).post(path, payload, timeout=timeout)
 
 
 def get(endpoint, path, timeout=2):
@@ -66,15 +62,11 @@ def load_history(path):
 
 
 def clean(endpoint, alias, system, raw, framing, corrections):
-    user = (f'<transcript>\n{raw}\n</transcript>\n\nOutput only the cleaned transcript.'
-            if framing == 'openWhispr' else raw)
-    limit = min(1024, max(128, len(raw.encode()) // 2 + 64))
     start = time.monotonic()
     try:
-        response = post(endpoint, '/v1/chat/completions', {
-            'model': alias, 'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}],
-            'temperature': 0, 'max_tokens': limit, 'stream': False,
-            'chat_template_kwargs': {'enable_thinking': False}})
+        http = LocalHTTP(endpoint)
+        body, _ = app_request(http, alias, messages(system, raw, framing), raw)
+        response = http.post('/v1/chat/completions', body, timeout=120)
         choice = response['choices'][0]
         if choice.get('finish_reason') != 'stop' or not isinstance(choice['message'].get('content'), str):
             return None, (time.monotonic() - start) * 1000, 'incomplete'
@@ -142,6 +134,7 @@ def main():
                                            synthetic_prompt + synthetic_dictionary, framing, corrections, samples, fixtures)
     baseline_metrics['versus_historical'] = describe(historical, baseline)
     report = {'schema': 1, 'method': 'local-real-history-and-synthetic',
+              'request_framing': 'app-proportional-exact-token-budget',
               'real_source': 'OpenWhispr completed raw/cleaned pairs, immutable SQLite read',
               'real_prompt': 'saved private prompt and dictionary, held in RAM',
               'synthetic_prompt': 'bundled default and public synthetic dictionary',

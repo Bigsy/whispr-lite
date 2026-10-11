@@ -618,8 +618,10 @@ prefix warmup before each warm block. Both modes use warm model weights: **uncac
 disables prompt-cache reuse and verifies zero reused tokens; **warm** permits reuse.
 The pinned [llama.cpp server documentation](https://github.com/ggml-org/llama.cpp/blob/5266f24da75dc449bd56cbed7addb9c8e4a6a73e/tools/server/README.md)
 describes this prefix reuse and the returned cache/prefill/generation counters.
-Measurements include the app's template/token-budget requests and completion, plus server
-prefill/generation metrics. `--import-file` preserves an imported dictionary prefix;
+Measurements include the app's proportional output limit, exact template/token-budget
+requests with BOS, and completion, plus server prefill/generation metrics. This harness
+does not prepare a fixed prefix, so it measures the app's exact-token path on each request.
+`--import-file` preserves an imported dictionary prefix;
 `--candidate-context-file` adds a private context line to a third comparison. `--quality-only`
 skips performance. Reports contain metrics and synthetic case IDs, with no prompts,
 dictionary contents or generated text. They exclude physical dictation, model-load cold

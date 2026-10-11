@@ -174,6 +174,7 @@ def run(args):
                                exact_equal_pairs=sum(a == b for a, b in pairs),
                                words_equal_pairs=sum(helpers.words(a) == helpers.words(b) for a, b in pairs)))
     report = dict(schema=1, experiment='fixed-prefix-prefill', created_utc=datetime.now(timezone.utc).isoformat(),
+                  request_framing='legacy-512',
                   repetitions=args.repetitions, exploratory=args.repetitions < 30, hold_seconds=args.hold_seconds,
                   prefix_tokens=len(prefix), private_content_recorded=False, model_weights_warm=True,
                   miss_is_forced_cache_disabled=True, warm_primed_before_each_observation=True,

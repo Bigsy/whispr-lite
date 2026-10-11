@@ -67,6 +67,59 @@ class LocalHTTP:
             return json.load(response)
 
 
+def messages(system, raw, framing='plain'):
+    user = (f'<transcript>\n{raw}\n</transcript>\n\nOutput only the cleaned transcript.'
+            if framing == 'openWhispr' else raw)
+    if len(system.encode()) + len(user.encode()) > REQUEST_BYTES:
+        raise ValueError('Request exceeds the app byte budget')
+    return [{'role': 'system', 'content': system}, {'role': 'user', 'content': user}]
+
+
+def output_limit(raw):
+    return min(1024, max(128, len(raw.encode()) // 2 + 64))
+
+
+def template_tokens(http, chat_messages):
+    rendered = http.post('/apply-template', {
+        'messages': chat_messages, 'chat_template_kwargs': {'enable_thinking': False}})['prompt']
+    return http.post('/tokenize', {
+        'content': rendered, 'add_special': True, 'parse_special': True})['tokens']
+
+
+def app_request(http, model, chat_messages, raw, *, fixed_tokens=None,
+                cache_prompt=None, id_slot=None):
+    """Return the app's chat body and exact prompt-token count when it needs tokenization."""
+    limit = output_limit(raw)
+    count = None
+    if fixed_tokens is None or fixed_tokens + len(raw.encode()) + 8 + limit > CONTEXT_TOKENS:
+        count = len(template_tokens(http, chat_messages))
+        room = CONTEXT_TOKENS - count
+        if room < min(limit, 512):
+            raise ValueError('Request exceeds the app context budget')
+        limit = min(limit, room)
+    body = {'model': model, 'messages': chat_messages, 'temperature': 0,
+            'max_tokens': limit, 'stream': False,
+            'chat_template_kwargs': {'enable_thinking': False}}
+    if cache_prompt is not None:
+        body['cache_prompt'] = cache_prompt
+    if id_slot is not None:
+        body['id_slot'] = id_slot
+    return body, count
+
+
+def fixed_prefix(http, system, framing='plain'):
+    first = template_tokens(http, messages(system, 'ZZZ synthetic marker', framing))
+    second = template_tokens(http, messages(system, 'aaa different marker', framing))
+    prefix = []
+    for left, right in zip(first, second):
+        if left != right:
+            break
+        prefix.append(left)
+    if not prefix or len(prefix) + 512 > CONTEXT_TOKENS:
+        raise ValueError('Fixed prefix exceeds the app context budget')
+    return prefix, max(len(first), len(second))
+
+
 @lru_cache(maxsize=1)
 def _verified_arguments():
     pinned = service()

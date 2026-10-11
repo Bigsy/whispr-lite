@@ -6,6 +6,7 @@ third-party insertion, actual media playback compatibility or release acceptance
 
 | Check | Result |
 |---|---|
+| 11 October Python cleanup request framing, Apple M1 Max | `make test` passed with 107 Swift, 17 native broker, 22 synthetic setup and 6 release tests. Synthetic setup checks the tagged message, proportional limit, BOS tokenization, 16 KB byte guard and fixed-prefix fast path. The prompt comparison and candidate-model screens now use the shared app request builder. They were not rerun against a model; their older timings are not directly comparable with future reports. The retained prefill experiment labels its historical fixed-512 framing `legacy-512`. |
 | 11 October dictionary harness parity, Apple M1 Max | `make test` passed with 107 Swift, 17 native broker, 21 synthetic setup and 6 release tests. Swift and Python read six shared synthetic vectors covering vocabulary, literal symbols, overlap after a rejected boundary, shorter-alias fallback, Unicode boundaries and conflicting aliases. Candidate-model comparisons may change when rerun because a previously missed overlap now receives the same correction as Swift. No private history or candidate model was read. |
 | 11 October isolated cleanup benchmark server, Apple M1 Max | `make test` passed with 106 Swift, 17 native broker, 19 synthetic setup and 6 release tests. The follow-up loopback validator test passed with 20 setup tests. Synthetic launch checks verify pinned arguments, stripped environment, port ownership, readiness, process teardown and rejection of an unverified binary. No real benchmark server or installed service was changed. |
 | 11 October Python saved cleanup parity, Apple M1 Max | `make test` passed with 106 Swift, 17 native broker, 18 synthetic setup and 6 release tests. Synthetic setup covers missing-file defaults, exact saved whitespace, import framing, symlink rejection and the 16 KB limit. The model comparison harness no longer strips the saved prompt or bundled default; exact-match counts may change when rerun. No real history or private prompt was read for this check. |
@@ -548,6 +549,8 @@ token-count and completion requests, using the actual private dictionary and tag
 framing. Conditions were interleaved; warm blocks were primed separately. The disabled
 prompt-cache condition confirmed zero reused tokens. Output repeats were consistent
 within each condition, cache mode and case.
+This historical report used a fixed 512-token output cap and tokenized without BOS;
+the harness now uses the app's proportional cap and BOS-inclusive count.
 
 | Prompt | Prefix cache | Median | p90 | p95 |
 |---|---|---:|---:|---:|
