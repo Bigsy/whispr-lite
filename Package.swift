@@ -7,8 +7,7 @@ let candidate = ProcessInfo.processInfo.environment["PARAKEET_CORE_PATH"]
 let streamingEnabled = candidate == nil || ProcessInfo.processInfo.environment["PARAKEET_STREAMING"] == "1"
 let package = Package(
     name: "whispr-lite", platforms: [.macOS(.v14)],
-    products: [.library(name: "WhisprLiteCore", targets: ["WhisprLiteCore"]),
-               .executable(name: "WhisprLite", targets: ["WhisprLiteApp"]),
+    products: [.executable(name: "WhisprLite", targets: ["WhisprLiteApp"]),
                .executable(name: "whispr-bench", targets: ["WhisprLiteBench"])],
     dependencies: (candidate.map { [.package(path: $0)] } ?? [
         .package(url: "https://github.com/Bigsy/parakeet-ane-server.git",

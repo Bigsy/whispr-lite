@@ -105,7 +105,7 @@ import WhisprLiteCore
             let kind: HotkeyInput.Kind = event.type == .keyDown ? .down : event.type == .keyUp ? .up : .flags
             let input = HotkeyInput(kind, code: event.keyCode, flags: UInt64(event.modifierFlags.rawValue),
                 repeated: event.type == .keyDown && event.isARepeat,
-                injected: event.cgEvent?.getIntegerValueField(.eventSourceUserData) == injectedEventMarker)
+                eventSourceUserData: event.cgEvent?.getIntegerValueField(.eventSourceUserData) ?? 0)
             if let result = self.machine.consume(input) { self.finish(result) }
             return nil // Includes Command shortcuts before AppKit's menu/key-equivalent handling.
         }

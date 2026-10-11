@@ -37,7 +37,7 @@ public enum HotkeyModifier: UInt16, CaseIterable, Sendable {
         case .fn: HotkeyMachine.fnMask
         }
     }
-    public var sideFlag: UInt64 {
+    var sideFlag: UInt64 {
         switch self {
         case .leftControl: UInt64(NX_DEVICELCTLKEYMASK)
         case .rightControl: UInt64(NX_DEVICERCTLKEYMASK)
@@ -50,7 +50,7 @@ public enum HotkeyModifier: UInt16, CaseIterable, Sendable {
         case .fn: 0
         }
     }
-    public var sideFlags: UInt64 {
+    var sideFlags: UInt64 {
         switch self {
         case .leftControl, .rightControl: UInt64(NX_DEVICELCTLKEYMASK | NX_DEVICERCTLKEYMASK)
         case .leftShift, .rightShift: UInt64(NX_DEVICELSHIFTKEYMASK | NX_DEVICERSHIFTKEYMASK)
@@ -59,7 +59,7 @@ public enum HotkeyModifier: UInt16, CaseIterable, Sendable {
         case .fn: 0
         }
     }
-    public func isDown(flags: UInt64, previouslyDown: Bool) -> Bool {
+    func isDown(flags: UInt64, previouslyDown: Bool) -> Bool {
         guard flags & flag != 0 else { return false }
         if sideFlag == 0 { return true }
         if flags & sideFlags != 0 { return flags & sideFlag != 0 }
@@ -69,7 +69,7 @@ public enum HotkeyModifier: UInt16, CaseIterable, Sendable {
     }
 }
 
-public let injectedEventMarker: Int64 = 0x5748535052
+let injectedEventMarker: Int64 = 0x5748535052
 public enum KeyCode {
     public static let escape: UInt16 = 53
     public static let space: UInt16 = 49
@@ -86,19 +86,24 @@ public struct HotkeyInput: Sendable {
     public init(_ kind: Kind, code: UInt16, flags: UInt64 = 0, repeated: Bool = false, injected: Bool = false) {
         self.kind = kind; self.code = code; self.flags = flags; self.repeated = repeated; self.injected = injected
     }
+    public init(_ kind: Kind, code: UInt16, flags: UInt64, repeated: Bool,
+                eventSourceUserData: Int64) {
+        self.init(kind, code: code, flags: flags, repeated: repeated,
+                  injected: eventSourceUserData == injectedEventMarker)
+    }
 }
 public struct HotkeyMachine: Sendable {
     public static let fnMask = CGEventFlags.maskSecondaryFn.rawValue
-    public static let relevantModifiers = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskShift.rawValue | CGEventFlags.maskControl.rawValue
+    static let relevantModifiers = CGEventFlags.maskCommand.rawValue | CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskShift.rawValue | CGEventFlags.maskControl.rawValue
     public static let shortcutModifiers = relevantModifiers | fnMask
-    public var configuration: HotkeyConfiguration
+    var configuration: HotkeyConfiguration
     private var held = false
     private var awaitingRelease = false
     private var physicalModifierDown = false
     private var oppositeModifierDown = false
-    public init(_ configuration: HotkeyConfiguration) { self.configuration = configuration }
+    init(_ configuration: HotkeyConfiguration) { self.configuration = configuration }
     private typealias Decision = (action: HotkeyAction?, swallow: Bool)
-    public mutating func consume(_ input: HotkeyInput) -> (action: HotkeyAction?, swallow: Bool) {
+    mutating func consume(_ input: HotkeyInput) -> (action: HotkeyAction?, swallow: Bool) {
         guard !input.injected else { return (nil, false) }
         if input.kind == .down, input.code == KeyCode.escape { return (.cancel, held) }
         if let code = configuration.keyCode {

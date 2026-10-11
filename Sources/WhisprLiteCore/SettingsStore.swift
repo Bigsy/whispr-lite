@@ -20,7 +20,7 @@ public struct HotkeyConfiguration: Codable, Sendable, Hashable {
 public struct Preferences: Codable, Sendable, Equatable {
     public static let currentVersion = 1
     public static let timeoutRange: ClosedRange<Double> = 1...120
-    public var version = Self.currentVersion
+    public private(set) var version = Self.currentVersion
     public var backend: BackendMode = .parakeet
     public var asrModel: ParakeetModel = .unified
     public var allowASRDownloads = false

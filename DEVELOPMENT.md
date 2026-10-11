@@ -803,6 +803,11 @@ coordinator exposes cancellation as state for the pill title, and the menu and p
 share the same state-to-symbol mapping. The panel remains nonactivating and excluded
 from screen capture.
 
+The package exposes the app and bench executables. `WhisprLiteCore` remains an internal
+target shared by those executables and the tests. Shortcut recording passes the event's
+source marker into `HotkeyInput`, which compares it inside Core; the marker constant and
+the hotkey state machine instance methods are not part of the module's public API.
+
 `whispr-bench --cleanup-prefill-check` compares three synthetic outputs before/after
 the actual Swift prefix-preparation method using the saved service configuration. It
 prints only the pass count, measures no timing and does not change settings. Physical
