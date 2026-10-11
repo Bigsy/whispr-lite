@@ -822,6 +822,9 @@ Hotkey tests read the machine's labeled `action` and `swallow` decision, with na
 modifier and Carbon virtual key codes for the physical keys they simulate.
 The consecutive clipboard test asserts that the original rich items are restored,
 without depending on the number of intermediate pasteboard writes.
+HTTP adapter tests use structured JSON response fixtures and a unique URL path per
+test. The test URL's fixed loopback port is intercepted by its private URLProtocol;
+these checks do not contact a local service.
 HTTP request builders, WAV encoding, clipboard snapshots/system access, history entry
 schema/file names and internal diagnostic counters likewise stay inside Core. The app
 constructs `TextInserter()` and can settle its clipboard transaction; tests retain
