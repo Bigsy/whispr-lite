@@ -77,6 +77,7 @@ public struct SettingsValidationError: Error, Equatable, Sendable {
     public let message: String
     public init(_ field: Field, _ message: String) { self.field = field; self.message = message }
 }
+public enum PrivateFile: String, Sendable { case prompt = "prompt.txt", dictionary = "dictionary.txt" }
 @MainActor public final class SettingsStore {
     public nonisolated static let maxPrivateTextBytes = 16_384
     public nonisolated static let maxDictionaryPrefixBytes = 2_048
@@ -148,8 +149,8 @@ public struct SettingsValidationError: Error, Equatable, Sendable {
         catch { throw SettingsValidationError(.cleanupEndpoint, "Cleanup URL must be a local HTTP address.") }
         try PrivateFiles.ensureDirectory(at: directory)
         var files = [("preferences.json", try JSONEncoder().encode(value))]
-        if let prompt { files.append(("prompt.txt", Data(prompt.utf8))) }
-        if let dictionary { files.append(("dictionary.txt", Data(dictionary.utf8))) }
+        if let prompt { files.append((PrivateFile.prompt.rawValue, Data(prompt.utf8))) }
+        if let dictionary { files.append((PrivateFile.dictionary.rawValue, Data(dictionary.utf8))) }
         for (name, _) in files { _ = try PrivateFiles.regularFileExists(at: directory.appendingPathComponent(name)) }
         for (name, data) in files {
             let path = directory.appendingPathComponent(name)
@@ -157,11 +158,12 @@ public struct SettingsValidationError: Error, Equatable, Sendable {
         }
         preferences = value
     }
-    public func privateText(_ name: String) throws -> String? {
-        guard ["prompt.txt", "dictionary.txt"].contains(name) else { throw AppError.unsupported }
-        let path = directory.appendingPathComponent(name)
+    public func privateText(_ file: PrivateFile) throws -> String? {
+        let path = directory.appendingPathComponent(file.rawValue)
         guard try PrivateFiles.regularFileExists(at: path) else { return nil }
         guard (try path.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= Self.maxPrivateTextBytes else { throw AppError.contextLimit }
         return try String(contentsOf: path, encoding: .utf8)
     }
+    public func prompt() throws -> String { try privateText(.prompt) ?? Self.defaultPrompt }
+    public func dictionary() throws -> String { try privateText(.dictionary) ?? "" }
 }

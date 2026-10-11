@@ -564,6 +564,8 @@ context-limit message. Local cleanup benchmark requests use a proxy-free opener 
 private prompts and transcripts remain on the Mac even with proxy settings.
 The private file helper creates/tightens 0700 directories and 0600 files, rejects
 symlinks, and writes settings through 0600 temporary files renamed in the same directory.
+Prompt and dictionary file reads use a typed private-file name; convenience accessors
+apply the default prompt or empty dictionary only when the corresponding file is absent.
 History and diagnostics share a serial-queue JSONL writer with one encoder per owner,
 private open/rotate behavior and separate oversized-entry policies. Their caller-side
 queues remain bounded at 64 and 128 entries, and their different retry rules remain.

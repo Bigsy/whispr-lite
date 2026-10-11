@@ -40,8 +40,8 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
         self.store = store; self.app = app; self.saved = saved; self.enumerateMicrophones = enumerateMicrophones
         _page = State(initialValue: page)
         _preferences = State(initialValue: store.preferences)
-        let loadedPrompt = Self.loadPrivateText("prompt.txt", fallback: SettingsStore.defaultPrompt, store: store)
-        let loadedDictionary = Self.loadPrivateText("dictionary.txt", fallback: "", store: store)
+        let loadedPrompt = Self.loadPrivateText(.prompt, fallback: SettingsStore.defaultPrompt, store: store)
+        let loadedDictionary = Self.loadPrivateText(.dictionary, fallback: "", store: store)
         _prompt = State(initialValue: loadedPrompt.text)
         _dictionary = State(initialValue: loadedDictionary.text)
         _promptUnreadable = State(initialValue: loadedPrompt.unreadable)
@@ -50,8 +50,8 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
             ? "A private prompt or dictionary could not be read. Its file will be preserved until you edit or reset it." : "")
         _shortcut = State(initialValue: Self.selection(for: store.preferences.hotkey))
     }
-    private static func loadPrivateText(_ name: String, fallback: String, store: SettingsStore) -> (text: String, unreadable: Bool) {
-        do { return (try store.privateText(name) ?? fallback, false) }
+    private static func loadPrivateText(_ file: PrivateFile, fallback: String, store: SettingsStore) -> (text: String, unreadable: Bool) {
+        do { return (try store.privateText(file) ?? fallback, false) }
         catch { return (fallback, true) }
     }
     private static func selection(for hotkey: HotkeyConfiguration) -> String {

@@ -845,7 +845,7 @@ private actor FinishGatedSession: ASRSession {
         let store = try SettingsStore(directory: root)
         var preferences = Preferences(); preferences.backend = .demo
         try store.save(preferences, prompt: "synthetic prompt", dictionary: "synthetic dictionary")
-        #expect(try store.privateText("dictionary.txt") == "synthetic dictionary")
+        #expect(try store.privateText(.dictionary) == "synthetic dictionary")
         #expect(try SettingsStore(directory: root).preferences.backend == .demo)
         let mode = try FileManager.default.attributesOfItem(atPath: root.appendingPathComponent("dictionary.txt").path)[.posixPermissions] as? Int
         #expect(mode == 0o600)
@@ -879,12 +879,12 @@ private actor FinishGatedSession: ASRSession {
         let promptURL = root.appendingPathComponent("prompt.txt")
         let oversized = Data(repeating: 65, count: 16_385)
         try oversized.write(to: promptURL)
-        #expect(throws: AppError.contextLimit) { try store.privateText("prompt.txt") }
+        #expect(throws: AppError.contextLimit) { try store.privateText(.prompt) }
         var preferences = store.preferences
         preferences.pauseMedia = false
         try store.save(preferences, prompt: nil, dictionary: "updated synthetic dictionary")
         #expect(try Data(contentsOf: promptURL) == oversized)
-        #expect(try store.privateText("dictionary.txt") == "updated synthetic dictionary")
+        #expect(try store.privateText(.dictionary) == "updated synthetic dictionary")
         #expect(try SettingsStore(directory: root).preferences.pauseMedia == false)
     }
     @Test func settingsRejectSymlinkAndTightenExistingDirectory() throws {
@@ -897,7 +897,7 @@ private actor FinishGatedSession: ASRSession {
         let store = try SettingsStore(directory: root)
         try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("prompt.txt"), withDestinationURL: outside)
         #expect(throws: CocoaError.self) { try store.save(Preferences(), prompt: "synthetic prompt", dictionary: nil) }
-        #expect(throws: CocoaError.self) { try store.privateText("prompt.txt") }
+        #expect(throws: CocoaError.self) { try store.privateText(.prompt) }
         #expect(try String(contentsOf: outside, encoding: .utf8) == "synthetic outside")
         #expect(try FileManager.default.attributesOfItem(atPath: root.path)[.posixPermissions] as? Int == 0o700)
         #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("preferences.json").path))

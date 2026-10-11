@@ -218,8 +218,8 @@ import WhisprLiteCore
         catch { update("Check the selected backend settings.", readiness: .needsAttention); return }
         let cleanup: any TextCleanup
         do {
-            let prompt = try store.privateText("prompt.txt") ?? SettingsStore.defaultPrompt
-            let dictionary = try store.privateText("dictionary.txt") ?? ""
+            let prompt = try store.prompt()
+            let dictionary = try store.dictionary()
             cleanup = preferences.backend == .demo ? DemoCleanup() : HTTPCleanup(.init(endpoint: try LocalEndpoint(preferences.cleanupEndpoint), prompt: prompt, dictionary: dictionary,
                 inputFormat: preferences.cleanupInputFormat, dictionaryPrefix: preferences.cleanupDictionaryPrefix))
             var pipeline = BatchPipeline(backend: backend, cleanup: cleanup)

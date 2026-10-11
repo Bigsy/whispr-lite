@@ -44,8 +44,8 @@ import Testing
             #expect(restored.preferences.asrModel == model)
             #expect(restored.preferences.hotkey == preferences.hotkey && restored.preferences.debugLogging)
             #expect(!restored.preferences.allowASRDownloads)
-            #expect(try restored.privateText("prompt.txt") == "synthetic prompt")
-            #expect(try restored.privateText("dictionary.txt") == "synthetic dictionary")
+            #expect(try restored.privateText(.prompt) == "synthetic prompt")
+            #expect(try restored.privateText(.dictionary) == "synthetic dictionary")
         }
         #expect(throws: DecodingError.self) {
             try JSONDecoder().decode(Preferences.self, from: Data("{\"asrModel\":\"unknown\"}".utf8))

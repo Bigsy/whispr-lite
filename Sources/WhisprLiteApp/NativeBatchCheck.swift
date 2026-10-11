@@ -20,8 +20,8 @@ import WhisprLiteCore
         guard try metadataURL.resourceValues(forKeys: [.fileSizeKey]).fileSize.map({ $0 <= 65_536 }) == true else { throw AppError.contextLimit }
         let metadata = try JSONDecoder().decode(Import.self, from: Data(contentsOf: metadataURL))
         let cleanup = HTTPCleanup(.init(endpoint: try LocalEndpoint(arguments[3]),
-            prompt: try store.privateText("prompt.txt") ?? SettingsStore.defaultPrompt,
-            dictionary: try store.privateText("dictionary.txt") ?? "", inputFormat: metadata.cleanupInputFormat,
+            prompt: try store.prompt(),
+            dictionary: try store.dictionary(), inputFormat: metadata.cleanupInputFormat,
             dictionaryPrefix: metadata.cleanupDictionaryPrefix))
         try await cleanup.checkReadiness()
         let backend = ParakeetCoreBackend(cacheRoot: cache)
