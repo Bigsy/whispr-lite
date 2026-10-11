@@ -45,8 +45,9 @@ import AVFoundation
         worker.receive(packet); worker.queue.sync {}
         #expect(worker.activity.read() == 0)
     }
-    @Test func optionalSyntheticWorkerBenchmark() async throws {
-        guard let path = ProcessInfo.processInfo.environment["WHISPR_FEEDBACK_BENCHMARK_PATH"] else { return }
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["WHISPR_FEEDBACK_BENCHMARK_PATH"] != nil))
+    func optionalSyntheticWorkerBenchmark() async throws {
+        let path = try #require(ProcessInfo.processInfo.environment["WHISPR_FEEDBACK_BENCHMARK_PATH"])
         let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 2, interleaved: false))
         let workers = try [AudioWorker(format: format), AudioWorker(format: format)]
         let packet = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 960)); packet.frameLength = 960
@@ -65,7 +66,7 @@ import AVFoundation
             }
         }
         let data: [String: Any] = ["schema": 1, "mode": "synthetic-capture-worker-only", "audio_seconds_per_run": 2,
-                                  "count_per_condition": 30, "enabled_ms": enabled, "disabled_ms": disabled,
+                                  "count_per_condition": enabled.count, "enabled_ms": enabled, "disabled_ms": disabled,
                                   "physical_capture_or_asr_measured": false]
         try JSONReport.write(data, to: URL(fileURLWithPath: path))
     }
