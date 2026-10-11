@@ -529,6 +529,9 @@ it checks the cached Unified model with its fixed synthetic sequence.
 The Parakeet streaming adapter lives only in the bench target; the signed app uses
 the batch adapter. Published builds include streaming bench modes. Local candidate
 builds enable them with `PARAKEET_STREAMING=1` when that candidate supports sessions.
+The bench adapter maps Parakeet cancellation to Swift task cancellation on both its
+batch fallback and session finish paths. Its small engine setup/readiness mapping
+stays local to the bench target so Core need not publish bench-only helper API.
 The bench accepts one mode as its first argument, validates each mode's paths and
 options before loading a model, and exits with status 2 for malformed arguments.
 Its report builder represents a missing first partial as JSON null and lets unexpected

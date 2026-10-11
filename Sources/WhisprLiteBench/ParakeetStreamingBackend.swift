@@ -44,8 +44,10 @@ public actor ParakeetStreamingBackend: ASRBackend {
     public func transcribe(_ audio: PCM16k) async throws -> ASRResult {
         // A failed stream must settle/reset before batch fallback can reuse engine resources.
         try await select(.batch)
-        let result = try await engine.transcribe(PCM16kMono(samples: audio.samples))
-        return .init(text: result.text, audioDuration: result.actualAudioDuration)
+        do {
+            let result = try await engine.transcribe(PCM16kMono(samples: audio.samples))
+            return .init(text: result.text, audioDuration: result.actualAudioDuration)
+        } catch ParakeetError.cancelled { throw CancellationError() }
     }
 }
 private actor ParakeetSessionBridge: ASRSession {
@@ -75,7 +77,9 @@ private actor ParakeetSessionBridge: ASRSession {
     func partial() -> PartialSnapshot? { latest }
     func finish() async throws -> ASRResult {
         guard !cancelled else { throw CancellationError() }
-        let result = try await session.finish()
+        let result: TranscriptionResult
+        do { result = try await session.finish() }
+        catch ParakeetError.cancelled { throw CancellationError() }
         observer?.cancel(); observer = nil
         guard !cancelled else { throw CancellationError() }
         return .init(text: result.text, audioDuration: result.actualAudioDuration)
