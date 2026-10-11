@@ -92,6 +92,8 @@ states. `settings-heights.json` records each fitted height; a real titled window
 its content to the page with the top edge fixed, or the command fails. It starts no hotkey,
 audio, model or service, and reads/writes no real settings. Preview images are not a focus or
 visible-insertion acceptance test.
+The preview shares offscreen host setup between snapshots and the active-only activity
+draw check; its reported observations per condition derive from run and warm-up counts.
 Synthetic and aggregate check reports use one atomic JSON writer with sorted keys;
 the callers still define each report's fields and privacy boundary.
 Demo mode keeps the `DEMO` marker on its status, menu, settings choice and recording

@@ -21,6 +21,7 @@ import Darwin
         let suite = "whispr-ui-preview-\(UUID())"
         guard let previewDefaults = UserDefaults(suiteName: suite) else { throw AppError.unsupported }
         defer { previewDefaults.removePersistentDomain(forName: suite) }
+        var heights: [String: CGFloat] = [:]
         func settings(_ name: String, _ page: SettingsPage, _ scheme: ColorScheme, height: CGFloat? = nil) throws {
             let view = SettingsView(store: store, app: app, page: page, enumerateMicrophones: false, saved: {})
                 .environment(\.colorScheme, scheme).defaultAppStorage(previewDefaults)
@@ -32,7 +33,6 @@ import Darwin
             try snapshot(view, size: NSSize(width: SettingsView.width, height: app.preferredSettingsHeight), to: file)
             heights[name] = app.preferredSettingsHeight
         }
-        var heights: [String: CGFloat] = [:]
         try settings("general", .general, .dark)
         try settings("cleanup", .cleanup, .dark)
         try settings("cleanup-light", .cleanup, .light)
@@ -84,7 +84,7 @@ import Darwin
         try measureActivity(to: directory.appendingPathComponent("activity-draw-cost.json"))
         print("Native UI renders: \(directory.path)")
     }
-    private static func snapshot<Content: View>(_ view: Content, size: NSSize, to file: URL) throws {
+    private static func offscreenHost<Content: View>(_ view: Content, size: NSSize) -> (NSWindow, NSHostingView<Content>) {
         let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: size),
             styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -93,6 +93,10 @@ import Darwin
         host.frame = NSRect(origin: .zero, size: size)
         window.contentView = host
         window.setContentSize(size)
+        return (window, host)
+    }
+    private static func snapshot<Content: View>(_ view: Content, size: NSSize, to file: URL) throws {
+        let (window, host) = offscreenHost(view, size: size)
         host.layoutSubtreeIfNeeded()
         guard abs(host.bounds.width - size.width) < 0.1, abs(host.bounds.height - size.height) < 0.1 else { throw AppError.overflow }
         // Let native hosting finish a layout pass; this exists only in the explicit preview command.
@@ -111,15 +115,14 @@ import Darwin
             return Double(usage.ru_utime.tv_sec + usage.ru_stime.tv_sec) * 1000 + Double(usage.ru_utime.tv_usec + usage.ru_stime.tv_usec) / 1000
         }
         var observations: [[String: Any]] = []
-        for round in 0..<32 {
+        let rounds = 32, warmupRounds = 2
+        for round in 0..<rounds {
             for enabled in round.isMultiple(of: 2) ? [false, true] : [true, false] {
                 let activity = AudioActivityDisplay()
                 let presentation = IndicatorPresentation(state: .recording, message: "Recording", demo: false, canCopy: false, showActivity: enabled)
-                let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: presentation.size), styleMask: [.borderless], backing: .buffered, defer: false)
-                window.isReleasedWhenClosed = false
-                let host = NSHostingView(rootView: RecordingPill(presentation: presentation, activity: activity, cancel: {}, copy: {}).environment(\.colorScheme, .dark))
-                host.sizingOptions = []; host.frame = NSRect(origin: .zero, size: presentation.size)
-                window.contentView = host; host.layoutSubtreeIfNeeded()
+                let (window, host) = offscreenHost(RecordingPill(presentation: presentation, activity: activity, cancel: {}, copy: {})
+                    .environment(\.colorScheme, .dark), size: presentation.size)
+                host.layoutSubtreeIfNeeded()
                 RunLoop.current.run(until: Date().addingTimeInterval(0.01))
                 guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { throw AppError.unsupported }
                 let start = cpuMS()
@@ -129,11 +132,11 @@ import Darwin
                     host.layoutSubtreeIfNeeded(); host.cacheDisplay(in: host.bounds, to: bitmap)
                 }
                 let elapsed = cpuMS() - start
-                if round >= 2 { observations.append(["activity": enabled, "cpu_ms_per_draw": elapsed / 10]) }
+                if round >= warmupRounds { observations.append(["activity": enabled, "cpu_ms_per_draw": elapsed / 10]) }
                 window.close()
             }
         }
-        let value: [String: Any] = ["schema": 1, "mode": "synthetic-hosting-view-draw", "count_per_condition": 30, "draws_per_observation": 10,
+        let value: [String: Any] = ["schema": 1, "mode": "synthetic-hosting-view-draw", "count_per_condition": rounds - warmupRounds, "draws_per_observation": 10,
                                   "production_update_limit_hz": 10, "compositor_gpu_or_asr_measured": false, "observations": observations]
         try JSONReport.write(value, to: file)
     }
