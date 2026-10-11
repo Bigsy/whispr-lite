@@ -10,6 +10,7 @@ import threading
 import time
 
 ROOT = Path(__file__).resolve().parent.parent
+MEDIA_REVISION = json.loads((ROOT / 'stack.lock.json').read_text())['media_adapter']['revision']
 VENDOR = ROOT / 'Vendor/mediaremote-adapter'
 FRAMEWORK = ROOT / '.build/media/MediaRemoteAdapter.framework'
 UPSTREAM_FRAMEWORK = ROOT / '.build/media-upstream/MediaRemoteAdapter.framework'
@@ -93,7 +94,7 @@ def main():
             usage = subprocess.check_output(['ps', '-o', 'rss=,%cpu=', '-p', str(process.pid)], text=True).strip()
         except (OSError, subprocess.CalledProcessError):
             usage = 'unavailable in this execution sandbox'
-        report = dict(schema=1, mode='real-media-probe', adapter_revision='3ac3d4bdf862c7b5399b4fba4df5689f5c38609a',
+        report = dict(schema=1, mode='real-media-probe', adapter_revision=MEDIA_REVISION,
                       native_known=native_known, broker_known=state.get('known', False),
                       broker_trustworthy_identity=state.get('trustworthy', False),
                       startup_ms=startup_ms, one_shot_get_ms=one_shot, one_shot_summary=distribution(one_shot),

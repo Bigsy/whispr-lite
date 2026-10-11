@@ -6,6 +6,7 @@ third-party insertion, actual media playback compatibility or release acceptance
 
 | Check | Result |
 |---|---|
+| 11 October stack lock parity, Apple M1 Max | `make test` passed with 105 Swift, 17 native broker, 17 synthetic setup and 6 release tests. The new check compares mirrored runtime hashes, model artifacts, alias, port and tuning with the pinned configuration and generated server flags. The media probe reads its revision from the lock; no live media probe or service mutation was performed. |
 | 11 October native preview tidy, Apple M1 Max | `make test` passed with 105 Swift, 17 native broker, 16 synthetic setup and 6 release tests. Debug `--ui-preview` passed, produced 30 observations per activity condition (60 total), and fitted the titled Advanced window at 613 points. The 560-point Cleanup light render was inspected without clipping. |
 | 11 October hotkey state machine readability, Apple M1 Max | `make test` passed with 105 Swift, 17 native broker, 16 synthetic setup and 6 release tests. Existing hotkey and modifier release suites cover repeated, injected, interrupted and side-specific gestures. Physical keyboard acceptance remains open. |
 | 11 October shortcut recorder state, Apple M1 Max | `make test` passed with 105 Swift, 17 native broker, 16 synthetic setup and 6 release tests after removing the duplicate active-key field and moving the physical modifier definitions. No physical shortcut capture was performed. |

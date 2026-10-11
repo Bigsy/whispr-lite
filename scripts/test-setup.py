@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import io
+import json
 from pathlib import Path
 import plistlib
 import socket
@@ -40,6 +41,33 @@ def batch(sequence, operations):
 
 
 class SetupTests(unittest.TestCase):
+    def test_report_lock_matches_pinned_cleanup_and_server_tuning(self):
+        report = json.loads((Path(__file__).resolve().parent.parent / 'stack.lock.json').read_text())
+        pin = service.LOCK
+        runtime = report['cleanup_runtime']
+        for key in ('path', 'version', 'commit', 'sha256', 'revision', 'minimum_macos'):
+            self.assertEqual(runtime[key], pin['llama_server'][key], key)
+        for key in ('release', 'files_sha256'):
+            self.assertEqual(runtime[key], pin['llama_server'][key], key)
+        for key in ('alias', 'port'):
+            self.assertEqual(runtime[key], pin[key], key)
+        for report_name, pin_name in (('cleanup', 'model'), ('drafter', 'drafter')):
+            installed = report['installed_models'][report_name]
+            for key in ('file', 'bytes', 'sha256'):
+                self.assertEqual(installed[key], pin['artifacts'][pin_name][key], (report_name, key))
+            self.assertEqual(installed['repository'], pin['repository'])
+            self.assertEqual(installed['repository_revision'], pin['revision'])
+        flags = service.server_arguments(Path('/synthetic'), pin['port'])
+        tuning = runtime['tuning']
+        for key, option in (('draft_type', '--spec-type'), ('draft_length', '--spec-draft-n-max'),
+                            ('context', '-c'), ('parallel_slots', '-np'), ('flash_attention', '-fa'),
+                            ('load_mode', '--load-mode'), ('reasoning', '--reasoning'), ('temperature', '--temp')):
+            self.assertEqual(flags[flags.index(option) + 1], str(tuning[key]), key)
+        self.assertEqual('--swa-full' in flags, tuning['swa_full'])
+        self.assertEqual(flags[flags.index('--alias') + 1], pin['alias'])
+        self.assertEqual(flags[flags.index('--port') + 1], str(pin['port']))
+        self.assertEqual(int(service.METAL_RESIDENCY_SECONDS), tuning['metal_residency_seconds'])
+
     def test_missing_runtime_release_is_rejected_before_creating_files(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary) / 'owned'
