@@ -4,6 +4,12 @@ import ParakeetCore
 @testable import WhisprLiteCore
 
 @Suite struct DiagnosticsTests {
+    @Test func preparationHasStableDiagnosticCodeAndSeparateDisplayName() throws {
+        let stage = BackendPreparation.checkingCache
+        #expect(String(decoding: try JSONEncoder().encode(stage), as: UTF8.self) == "\"checkingCache\"")
+        #expect(stage.displayName == "Checking ASR model cache")
+    }
+
     @Test func finalASRErrorsRetainLibraryDiagnosticCodes() {
         #expect(DiagnosticCode.failure(ParakeetError.busy) == .busy)
         #expect(DiagnosticCode.failure(ParakeetError.queueFull) == .queueFull)

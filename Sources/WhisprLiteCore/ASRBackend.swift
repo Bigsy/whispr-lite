@@ -47,12 +47,18 @@ public struct ASRCapabilities: Sendable {
 }
 public enum BackendReadiness: Sendable, Equatable { case unloaded, preparing, ready, failed }
 public enum BackendPreparation: String, Codable, Sendable {
-    case preparing = "Preparing backend"
-    case checkingCache = "Checking ASR model cache"
-    case downloading = "Downloading ASR models"
-    case loading = "Loading ASR models"
-    case warmingUp = "Warming ASR models"
-    case ready = "ASR ready"
+    case preparing, checkingCache, downloading, loading, warmingUp, ready
+
+    public var displayName: String {
+        switch self {
+        case .preparing: "Preparing backend"
+        case .checkingCache: "Checking ASR model cache"
+        case .downloading: "Downloading ASR models"
+        case .loading: "Loading ASR models"
+        case .warmingUp: "Warming ASR models"
+        case .ready: "ASR ready"
+        }
+    }
 }
 public struct PartialSnapshot: Sendable, Equatable {
     public let revision: Int

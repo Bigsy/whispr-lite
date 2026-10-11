@@ -272,7 +272,7 @@ import WhisprLiteCore
                                 var record = DiagnosticRecord(.preparationProgress); record.preparation = stage
                                 self.diagnostics?.record(record)
                             }
-                            self.update(stage.rawValue)
+                            self.update(stage.displayName)
                         }
                     }
                 }
