@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from urllib.request import ProxyHandler, Request, build_opener
 
 from importlib.util import spec_from_file_location, module_from_spec
+from cleanup_bench import load_saved_cleanup
 
 ROOT = Path(__file__).resolve().parent.parent
 spec = spec_from_file_location('prompt_bench', ROOT / 'scripts/bench-prompts.py')
@@ -36,13 +37,12 @@ def run(args):
         raise ValueError('Loopback base URL required')
     if args.repetitions < 1 or not 0 <= args.hold_seconds <= 10:
         raise ValueError('Invalid benchmark bounds')
-    prefs = json.loads((args.settings_dir / 'preferences.json').read_text())
-    if not args.isolated_server and prefs.get('cleanupEndpoint', '').rstrip('/') != args.endpoint.rstrip('/'):
+    saved = load_saved_cleanup(args.settings_dir)
+    prefs = saved.preferences
+    if not args.isolated_server and saved.endpoint.rstrip('/') != args.endpoint.rstrip('/'):
         raise ValueError('Endpoint differs from saved configuration')
-    prompt = (args.settings_dir / 'prompt.txt').read_text()
-    dictionary_path = args.settings_dir / 'dictionary.txt'
-    dictionary = vocabulary(dictionary_path.read_text()) if dictionary_path.exists() else ''
-    system = prompt + (prefs.get('cleanupDictionaryPrefix', '\nCustom dictionary:\n') + dictionary if dictionary else '')
+    dictionary = vocabulary(saved.dictionary)
+    system = saved.prompt + (saved.dictionary_prefix + dictionary if dictionary else '')
     opener = build_opener(ProxyHandler({}))
 
     def post(route, body):

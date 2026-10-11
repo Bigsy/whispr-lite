@@ -13,6 +13,7 @@ import tarfile
 import types
 import unittest
 from unittest.mock import patch
+from cleanup_bench import DEFAULT_PROMPT, load_saved_cleanup
 
 
 def module(name, filename):
@@ -41,6 +42,29 @@ def batch(sequence, operations):
 
 
 class SetupTests(unittest.TestCase):
+    def test_saved_cleanup_uses_app_defaults_and_preserves_private_whitespace(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            saved = load_saved_cleanup(directory)
+            self.assertEqual(saved.prompt, DEFAULT_PROMPT)
+            self.assertEqual(saved.dictionary, '')
+            self.assertEqual(saved.endpoint, 'http://127.0.0.1:11436')
+            (directory / 'preferences.json').write_text(json.dumps({
+                'version': 1, 'cleanupInputFormat': 'openWhispr',
+                'cleanupDictionaryPrefix': '\nSynthetic terms:\n'}))
+            (directory / 'prompt.txt').write_text('  synthetic prompt\n')
+            saved = load_saved_cleanup(directory)
+            self.assertEqual(saved.prompt, '  synthetic prompt\n')
+            self.assertEqual(saved.input_format, 'openWhispr')
+            self.assertEqual(saved.dictionary_prefix, '\nSynthetic terms:\n')
+            (directory / 'dictionary.txt').symlink_to(directory / 'prompt.txt')
+            with self.assertRaisesRegex(ValueError, 'not a regular file'):
+                load_saved_cleanup(directory)
+            (directory / 'dictionary.txt').unlink()
+            (directory / 'dictionary.txt').write_bytes(b'x' * 16_385)
+            with self.assertRaisesRegex(ValueError, 'oversized'):
+                load_saved_cleanup(directory)
+
     def test_report_lock_matches_pinned_cleanup_and_server_tuning(self):
         report = json.loads((Path(__file__).resolve().parent.parent / 'stack.lock.json').read_text())
         pin = service.LOCK

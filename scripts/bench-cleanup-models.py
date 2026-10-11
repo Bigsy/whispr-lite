@@ -16,6 +16,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 from local_http import LOCAL
+from cleanup_bench import DEFAULT_PROMPT, LOCK, load_saved_cleanup
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -177,21 +178,21 @@ def main():
     parser.add_argument('--candidate-prompt', action='append', nargs=2, metavar=('LABEL', 'PROMPT_FILE'), default=[])
     parser.add_argument('--output', type=pathlib.Path, default=ROOT / 'bench/results/cleanup-models.json')
     args = parser.parse_args()
-    preferences = json.loads((args.support / 'preferences.json').read_text())
-    prompt = (args.support / 'prompt.txt').read_text().strip()
-    dictionary = (args.support / 'dictionary.txt').read_text()
+    saved = load_saved_cleanup(args.support)
+    prompt = saved.prompt
+    dictionary = saved.dictionary
     vocabulary, rules = vocabulary_and_rules(dictionary)
-    dictionary_suffix = preferences.get('cleanupDictionaryPrefix', '\nCustom dictionary:\n') + vocabulary if vocabulary else ''
+    dictionary_suffix = saved.dictionary_prefix + vocabulary if vocabulary else ''
     system = prompt + dictionary_suffix
     candidate_prompts = {label: pathlib.Path(path).read_text().strip() for label, path in args.candidate_prompt}
-    synthetic_prompt = (ROOT / 'Resources/cleanup-prompt.txt').read_text().strip()
+    synthetic_prompt = DEFAULT_PROMPT
     synthetic_dictionary = '\nCustom dictionary:\nClojure, mapv, Parakeet, Gemma, Whispr Lite'
-    framing = preferences.get('cleanupInputFormat', 'plain')
+    framing = saved.input_format
     samples = load_history(args.history)
     fixtures = (json.loads((ROOT / 'bench/prompt-fixtures.json').read_text())
                 + json.loads((ROOT / 'bench/model-cleanup-fixtures.json').read_text()))
-    endpoint = local_endpoint(preferences['cleanupEndpoint'])
-    baseline_alias = 'gemma4-e2b-cleanup:latest'
+    endpoint = local_endpoint(saved.endpoint)
+    baseline_alias = LOCK['alias']
     if baseline_alias not in [item['id'] for item in get(endpoint, '/v1/models')['data']]:
         raise RuntimeError('installed Gemma baseline is not ready')
     print('real_samples', len(samples), 'synthetic_samples', len(fixtures), flush=True)

@@ -4,6 +4,9 @@ The native app consumes the published ParakeetCore 0.2.0 Swift package. It is no
 replacement for OpenWhispr yet. A configured local stack and private import from installed
 OpenWhispr 1.8.3 are available on the development machine. Synthetic native integration
 passes; physical capture, other destinations, playback and daily-use acceptance remain open.
+Python cleanup harnesses load saved settings through `cleanup_bench.load_saved_cleanup`:
+missing prompt/dictionary files use the app defaults, saved prompt whitespace is kept,
+and symlink or oversized private files are rejected without printing their contents.
 The synthetic setup suite checks the benchmark stack lock against the pinned cleanup
 runtime, model artifacts and actual server arguments. The media probe reads its adapter
 revision from the benchmark lock.
