@@ -3,7 +3,7 @@ import Testing
 @testable import WhisprLiteCore
 
 @MainActor @Suite struct MediaBrokerTests {
-    func fixture(_ mode: String) throws -> (MediaBroker, URL) {
+    func fixture(_ mode: String, shutdownGrace: Duration? = nil) throws -> (MediaBroker, URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("whispr-media-\(UUID())")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let counter = root.appendingPathComponent("counter")
@@ -39,7 +39,8 @@ import Testing
         }
         """#.replacingOccurrences(of: "MODE", with: mode)
         try Data(source.utf8).write(to: script)
-        let broker = MediaBroker(); broker.start(script: script, framework: counter)
+        let broker = shutdownGrace.map(MediaBroker.init(shutdownGrace:)) ?? MediaBroker()
+        broker.start(script: script, framework: counter)
         return (broker, root)
     }
     func count(_ root: URL) -> Int {
@@ -77,8 +78,7 @@ import Testing
         defer { broker.shutdown(); try? FileManager.default.removeItem(at: root) }
         try await wait { broker.readiness == .unavailable }
         #expect(count(root) == 3)
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(count(root) == 3)
+        #expect(!broker.hasScheduledRestart)
     }
     @Test(arguments: ["permission", "malformed", "oversized"])
     func incompatibleRepliesDisableControlWithoutRestart(_ mode: String) async throws {
@@ -89,7 +89,7 @@ import Testing
         #expect(broker.status.contains("dictation remains available"))
     }
     @Test func slowReaderDoesNotBlockASRAndShutdownCancelsRecovery() async throws {
-        let (broker, root) = try fixture("slow-reader")
+        let (broker, root) = try fixture("slow-reader", shutdownGrace: .milliseconds(10))
         defer { broker.shutdown(); try? FileManager.default.removeItem(at: root) }
         try await wait { broker.readiness == .ready }
         for _ in 0..<1000 { let session = UUID(); broker.begin(session); broker.end(session) }
@@ -101,7 +101,7 @@ import Testing
         try await wait { coordinator.state == .idle }
         #expect(insertion.texts.count == 1)
         broker.shutdown()
-        try await Task.sleep(for: .milliseconds(850))
+        try await wait { !broker.hasLiveHelper }
         #expect(broker.readiness == .disabled)
         #expect(count(root) == 1)
     }

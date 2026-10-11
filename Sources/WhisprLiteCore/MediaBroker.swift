@@ -172,7 +172,11 @@ private extension MediaReadiness {
     private var recoveries = 0
     private var restartTask: Task<Void, Never>?
     private let writes = BrokerWriter()
-    public init() {}
+    private let shutdownGrace: Duration
+    public init() { shutdownGrace = BrokerLimits.shutdownGrace }
+    init(shutdownGrace: Duration) { self.shutdownGrace = shutdownGrace }
+    var hasLiveHelper: Bool { process?.isRunning == true || settling?.isRunning == true }
+    var hasScheduledRestart: Bool { restartTask != nil }
 
     public func start(script: URL, framework: URL) {
         guard !disabledForRun, process == nil, restartTask == nil else { return }
@@ -288,8 +292,9 @@ private extension MediaReadiness {
         send(.shutdown, session: nil)
         let old = resetTransport()
         setStatus(.disabled, "Media disabled")
+        let shutdownGrace = self.shutdownGrace
         Task {
-            try? await Task.sleep(for: BrokerLimits.shutdownGrace)
+            try? await Task.sleep(for: shutdownGrace)
             if old?.isRunning == true { old?.terminate() }
         }
     }

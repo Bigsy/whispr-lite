@@ -827,6 +827,9 @@ test. The test URL's fixed loopback port is intercepted by its private URLProtoc
 these checks do not contact a local service.
 History and diagnostics tests decode their synthetic JSONL records through one helper
 with the same ISO-8601 date strategy as the writers.
+The broker's production shutdown grace remains 700 ms. Tests may inject a shorter
+grace and observe that the helper has exited; recovery exhaustion tests inspect
+whether another restart is scheduled instead of waiting for an arbitrary interval.
 HTTP request builders, WAV encoding, clipboard snapshots/system access, history entry
 schema/file names and internal diagnostic counters likewise stay inside Core. The app
 constructs `TextInserter()` and can settle its clipboard transaction; tests retain
