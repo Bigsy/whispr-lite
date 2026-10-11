@@ -13,6 +13,9 @@ revision from the benchmark lock.
 `scripts/swift-env.sh` supplies the shared SwiftPM module-cache and build flags to
 the app and candidate scripts; the Makefile uses equivalent variables. The arm64 app
 build uses its known SwiftPM output path after one build, then signs the complete bundle.
+Both GitHub workflows select the pinned Xcode through `.github/actions/setup-swift`.
+CI runs for Markdown changes too, including notices and install guidance shipped in
+the signed app or release archive.
 
 Cleanup prepares its fixed system prompt once per configuration. Chat, template and
 tokenizer requests share bounded message construction and JSON POST framing, while

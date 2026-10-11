@@ -1,0 +1,12 @@
+name: Configure Swift toolchain
+description: Select the pinned Xcode and confirm an Apple Silicon runner.
+runs:
+  using: composite
+  steps:
+    - name: Select Xcode and confirm Swift
+      shell: bash
+      run: |
+        echo 'DEVELOPER_DIR=/Applications/Xcode_26.0.1.app/Contents/Developer' >> "$GITHUB_ENV"
+        echo 'SIGN_IDENTITY=-' >> "$GITHUB_ENV"
+        test "$(uname -m)" = arm64
+        DEVELOPER_DIR=/Applications/Xcode_26.0.1.app/Contents/Developer swift --version
