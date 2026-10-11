@@ -793,6 +793,10 @@ Each asynchronous stage checks the current settings epoch before continuing. Que
 progress updates are ignored once ASR preparation has finished, so they cannot replace
 the cleanup-stage status. Setup failures retain a stage-specific, recoverable status.
 
+Settings reports its measured header, page and footer heights through a window-sizing
+closure. The measurements live in one non-observable holder, so geometry callbacks do
+not refresh the whole view. The editor height range is applied by one shared clamp.
+
 `whispr-bench --cleanup-prefill-check` compares three synthetic outputs before/after
 the actual Swift prefix-preparation method using the saved service configuration. It
 prints only the pass count, measures no timing and does not change settings. Physical

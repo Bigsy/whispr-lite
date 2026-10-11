@@ -559,7 +559,9 @@ import WhisprLiteCore
     @objc private func showSettings() {
         guard let store else { return }
         if settingsWindow?.isVisible != true {
-            let view = SettingsView(store: store, app: self) { [weak self] in self?.configure() }
+            let view = SettingsView(store: store, app: self,
+                onHeightChange: { [weak self] in self?.fitSettings(height: $0) },
+                saved: { [weak self] in self?.configure() })
             let host = NSHostingView(rootView: view)
             if let window = settingsWindow {
                 host.sizingOptions = []

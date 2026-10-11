@@ -5,6 +5,11 @@ import WhisprLiteCore
 
 enum SettingsPage: String, CaseIterable { case general = "General", cleanup = "Cleanup", advanced = "Advanced" }
 enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
+private final class SettingsSectionHeights {
+    var header: CGFloat = 0
+    var content: CGFloat = 0
+    var footer: CGFloat = 0
+}
 
 /// Fixed-width settings whose window follows each page's height, so ordinary settings never
 /// need scrolling. The scroll view is only a fallback for a page taller than the screen; the
@@ -13,6 +18,7 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
     static let width: CGFloat = 640
     let store: SettingsStore
     @ObservedObject var app: AppDelegate
+    let onHeightChange: (CGFloat) -> Void
     let saved: () -> Void
     private let enumerateMicrophones: Bool
     @State private var page: SettingsPage
@@ -28,15 +34,15 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
     @State private var microphones: [MicrophoneDevice] = []
     @State private var confirmingHistoryDelete = false
     @State private var historyMessage = ""
-    @State private var headerHeight: CGFloat = 0
-    @State private var contentHeight: CGFloat = 0
-    @State private var footerHeight: CGFloat = 0
+    @State private var sectionHeights = SettingsSectionHeights()
     @AppStorage("settingsPromptEditorHeight") private var promptHeight = 132.0
     @AppStorage("settingsDictionaryEditorHeight") private var dictionaryHeight = 84.0
 
     init(store: SettingsStore, app: AppDelegate, page: SettingsPage = .general,
-         enumerateMicrophones: Bool = true, saved: @escaping () -> Void) {
-        self.store = store; self.app = app; self.saved = saved; self.enumerateMicrophones = enumerateMicrophones
+         enumerateMicrophones: Bool = true, onHeightChange: @escaping (CGFloat) -> Void,
+         saved: @escaping () -> Void) {
+        self.store = store; self.app = app; self.onHeightChange = onHeightChange
+        self.saved = saved; self.enumerateMicrophones = enumerateMicrophones
         _page = State(initialValue: page)
         _preferences = State(initialValue: store.preferences)
         let loadedPrompt = Self.loadPrivateText(.prompt, fallback: SettingsStore.defaultPrompt, store: store)
@@ -56,7 +62,9 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
         VStack(spacing: 0) {
             header
                 .overlay(alignment: .bottom) { Divider() }
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { headerHeight = $0; fitWindow() }
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) {
+                    sectionHeights.header = $0; fitWindow()
+                }
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     switch page {
@@ -66,12 +74,16 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).padding(.vertical, 16)
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { contentHeight = $0; fitWindow() }
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) {
+                    sectionHeights.content = $0; fitWindow()
+                }
             }
             .scrollBounceBehavior(.basedOnSize)
             footer
                 .overlay(alignment: .top) { Divider() }
-                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { footerHeight = $0; fitWindow() }
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) {
+                    sectionHeights.footer = $0; fitWindow()
+                }
         }
         .frame(width: Self.width)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -87,8 +99,9 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
         }
     }
     private func fitWindow() {
-        guard headerHeight > 0, contentHeight > 0, footerHeight > 0 else { return }
-        app.fitSettings(height: headerHeight + contentHeight + footerHeight)
+        guard sectionHeights.header > 0, sectionHeights.content > 0,
+              sectionHeights.footer > 0 else { return }
+        onHeightChange(sectionHeights.header + sectionHeights.content + sectionHeights.footer)
     }
 
     private var header: some View {
@@ -349,6 +362,9 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
 /// A text editor that scrolls inside and can be dragged taller or shorter by its bottom grip.
 private struct ResizableEditor: View {
     static let heights = 56.0...520.0
+    private static func clampedHeight(_ value: Double) -> Double {
+        min(max(value, heights.lowerBound), heights.upperBound)
+    }
     let title: String
     @Binding var text: String
     @Binding var height: Double
@@ -360,7 +376,7 @@ private struct ResizableEditor: View {
         VStack(spacing: 0) {
             TextEditor(text: $text).font(.body).scrollContentBackground(.hidden)
                 .padding(.horizontal, 6).padding(.top, 6)
-                .frame(height: min(max(height, Self.heights.lowerBound), Self.heights.upperBound))
+                .frame(height: Self.clampedHeight(height))
                 .accessibilityLabel(title)
             Capsule().fill(Color.secondary.opacity(0.4)).frame(width: 36, height: 4)
                 .frame(maxWidth: .infinity, minHeight: 14)
@@ -375,7 +391,7 @@ private struct ResizableEditor: View {
                     .onChanged { value in
                         let start = dragStart ?? height
                         dragStart = start
-                        height = min(max(start + value.translation.height, Self.heights.lowerBound), Self.heights.upperBound)
+                        height = Self.clampedHeight(start + value.translation.height)
                     }
                     .onEnded { _ in dragStart = nil; if !hovering { popCursor() } })
                 .help("Drag to resize")

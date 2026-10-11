@@ -25,7 +25,9 @@ import Darwin
         defer { previewDefaults.removePersistentDomain(forName: suite) }
         var heights: [String: CGFloat] = [:]
         func settings(_ name: String, _ page: SettingsPage, _ scheme: ColorScheme, height: CGFloat? = nil) throws {
-            let view = SettingsView(store: store, app: app, page: page, enumerateMicrophones: false, saved: {})
+            let view = SettingsView(store: store, app: app, page: page,
+                enumerateMicrophones: false,
+                onHeightChange: { app.fitSettings(height: $0) }, saved: {})
                 .environment(\.colorScheme, scheme).defaultAppStorage(previewDefaults)
             let file = directory.appendingPathComponent("\(name).png")
             if let height { try snapshot(view, size: NSSize(width: SettingsView.width, height: height), to: file); return }
@@ -60,7 +62,10 @@ import Darwin
         try settings("general-right-control", .general, .dark)
         // A real titled window must fit its content to the page height with the top edge fixed.
         let window = AppDelegate.makeSettingsWindow(NSHostingView(rootView:
-            SettingsView(store: store, app: app, page: .advanced, enumerateMicrophones: false, saved: {}).defaultAppStorage(previewDefaults)))
+            SettingsView(store: store, app: app, page: .advanced,
+                enumerateMicrophones: false,
+                onHeightChange: { app.fitSettings(height: $0) }, saved: {})
+                .defaultAppStorage(previewDefaults)))
         window.setFrameTopLeftPoint(NSPoint(x: -10_000, y: 10_000))
         let top = window.frame.maxY
         app.settingsWindow = window
