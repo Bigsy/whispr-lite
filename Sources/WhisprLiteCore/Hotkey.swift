@@ -118,8 +118,14 @@ public final class GlobalHotkey: @unchecked Sendable {
     }
     public func stop() {
         lock.lock(); let loop = runLoop; lock.unlock()
-        if let loop { CFRunLoopStop(loop) }
         thread?.cancel()
+        if let loop {
+            // A direct stop is lost when it lands just before CFRunLoopRun starts.
+            CFRunLoopPerformBlock(loop, CFRunLoopMode.commonModes.rawValue) {
+                CFRunLoopStop(CFRunLoopGetCurrent())
+            }
+            CFRunLoopWakeUp(loop)
+        }
     }
     private func run() {
         let mask = (1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.keyUp.rawValue) | (1 << CGEventType.flagsChanged.rawValue)
