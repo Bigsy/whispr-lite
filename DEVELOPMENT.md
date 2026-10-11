@@ -73,6 +73,8 @@ Closing Settings discards its view state; reopening builds a new view from saved
 preferences/private text and enumerates available microphones again.
 Saving settings reports the invalid field for deadlines, local URLs, model folder and
 private text limits. File-system failures get a separate save error.
+Clipboard restoration keeps a named pending snapshot and uses one delayed-settlement
+path for the fallback timer and the paste-read grace period, preserving owner checks.
 `WhisprLite --ui-preview OUTPUT_DIRECTORY` renders synthetic native settings at each page's
 fitted height and on a 560-point short screen, in light/dark appearances, plus indicator
 states. `settings-heights.json` records each fitted height; a real titled window must fit

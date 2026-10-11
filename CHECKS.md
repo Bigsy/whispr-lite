@@ -6,6 +6,7 @@ third-party insertion, actual media playback compatibility or release acceptance
 
 | Check | Result |
 |---|---|
+| 11 October clipboard settlement refactor, Apple M1 Max | `make test` passed with 105 Swift, 17 native broker, 16 synthetic setup and 6 release tests. Existing clipboard tests cover owner changes, stale reads and restore timing. Physical third-party paste remains open. |
 | 11 October settings save validation, Apple M1 Max | `make check` passed with 105 Swift, 17 native broker, 16 synthetic setup and 6 release tests, signed app, doctor and bundle smoke. New synthetic validation checks identify an invalid speech deadline and cleanup URL before creating files. Native `--ui-preview` retained fitted and short-screen settings renders. |
 | 11 October timing span helper, Apple M1 Max | `make test` passed with 104 Swift, 17 native broker, 16 synthetic setup and 6 release tests. A new recorder test covers session isolation and batched 1024-event trimming. No physical release-to-visible-text timing was measured. |
 | 11 October cleanup readiness ownership, Apple M1 Max | `make test` passed with 103 Swift, 17 native broker, 16 synthetic setup and 6 release tests. The HTTP fixture rejects a healthy service with the wrong configured model and accepts its configured model through the injected client. No live service was changed. |

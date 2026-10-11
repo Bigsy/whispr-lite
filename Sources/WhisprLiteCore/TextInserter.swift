@@ -16,8 +16,14 @@ public struct ClipboardSnapshot: Sendable, Equatable {
     func restore(_ snapshot: ClipboardSnapshot) throws
 }
 @MainActor public final class ClipboardTransaction {
+    private struct Pending {
+        let snapshot: ClipboardSnapshot
+        let changeCount: Int
+        let text: String
+        let session: UUID?
+    }
     private let clipboard: any ClipboardAccess
-    private var pending: (ClipboardSnapshot, Int, String, UUID?)?
+    private var pending: Pending?
     private var serial: UInt64 = 0
     public var onRestore: ((UUID?, DiagnosticCode) -> Void)?
     private var restoreTask: Task<Void, Never>?
@@ -30,7 +36,11 @@ public struct ClipboardSnapshot: Sendable, Equatable {
         let snapshot = try clipboard.snapshot()
         serial &+= 1; let owner = serial
         try clipboard.write(text) { [weak self] in self?.read(owner, grace: afterRead) }
-        pending = (snapshot, clipboard.changeCount, text, session)
+        pending = Pending(snapshot: snapshot, changeCount: clipboard.changeCount, text: text, session: session)
+        scheduleSettle(after: delay)
+    }
+    private func scheduleSettle(after delay: Duration) {
+        restoreTask?.cancel()
         restoreTask = Task { [weak self] in
             do { try await Task.sleep(for: delay) } catch { return }
             self?.settle()
@@ -39,20 +49,16 @@ public struct ClipboardSnapshot: Sendable, Equatable {
     /// Grace for apps that read several types in one paste.
     private func read(_ owner: UInt64, grace: Duration) {
         guard serial == owner, pending != nil else { return }
-        restoreTask?.cancel()
-        restoreTask = Task { [weak self] in
-            do { try await Task.sleep(for: grace) } catch { return }
-            self?.settle()
-        }
+        scheduleSettle(after: grace)
     }
     public func settle() {
         restoreTask?.cancel(); restoreTask = nil
-        guard let (snapshot, count, text, session) = pending else { return }
-        pending = nil
-        if clipboard.changeCount == count, clipboard.text == text {
-            do { try clipboard.restore(snapshot); onRestore?(session, .restored) }
-            catch { onRestore?(session, .restoreFailed) }
-        } else { onRestore?(session, .userClipboardChanged) }
+        guard let pending else { return }
+        self.pending = nil
+        if clipboard.changeCount == pending.changeCount, clipboard.text == pending.text {
+            do { try clipboard.restore(pending.snapshot); onRestore?(pending.session, .restored) }
+            catch { onRestore?(pending.session, .restoreFailed) }
+        } else { onRestore?(pending.session, .userClipboardChanged) }
     }
 }
 /// Supplies the dictation on demand, which is how the transaction learns the paste was read.
