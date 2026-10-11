@@ -627,8 +627,13 @@ skips performance. Reports contain metrics and synthetic case IDs, with no promp
 dictionary contents or generated text. They exclude physical dictation, model-load cold
 starts and long-idle/memory-pressure behavior. No app settings or services are changed.
 
-Raw benchmark output lives in ignored `bench/results/`. [CHECKS.md](CHECKS.md) records the
-checked revision/environment and remaining acceptance gates. Use the app's **Benchmark
+Raw benchmark output lives in ignored `bench/results/`. Python benchmark reports share
+the experiment, UTC timestamp, Git commit/dirty state, cleanup stack revision,
+nearest-rank percentile method and one false `private_content_recorded` flag. The
+writer checks supplied private strings before publishing a report. Earlier report
+formats and percentile values remain historical and are not rewritten.
+[CHECKS.md](CHECKS.md) records the checked revision/environment and remaining
+acceptance gates. Use the app's **Benchmark
 text field** to timestamp actual native text updates. Cross-check third-party apps and
 non-QWERTY layouts, permissions, sleep/lock, devices and all media/clipboard cases listed
 in CHECKS.md. Repeated Ctrl/Fn, cancellation and rapid recording cycles need hardware testing.

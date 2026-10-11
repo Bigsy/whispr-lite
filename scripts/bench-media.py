@@ -5,9 +5,11 @@ import json
 import os
 from pathlib import Path
 import queue
+import statistics
 import subprocess
 import threading
 import time
+from cleanup_bench import nearest_rank, write_report
 
 ROOT = Path(__file__).resolve().parent.parent
 MEDIA_REVISION = json.loads((ROOT / 'stack.lock.json').read_text())['media_adapter']['revision']
@@ -17,9 +19,8 @@ UPSTREAM_FRAMEWORK = ROOT / '.build/media-upstream/MediaRemoteAdapter.framework'
 
 
 def distribution(values):
-    values = sorted(values)
-    return dict(count=len(values), median_ms=values[len(values)//2],
-                p90_ms=values[int((len(values)-1)*.9)], p95_ms=values[int((len(values)-1)*.95)]) if values else None
+    return dict(count=len(values), median_ms=statistics.median(values),
+                p90_ms=nearest_rank(values, .9), p95_ms=nearest_rank(values, .95)) if values else None
 
 
 def main():
@@ -104,8 +105,8 @@ def main():
                       process_rss_kib_and_cpu_percent=usage, physical_footprint_measured=False,
                       focus_preservation_measured=False, idle_power_measured=False,
                       launches_per_dictation_after_ready=0)
-        destination = ROOT / 'bench/results/media-probe.json'; destination.parent.mkdir(exist_ok=True)
-        destination.write_text(json.dumps(report, indent=2)+'\n')
+        destination = ROOT / 'bench/results/media-probe.json'
+        report = write_report(destination, report, 'real-media-probe')
         print(json.dumps({k:v for k,v in report.items() if not isinstance(v, list)}, indent=2))
     finally:
         # EOF settles an owned lease even if an observation wait failed.

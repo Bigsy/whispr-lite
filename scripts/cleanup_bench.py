@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from functools import lru_cache
 from importlib.util import module_from_spec, spec_from_file_location
 import json
@@ -161,6 +162,32 @@ def nearest_rank(values, fraction):
 def summary(values):
     return {'n': len(values), 'median': statistics.median(values),
             'p90': nearest_rank(values, .9), 'p95': nearest_rank(values, .95)}
+
+
+def write_report(path, report, experiment, *, forbidden=()):
+    """Write metadata only; reject known private strings without printing them."""
+    report = dict(report)
+    for old_key in ('private_text_saved', 'private_contents_recorded'):
+        if report.pop(old_key, False):
+            raise ValueError('Report attempted to record private content')
+    if report.get('private_content_recorded', False):
+        raise ValueError('Report attempted to record private content')
+    report.update(schema=report.get('schema', 1), experiment=experiment,
+                  created_utc=datetime.now(timezone.utc).isoformat(),
+                  git_commit=subprocess.check_output(['git', 'rev-parse', 'HEAD'],
+                      cwd=ROOT, text=True).strip(),
+                  git_dirty=bool(subprocess.check_output(['git', 'status', '--porcelain'],
+                      cwd=ROOT, text=True)),
+                  cleanup_stack_revision=LOCK['llama_server']['revision'],
+                  private_content_recorded=False, percentile_method='nearest-rank')
+    encoded = json.dumps(report, indent=2) + '\n'
+    for value in forbidden:
+        if value and len(value) >= 16 and json.dumps(value)[1:-1] in encoded:
+            raise ValueError('Report contains private content')
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(encoded)
+    return report
 
 
 @lru_cache(maxsize=1)

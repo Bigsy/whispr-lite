@@ -7,7 +7,8 @@ from pathlib import Path
 import time
 
 from cleanup_bench import (ALIAS, DictionaryCorrections, LocalHTTP, isolated_server,
-                           load_fixtures, load_saved_cleanup, loopback_url, summary, words)
+                           load_fixtures, load_saved_cleanup, loopback_url, summary,
+                           words, write_report)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -185,8 +186,8 @@ def run(args):
                   prefill_emitted_text_observed=any(r['prefill_emitted_text'] for r in observations),
                   stack=json.loads((ROOT / 'Resources/cleanup-stack.json').read_text())['llama_server']['revision'],
                   aggregates=aggregates, paired=paired, observations=observations)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, indent=2)+'\n')
+    report = write_report(args.output, report, 'fixed-prefix-prefill',
+                          forbidden=(saved.prompt, saved.dictionary))
     for comparison in paired:
         print(json.dumps(comparison), flush=True)
     print(f'exact_parity={report["exact_output_parity"]} zero_generated_tokens={report["zero_generated_tokens_verified"]}', flush=True)

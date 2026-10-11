@@ -43,6 +43,25 @@ def batch(sequence, operations):
 
 
 class SetupTests(unittest.TestCase):
+    def test_benchmark_report_header_and_private_content_guard(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            destination = Path(temporary) / 'report.json'
+            report = bench_common.write_report(destination,
+                {'private_contents_recorded': False, 'observations': [1, 2]},
+                'synthetic-test', forbidden=('synthetic private phrase',))
+            self.assertEqual(report['experiment'], 'synthetic-test')
+            self.assertEqual(report['percentile_method'], 'nearest-rank')
+            self.assertFalse(report['private_content_recorded'])
+            self.assertTrue(report['git_commit'])
+            self.assertIn('created_utc', report)
+            self.assertNotIn('private_contents_recorded', report)
+            with self.assertRaisesRegex(ValueError, 'private content'):
+                bench_common.write_report(destination, {'note': 'synthetic private phrase'},
+                                          'synthetic-test', forbidden=('synthetic private phrase',))
+            self.assertNotIn('synthetic private phrase', destination.read_text())
+            self.assertEqual(bench_common.nearest_rank(list(range(1, 11)), .9), 9)
+            self.assertEqual(bench_common.nearest_rank(list(range(1, 11)), .95), 10)
+
     def test_shared_word_scoring_cases(self):
         cases = json.loads((Path(__file__).resolve().parent.parent / 'bench/word-cases.json').read_text())
         for item in cases:

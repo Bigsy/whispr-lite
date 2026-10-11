@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import time
 import urllib.request
+from cleanup_bench import write_report
 from local_http import LOCAL
 root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
@@ -56,5 +57,5 @@ report = dict(schema=1, mode='real-cleanup-only', observations=observations,
               visible_text_measured=False, memory_pressure_measured=False,
               original_prompt_resolved=bool(metadata), reference_budget_parity=args.compare_reference_budget,
               endpoint=args.endpoint, private_contents_recorded=False)
-path=root/'bench/results/cleanup.json'; path.parent.mkdir(exist_ok=True); path.write_text(json.dumps(report,indent=2)+'\n')
+write_report(root/'bench/results/cleanup.json', report, 'real-cleanup-only', forbidden=(prompt, dictionary))
 print(f'{len(observations)} observations saved to bench/results/cleanup.json; expected outputs remain pending unless fixtures are frozen.')

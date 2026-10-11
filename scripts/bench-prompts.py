@@ -5,7 +5,8 @@ import json
 from pathlib import Path
 import time
 from cleanup_bench import (ALIAS, LocalHTTP, SYNTHETIC_DICTIONARY, app_request,
-                           load_fixtures, loopback_url, matches_synthetic, messages, summary)
+                           load_fixtures, loopback_url, matches_synthetic, messages,
+                           summary, write_report)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -96,8 +97,8 @@ def run(args, extra_context=''):
                   repetitions=args.repetitions, private_contents_recorded=False,
                   physical_dictation_measured=False, long_idle_or_model_load_measured=False,
                   warm_blocks_primed=True, uncached_means_prompt_cache_disabled=True)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, indent=2) + '\n')
+    report = write_report(args.output, report, 'synthetic-cleanup-prompt-comparison',
+                          forbidden=(*prompts.values(), dictionary, context))
     return report
 
 

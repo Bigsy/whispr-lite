@@ -13,7 +13,8 @@ import time
 import urllib.error
 from cleanup_bench import (DEFAULT_PROMPT, LOCK, SYNTHETIC_DICTIONARY, DictionaryCorrections,
                            LocalHTTP, app_request, isolated_server, load_fixtures,
-                           load_saved_cleanup, loopback_url, matches_synthetic, messages, words)
+                           load_saved_cleanup, loopback_url, matches_synthetic, messages,
+                           nearest_rank, words, write_report)
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -84,7 +85,7 @@ def run_model(label, endpoint, alias, system, synthetic_system, framing, correct
                'synthetic_passed': len(fixtures) - len(synthetic_failed),
                'synthetic_total': len(fixtures), 'synthetic_failed_ids': synthetic_failed,
                'warm_median_ms': round(statistics.median(latency), 2) if latency else None,
-               'warm_p95_ms': round(sorted(latency)[int((len(latency) - 1) * .95)], 2) if latency else None}
+               'warm_p95_ms': round(nearest_rank(latency, .95), 2) if latency else None}
     print(label, 'real_success', len(latency), 'synthetic', metrics['synthetic_passed'], '/', len(fixtures), flush=True)
     return actual, metrics
 
@@ -145,8 +146,9 @@ def main():
             rss = subprocess.run(['ps', '-o', 'rss=', '-p', str(server.process.pid)], capture_output=True, text=True, check=False)
             metrics['server_rss_kib_after'] = int(rss.stdout.strip()) if rss.stdout.strip().isdigit() else None
             report['model_results'][label] = metrics
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, indent=2) + '\n')
+    private_values = (prompt, dictionary, *(value for _, value in samples),
+                      *(value for value, _ in samples), *candidate_prompts.values())
+    write_report(args.output, report, 'cleanup-model-comparison', forbidden=private_values)
     print('aggregate_report', args.output, flush=True)
 
 
