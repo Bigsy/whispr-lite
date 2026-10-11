@@ -300,6 +300,16 @@ private actor WarmupBackend: PressWarmableASRBackend {
         #expect(capture.ends == 1 && media.ends.count == 1)
         #expect(insertion.texts.isEmpty)
     }
+    @Test func suspendStopsCaptureAndPreventsNewRecording() async throws {
+        let (coordinator, capture, insertion, media) = try await fixture()
+        coordinator.press()
+        coordinator.suspend()
+        try await waitUntil { coordinator.state == .idle }
+        #expect(capture.suspended == 1 && capture.ends == 1)
+        #expect(media.ends.count == 1 && insertion.texts.isEmpty)
+        coordinator.press()
+        #expect(capture.begins == 1)
+    }
     @Test func ceilingFinalizesOnceAndOffersCopy() async throws {
         let (coordinator, capture, insertion, media) = try await fixture()
         coordinator.safetyDuration = .milliseconds(5)
@@ -460,8 +470,7 @@ private actor WarmupBackend: PressWarmableASRBackend {
 }
 @MainActor @Suite struct ClipboardTests {
     @Test func newerCopyWinsEvenIfItHasSameText() throws {
-        let clipboard = MemoryClipboard(), transaction = ClipboardTransaction(MemoryClipboard())
-        _ = transaction
+        let clipboard = MemoryClipboard()
         let owner = ClipboardTransaction(clipboard)
         try owner.write("dictation"); clipboard.write("dictation")
         owner.settle()
