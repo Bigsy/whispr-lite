@@ -8,7 +8,7 @@ public enum DiagnosticKind: String, Codable, Sendable {
     case targetSnapshot, modifierState, insertionCheck, insertionMethod, clipboardRestore, cancelled, completed, failure, suspended, shutdown
 }
 public enum DiagnosticCode: String, Codable, Sendable {
-    case press, release, cancel, ready, notReady, preparing, needsAttention
+    case press, release, cancel, ready, notReady
     case disabled, starting, recovering, unavailable, begin, end, paused, resumed, skipped, unconfirmed, fatal, snapshot, issued, released
     case accessibilityDenied, noTarget, appChanged, elementChanged, disabledTarget, secureTarget, unsupportedRole, readonlyTarget
     case modifiersHeld, clipboard, capture, drainTimeout, overflow, deadline, inference, cleanup, contextLimit, unsupported, invalidAudio, audioLimit, protocolViolation, targetChanged
@@ -66,7 +66,6 @@ public enum InsertionTargetKind: String, Codable, Sendable {
         default: .other
         }
     }
-    public var isTerminal: Bool { self == .appleTerminal || self == .iterm || self == .ghostty }
 }
 /// Only these five modifier categories can enter the log; no key codes or text.
 public enum InsertionModifier: String, Codable, Sendable, CaseIterable {
