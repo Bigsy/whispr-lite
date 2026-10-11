@@ -786,6 +786,13 @@ incompatible response or failure leaves the app in its existing recoverable setu
 state. Final cleanup retains the final transcript, context cap and dictionary corrections.
 Both preparation and final token counting now include BOS to match the chat endpoint.
 
+App configuration builds backend, cleanup and coordinator together before publishing the
+new pipeline. It then settles the previous setup and coordinator, prepares ASR, waits for
+cleanup readiness and prefix preparation, and starts capture through separate stages.
+Each asynchronous stage checks the current settings epoch before continuing. Queued ASR
+progress updates are ignored once ASR preparation has finished, so they cannot replace
+the cleanup-stage status. Setup failures retain a stage-specific, recoverable status.
+
 `whispr-bench --cleanup-prefill-check` compares three synthetic outputs before/after
 the actual Swift prefix-preparation method using the saved service configuration. It
 prints only the pass count, measures no timing and does not change settings. Physical

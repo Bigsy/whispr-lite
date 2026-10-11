@@ -31,6 +31,7 @@ import WhisprLiteCore
     private var localBackend: ParakeetCoreBackend?
     /// The last successfully prepared ASR backend, reused while its settings are unchanged.
     private var preparedASR: (backend: any ASRBackend, configuration: ASRConfiguration)?
+    private var acceptingASRProgress = false
     private var captureRecovery: Task<Void, Never>?
     private var captureRecoveries: [ContinuousClock.Instant] = []
     private var tapReady = false
@@ -257,6 +258,98 @@ import WhisprLiteCore
         if menuItem === copyMenuItem { return coordinator?.recoveryText != nil }
         return true
     }
+    private enum PreparationStage: Equatable { case speech, cleanup }
+    private func prepareASR(_ backend: any ASRBackend, configuration: ASRConfiguration,
+                            reused: Bool, previousSetup: Task<Void, Never>?,
+                            previousCoordinator: DictationCoordinator?, preferences: Preferences,
+                            epoch: UUID) async throws -> Bool {
+        // Cancellation cannot preempt CoreML work. Settle both old owners before replacement.
+        await previousSetup?.value
+        await previousCoordinator?.settleBackendWork()
+        guard isCurrent(epoch) else { return false }
+        if !reused {
+            preparedASR = nil
+            try await localBackend?.unload()
+            guard isCurrent(epoch) else { return false }
+            localBackend = backend as? ParakeetCoreBackend
+        }
+        acceptingASRProgress = true
+        defer { acceptingASRProgress = false }
+        try await withDeadline(.seconds(preferences.allowASRDownloads ? 900 : 120), stage: "Preparation") {
+            try await backend.prepare { [weak self] stage in
+                DispatchQueue.main.async {
+                    guard let self, self.settingsEpoch == epoch,
+                          self.readinessState == .preparing,
+                          self.acceptingASRProgress else { return }
+                    if self.diagnostics?.isEnabled == true {
+                        var record = DiagnosticRecord(.preparationProgress)
+                        record.preparation = stage
+                        self.diagnostics?.record(record)
+                    }
+                    self.update(stage.displayName)
+                }
+            }
+        }
+        guard isCurrent(epoch) else { return false }
+        preparedASR = (backend, configuration)
+        return true
+    }
+    private func waitForCleanupService(_ cleanup: HTTPCleanup, timeout: Double,
+                                       epoch: UUID) async throws -> Bool {
+        update("Checking cleanup service", readiness: .preparing)
+        // The service may still be loading at login or restart; retry for about 15 s.
+        for attempt in 1... {
+            do {
+                try await cleanup.checkReadiness()
+                guard isCurrent(epoch) else { return false }
+                break
+            } catch {
+                guard isCurrent(epoch) else { return false }
+                guard attempt < 6, !(error is CancellationError) else { throw error }
+                update("Waiting for cleanup service", readiness: .preparing)
+                try await Task.sleep(for: .seconds(attempt))
+                guard isCurrent(epoch) else { return false }
+            }
+        }
+        update("Preparing cleanup", readiness: .preparing)
+        try await withDeadline(.seconds(timeout), stage: "Cleanup preparation") {
+            try await cleanup.preparePrefix()
+        }
+        return isCurrent(epoch)
+    }
+    private func startCapture(preferences: Preferences, epoch: UUID,
+                              preparationStart: ContinuousClock.Instant?) throws {
+        let permissions = PermissionStatus.current
+        if diagnostics?.isEnabled == true {
+            var record = DiagnosticRecord(.permissions)
+            record.accessibility = permissions.accessibility
+            record.microphone = permissions.microphone
+            record.inputMonitoring = permissions.inputMonitoring
+            diagnostics?.record(record)
+        }
+        guard permissions.microphone else {
+            update("Microphone permission needed",
+                   detail: "Allow microphone access below, then check readiness.", readiness: .needsAttention)
+            return
+        }
+        try audio.prepare(CaptureOptions(preferences))
+        guard permissions.accessibility else {
+            audio.suspend()
+            update("Accessibility permission needed",
+                   detail: "Enable Whispr Lite in Accessibility settings below, then check readiness.",
+                   readiness: .needsAttention)
+            return
+        }
+        pipelineReady = true
+        diagnostics?.record(.init(.preparationReady,
+            milliseconds: preparationStart.map { Self.milliseconds($0.duration(to: .now)) }))
+        if preferences.pauseMedia, let resources = Bundle.main.resourceURL {
+            media.start(script: resources.appendingPathComponent("broker.pl"),
+                framework: Bundle.main.bundleURL.appendingPathComponent(
+                    "Contents/Frameworks/MediaRemoteAdapter.framework/MediaRemoteAdapter"))
+        }
+        startHotkey(configuration: preferences.hotkey, epoch: epoch)
+    }
     private func configure() {
         guard !recordingShortcut else { return }
         guard let store else { update("Settings file is invalid. Review preferences.json before preparing.", readiness: .needsAttention); return }
@@ -294,83 +387,26 @@ import WhisprLiteCore
             self.update("Preparing speech recognition", readiness: .preparing)
             let preparationStart = debug ? ContinuousClock.now : nil
             self.diagnostics?.record(.init(.preparationStarted))
-            var checkingCleanup = false
+            var stage: PreparationStage = .speech
             do {
-                // Serialise replacements. Cancellation cannot preempt CoreML work;
-                // a busy old engine rejects unloading, so no new model is loaded yet.
-                await previousSetup?.value
-                await previousCoordinator?.settleBackendWork()
-                guard self.isCurrent(epoch) else { return }
-                if reused == nil {
-                    self.preparedASR = nil
-                    try await self.localBackend?.unload()
-                    guard self.isCurrent(epoch) else { return }
-                    self.localBackend = backend as? ParakeetCoreBackend
-                }
-                // A ready engine returns at once; HTTP still rechecks health.
-                try await withDeadline(.seconds(preferences.allowASRDownloads ? 900 : 120), stage: "Preparation") {
-                    try await backend.prepare { [weak self] stage in
-                        DispatchQueue.main.async {
-                            guard let self, self.settingsEpoch == epoch, self.readinessState == .preparing else { return }
-                            if self.diagnostics?.isEnabled == true {
-                                var record = DiagnosticRecord(.preparationProgress); record.preparation = stage
-                                self.diagnostics?.record(record)
-                            }
-                            self.update(stage.displayName)
-                        }
-                    }
-                }
-                self.preparedASR = (backend, asrConfiguration)
+                guard try await self.prepareASR(backend, configuration: asrConfiguration,
+                    reused: reused != nil, previousSetup: previousSetup,
+                    previousCoordinator: previousCoordinator, preferences: preferences,
+                    epoch: epoch) else { return }
                 if let httpCleanup = parts.httpCleanup {
-                    checkingCleanup = true
-                    self.update("Checking cleanup service", readiness: .preparing)
-                    // The service may still be loading (login, restart); wait about 15 s before asking the user.
-                    for attempt in 1... {
-                        do { try await httpCleanup.checkReadiness(); break }
-                        catch {
-                            guard attempt < 6, !(error is CancellationError) else { throw error }
-                            self.update("Waiting for cleanup service", readiness: .preparing)
-                            try await Task.sleep(for: .seconds(attempt))
-                            guard self.isCurrent(epoch) else { return }
-                        }
-                    }
-                    guard self.isCurrent(epoch) else { return }
-                    self.update("Preparing cleanup", readiness: .preparing)
-                    try await withDeadline(.seconds(preferences.cleanupTimeoutSeconds), stage: "Cleanup preparation") {
-                        try await httpCleanup.preparePrefix()
-                    }
+                    stage = .cleanup
+                    guard try await self.waitForCleanupService(httpCleanup,
+                        timeout: preferences.cleanupTimeoutSeconds, epoch: epoch) else { return }
                 }
                 guard self.isCurrent(epoch) else { return }
-                let permissions = PermissionStatus.current
-                if self.diagnostics?.isEnabled == true {
-                    var permissionRecord = DiagnosticRecord(.permissions)
-                    permissionRecord.accessibility = permissions.accessibility
-                    permissionRecord.microphone = permissions.microphone
-                    permissionRecord.inputMonitoring = permissions.inputMonitoring
-                    self.diagnostics?.record(permissionRecord)
-                }
-                guard permissions.microphone else {
-                    self.update("Microphone permission needed", detail: "Allow microphone access below, then check readiness.", readiness: .needsAttention); return
-                }
-                try self.audio.prepare(CaptureOptions(preferences))
-                guard permissions.accessibility else {
-                    self.audio.suspend(); self.update("Accessibility permission needed", detail: "Enable Whispr Lite in Accessibility settings below, then check readiness.", readiness: .needsAttention); return
-                }
-                self.pipelineReady = true
-                self.diagnostics?.record(.init(.preparationReady, milliseconds: preparationStart.map { Self.milliseconds($0.duration(to: .now)) }))
-                if preferences.pauseMedia,
-                   let resources = Bundle.main.resourceURL {
-                    self.media.start(script: resources.appendingPathComponent("broker.pl"),
-                        framework: Bundle.main.bundleURL.appendingPathComponent("Contents/Frameworks/MediaRemoteAdapter.framework/MediaRemoteAdapter"))
-                }
-                self.startHotkey(configuration: preferences.hotkey, epoch: epoch)
+                try self.startCapture(preferences: preferences, epoch: epoch, preparationStart: preparationStart)
             } catch is CancellationError {}
             catch {
                 if self.settingsEpoch == epoch {
-                    self.diagnostics?.record(.init(.preparationFailed, code: checkingCleanup ? .cleanup : .failure(error),
+                    self.diagnostics?.record(.init(.preparationFailed, code: stage == .cleanup ? .cleanup : .failure(error),
                         milliseconds: preparationStart.map { Self.milliseconds($0.duration(to: .now)) }))
-                    self.update(checkingCleanup ? "Cleanup service unavailable" : "Speech recognition unavailable",
-                        detail: checkingCleanup ? "Start your cleanup service and check its address in Advanced. \(error.localizedDescription)" : error.localizedDescription,
+                    self.update(stage == .cleanup ? "Cleanup service unavailable" : "Speech recognition unavailable",
+                        detail: stage == .cleanup ? "Start your cleanup service and check its address in Advanced. \(error.localizedDescription)" : error.localizedDescription,
                         readiness: .needsAttention)
                 }
             }
