@@ -175,6 +175,21 @@ class SetupTests(unittest.TestCase):
                 self.assertFalse((directory / 'model.gguf.partial').exists())
                 self.assertEqual((directory / 'model.gguf').stat().st_mode & 0o777, 0o600)
 
+    def test_complete_partial_is_hashed_once_without_redownloading(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            payload = b'synthetic completed partial'
+            artifact = dict(file='model.gguf', bytes=len(payload), sha256=hashlib.sha256(payload).hexdigest())
+            path = directory / artifact['file']
+            (directory / 'model.gguf.partial').write_bytes(payload)
+            with patch.object(service, 'digest', wraps=service.digest) as digest, \
+                 patch.object(service.subprocess, 'run') as curl:
+                service.fetch_verified(path, 'https://synthetic.invalid/model', artifact)
+                self.assertEqual(digest.call_count, 1)
+                curl.assert_not_called()
+            self.assertEqual(path.read_bytes(), payload)
+            self.assertFalse((directory / 'model.gguf.partial').exists())
+
     def test_bad_checksum_never_becomes_an_installed_model(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

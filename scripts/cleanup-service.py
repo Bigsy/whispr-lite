@@ -42,30 +42,42 @@ def verified(path, artifact):
             and digest(path) == artifact['sha256'])
 
 
+def fetch_verified(path, url, artifact, *, release=False):
+    if verified(path, artifact):
+        return
+    if path.exists():
+        if release:
+            raise RuntimeError('Existing release archive failed checksum; it was preserved')
+        raise RuntimeError(f'{path.name} failed checksum; remove or quarantine it before retrying')
+    partial = path.with_name(path.name + '.partial')
+    if partial.exists() and partial.stat().st_size > artifact['bytes']:
+        if release:
+            raise RuntimeError('Partial release archive exceeds the pinned size')
+        raise RuntimeError(f'{partial.name} exceeds the pinned size; remove it before retrying')
+    if not release:
+        print(f"Downloading {artifact['file']} ({artifact['bytes']} bytes), resumable", flush=True)
+    complete = verified(partial, artifact)
+    if not complete:
+        subprocess.run(['curl', '--fail', '--location', '--show-error', '--silent',
+                        '--retry', '3', '--connect-timeout', '20', '--speed-time', '60',
+                        '--speed-limit', '1024', '--continue-at', '-', '--output', str(partial), url], check=True)
+        complete = verified(partial, artifact)
+    if not complete:
+        if release:
+            raise RuntimeError('Release download failed size/SHA-256 verification; it was not installed')
+        raise RuntimeError(f'{partial.name} failed size/SHA-256 verification; it was not installed')
+    partial.chmod(0o600)
+    partial.replace(path)
+
+
 def prepare(directory):
     release_pin()  # Reject an incomplete lock before touching the owned directory.
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     for artifact in LOCK['artifacts'].values():
         path = directory / artifact['file']
-        if verified(path, artifact):
-            print(f"Verified {artifact['file']}", flush=True)
-            continue
-        if path.exists():
-            raise RuntimeError(f'{path.name} failed checksum; remove or quarantine it before retrying')
-        partial = path.with_suffix('.gguf.partial')
-        if partial.exists() and partial.stat().st_size > artifact['bytes']:
-            raise RuntimeError(f'{partial.name} exceeds the pinned size; remove it before retrying')
         url = (f"https://huggingface.co/{LOCK['repository']}/resolve/"
                f"{LOCK['revision']}/{artifact['file']}")
-        print(f"Downloading {artifact['file']} ({artifact['bytes']} bytes), resumable", flush=True)
-        if not verified(partial, artifact):
-            subprocess.run(['curl', '--fail', '--location', '--show-error', '--silent',
-                            '--retry', '3', '--connect-timeout', '20', '--speed-time', '60',
-                            '--speed-limit', '1024', '--continue-at', '-', '--output', str(partial), url], check=True)
-        if not verified(partial, artifact):
-            raise RuntimeError(f'{partial.name} failed size/SHA-256 verification; it was not installed')
-        partial.chmod(0o600)
-        partial.replace(path)
+        fetch_verified(path, url, artifact)
         print(f"Verified {artifact['file']}", flush=True)
     prepare_runtime(directory)
 
@@ -113,18 +125,7 @@ def prepare_runtime(directory):
         return
     runtime.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     archive = runtime.parent / artifact['file']
-    if not verified(archive, artifact):
-        if archive.exists(): raise RuntimeError('Existing release archive failed checksum; it was preserved')
-        partial = archive.with_suffix('.gz.partial')
-        if partial.exists() and partial.stat().st_size > artifact['bytes']:
-            raise RuntimeError('Partial release archive exceeds the pinned size')
-        if not verified(partial, artifact):
-            subprocess.run(['curl', '--fail', '--location', '--show-error', '--silent', '--retry', '3',
-                            '--connect-timeout', '20', '--speed-time', '60', '--speed-limit', '1024',
-                            '--continue-at', '-', '--output', str(partial), artifact['url']], check=True)
-        if not verified(partial, artifact):
-            raise RuntimeError('Release download failed size/SHA-256 verification; it was not installed')
-        partial.chmod(0o600); partial.replace(archive)
+    fetch_verified(archive, artifact['url'], artifact, release=True)
     with tempfile.TemporaryDirectory(prefix='.release-stage-', dir=runtime.parent) as temporary:
         stage = Path(temporary)
         extract_runtime(archive, stage)

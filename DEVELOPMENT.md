@@ -298,7 +298,8 @@ make cleanup-uninstall
 ```
 
 `cleanup-prepare` resumes downloads into partial files, checks exact sizes/full SHA-256
-and atomically installs verified files. Defaults are under
+and atomically installs verified files. Model and release archives share this path;
+a complete partial is hashed once before publication. Defaults are under
 `~/Library/Application Support/WhisprLite/Cleanup`. `cleanup-install` creates only the
 owned `com.hedworth.whispr-lite.cleanup` LaunchAgent, on **127.0.0.1:11436**; it validates
 before replacing an owned item, waits for launchctl and the old PID to settle, refuses
