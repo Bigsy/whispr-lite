@@ -576,8 +576,11 @@ Local streaming candidates additionally use `PARAKEET_STREAMING=1`. This check
 requires cached models and never substitutes fake output or downloads weights. Run a
 normal `make check` afterwards to restore the published release's lockfile.
 
-The streaming adapter waits for settlement before switching to retained-audio batch
-fallback. The app exposes streaming only in demo mode pending the broader M7/M8 acceptance;
+The streaming adapter waits for settlement before switching to batch fallback over the
+capture's authoritative final audio. It holds no second full recording and reuses the
+configured batch ASR/cleanup deadlines. If the delivered chunk count differs from the
+final capture, it cancels the streaming session and uses batch. The app exposes streaming
+only in demo mode pending the broader M7/M8 acceptance;
 the real-model bench exercises the adapter directly. Streaming-partial prefill is not
 enabled. Fixed cleanup-prefix warming now runs during app preparation (see below).
 

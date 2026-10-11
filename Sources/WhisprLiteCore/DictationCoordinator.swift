@@ -92,7 +92,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         media.begin(id)
         startHoldWarmup()
         if streamingEnabled, pipeline.backend.capabilities.streaming, let chunks = capture.chunks() {
-            let streaming = StreamingPipeline(backend: pipeline.backend)
+            let streaming = StreamingPipeline(pipeline: pipeline)
             self.streaming = streaming; streamingFailed = false; partial = nil
             delivery = Task { [weak self] in
                 guard let self else { return }
@@ -185,7 +185,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                 if let streaming = self.streaming {
                     await self.delivery?.value
                     guard self.generation == owner, !Task.isCancelled else { return }
-                    if !self.streamingFailed { text = try await streaming.finish(cleanup: self.pipeline.cleanup) }
+                    if !self.streamingFailed { text = try await streaming.finish(audio: audio) }
                     else { text = try await self.pipeline.run(audio, mark: mark) }
                 } else {
                     let early = self.earlyDelivery

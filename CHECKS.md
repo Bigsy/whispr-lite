@@ -6,6 +6,7 @@ third-party insertion, actual media playback compatibility or release acceptance
 
 | Check | Result |
 |---|---|
+| 11 October streaming pipeline ownership, Apple M1 Max | `make check` passed with 111 registered Swift tests (one optional skip), 17 native broker, 27 synthetic setup and 6 release tests, signed arm64 app, doctor and bundle smoke. New synthetic tests show fallback uses the capture's final audio when chunk counts differ and honors the configured batch ASR deadline. Streaming is still demo-only; no physical streaming latency or model accuracy was measured. |
 | 11 October preparation progress schema, Apple M1 Max | `make test` passed with 109 registered Swift tests (one optional skip), 17 native broker, 27 synthetic setup and 6 release tests. A new test verifies the stable `checkingCache` JSON code and unchanged Settings label. No live preparation or native layout change was measured. |
 | 11 October core API narrowing, Apple M1 Max | `make test` passed with 108 registered Swift tests (one optional skip), 17 native broker, 27 synthetic setup and 6 release tests. The coordinator pipeline is immutable, insertion-session state is private, demo ASR knobs/session are internal, and unused media timing stages were removed. No live dictation was run. |
 | 11 October dictionary locale reuse, Apple M1 Max | `make test` passed with 108 registered Swift tests (one optional skip), 17 native broker, 27 synthetic setup and 6 release tests. Existing Swift/Python correction vectors remained green; no live dictation or model request was run. |
