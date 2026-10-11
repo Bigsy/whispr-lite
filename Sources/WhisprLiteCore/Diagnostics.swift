@@ -154,12 +154,12 @@ public final class DiagnosticLogger: @unchecked Sendable {
     private var pending = 0
     private var dropped = 0
     private let run = UUID()
-    private let maximumBytes: Int
-    private let maximumPending: Int
-    private var handle: FileHandle?
-    private var bytes = 0
+    private let writer: PrivateJSONLWriter<DiagnosticRecord>
     public init(directory: URL, maximumBytes: Int = DiagnosticLogger.defaultMaximumBytes, maximumPending: Int = 128) {
-        self.directory = directory; self.maximumBytes = max(1024, maximumBytes); self.maximumPending = max(1, maximumPending)
+        self.directory = directory
+        writer = .init(directory: directory, fileName: "debug.jsonl", previousFileName: "debug.previous.jsonl",
+                       maximumBytes: maximumBytes, maximumPending: maximumPending,
+                       excludeFromBackup: false, oversize: .fail)
     }
     public var isEnabled: Bool { lock.withLock { enabled && !failed } }
     public var hasFailed: Bool { lock.withLock { failed } }
@@ -167,10 +167,10 @@ public final class DiagnosticLogger: @unchecked Sendable {
     public func setEnabled(_ value: Bool) {
         lock.lock()
         guard enabled != value else { lock.unlock(); return }
-        if value { enabled = true; failed = false }
-        enqueueLocked(.init(value ? .loggingEnabled : .loggingDisabled))
+        if value { failed = false }
         enabled = value
-        if !value { queue.async { try? self.handle?.close(); self.handle = nil } }
+        enqueueLocked(.init(value ? .loggingEnabled : .loggingDisabled))
+        if !value { queue.async { self.writer.close() } }
         lock.unlock()
     }
     public func record(_ value: @autoclosure () -> DiagnosticRecord) {
@@ -181,37 +181,16 @@ public final class DiagnosticLogger: @unchecked Sendable {
         enqueueLocked(record)
     }
     private func enqueueLocked(_ value: DiagnosticRecord) {
-        guard pending < maximumPending else { dropped += 1; return }
+        guard pending < writer.maximumPending else { dropped += 1; return }
         var value = value; value.run = run
         if dropped > 0 { value.droppedBefore = dropped }
         pending += 1
         queue.async { [value] in
-            do { try self.write(value) }
-            catch { self.lock.withLock { self.failed = true }; try? self.handle?.close(); self.handle = nil }
+            do { try self.writer.write(value) }
+            catch { self.lock.withLock { self.failed = true }; self.writer.close() }
             self.lock.withLock { self.pending -= 1 }
         }
     }
-    private func open() throws {
-        try PrivateFiles.ensureDirectory(at: directory)
-        let file = directory.appendingPathComponent("debug.jsonl")
-        try PrivateFiles.ensureFile(at: file)
-        handle = try FileHandle(forWritingTo: file); bytes = Int(try handle!.seekToEnd())
-    }
-    private func write(_ value: DiagnosticRecord) throws {
-        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-        var data = try encoder.encode(value); data.append(10)
-        guard data.count <= maximumBytes else { throw CocoaError(.fileWriteUnknown) }
-        if handle == nil { try open() }
-        if bytes + data.count > maximumBytes {
-            try handle?.close(); handle = nil
-            let current = directory.appendingPathComponent("debug.jsonl"), previous = directory.appendingPathComponent("debug.previous.jsonl")
-            if FileManager.default.fileExists(atPath: previous.path) { try FileManager.default.removeItem(at: previous) }
-            try FileManager.default.moveItem(at: current, to: previous)
-            try open()
-        }
-        try handle?.write(contentsOf: data); bytes += data.count
-    }
     /// Explicit tests/shutdown only; normal dictation never waits for disk.
     public func flush() async { await withCheckedContinuation { continuation in queue.async { continuation.resume() } } }
-    deinit { try? handle?.close() }
 }
