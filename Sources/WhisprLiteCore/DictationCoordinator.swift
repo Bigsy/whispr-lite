@@ -3,6 +3,8 @@ import Foundation
 @MainActor public protocol CaptureDriver: AnyObject {
     func begin() throws
     func end() async throws -> PCM16k
+    func end(at boundary: Double?) async throws -> PCM16k
+    func releaseBoundary() -> Double?
     func suspend()
     func chunks() -> AsyncThrowingStream<PCM16k, any Error>?
     func completedChunks() -> AsyncThrowingStream<PCM16k, any Error>?
@@ -10,6 +12,8 @@ import Foundation
     var drainTimedOut: Bool { get }
 }
 public extension CaptureDriver {
+    func end(at boundary: Double?) async throws -> PCM16k { try await end() }
+    func releaseBoundary() -> Double? { nil }
     func chunks() -> AsyncThrowingStream<PCM16k, any Error>? { nil }
     func completedChunks() -> AsyncThrowingStream<PCM16k, any Error>? { nil }
     var firstAudioUptime: Double? { nil }
@@ -133,7 +137,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         ceiling = Task { [weak self] in
             do { try await Task.sleep(for: self?.safetyDuration ?? .seconds(120)) } catch { return }
             guard let self, self.generation == owner else { return }
-            self.finish(id, target: target, copyOnly: true)
+            self.finish(id, target: target, copyOnly: true, boundary: self.capture.releaseBoundary())
         }
         // The target belongs to this recording, never the currently frontmost app at release.
         currentTarget = target
@@ -142,10 +146,11 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     public func release() {
         activationHeld = false
         guard let id = session, let target = currentTarget, state == .recording else { return }
+        let boundary = capture.releaseBoundary()
         timings.mark(.release, session: id)
-        finish(id, target: target, copyOnly: false)
+        finish(id, target: target, copyOnly: false, boundary: boundary)
     }
-    private func finish(_ id: UUID, target: UUID, copyOnly: Bool) {
+    private func finish(_ id: UUID, target: UUID, copyOnly: Bool, boundary: Double?) {
         guard session == id, !finalized else { return }
         pressWarmup?.cancel() // No new pass after release; final ASR awaits any pass in flight.
         finalized = true; draining = true; ceiling?.cancel(); ceiling = nil
@@ -155,7 +160,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
             guard let self else { return }
             // Even cancellation must wait for capture handoff before ending its media lease.
             let audio: PCM16k
-            do { audio = try await self.capture.end() }
+            do { audio = try await self.capture.end(at: boundary) }
             catch {
                 _ = await self.earlyDelivery?.value
                 self.draining = false; self.media.end(id)

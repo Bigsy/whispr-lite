@@ -366,11 +366,12 @@ public struct CaptureOptions: Sendable {
     }
     public func chunks() -> AsyncThrowingStream<PCM16k, any Error>? { worker?.chunks() }
     public func completedChunks() -> AsyncThrowingStream<PCM16k, any Error>? { worker?.completedChunks() }
-    public func end() async throws -> PCM16k {
+    public func releaseBoundary() -> Double? { AVAudioTime.seconds(forHostTime: AudioGetCurrentHostTime()) }
+    public func end() async throws -> PCM16k { try await end(at: nil) }
+    public func end(at boundary: Double?) async throws -> PCM16k {
         guard let worker else { throw AppError.capture }
-        let boundary = AVAudioTime.seconds(forHostTime: AudioGetCurrentHostTime())
         defer { if !warm { engine?.stop() } }
-        return try await worker.end(at: boundary)
+        return try await worker.end(at: boundary ?? releaseBoundary())
     }
     public func suspend() {
         if let changeObserver { NotificationCenter.default.removeObserver(changeObserver); self.changeObserver = nil }

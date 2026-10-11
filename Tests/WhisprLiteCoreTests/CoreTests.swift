@@ -109,8 +109,16 @@ struct FailingCleanup: TextCleanup { func clean(_ text: String) throws -> String
 
 @MainActor final class FakeCapture: CaptureDriver {
     var begins = 0; var ends = 0; var suspended = 0
+    var boundaryValue: Double?
+    var endBoundary: Double?
+    var onBoundary: (() -> Void)?
     func begin() { begins += 1 }
     func end() async throws -> PCM16k { ends += 1; return try PCM16k([0.1]) }
+    func end(at boundary: Double?) async throws -> PCM16k {
+        endBoundary = boundary
+        return try await end()
+    }
+    func releaseBoundary() -> Double? { onBoundary?(); return boundaryValue }
     func suspend() { suspended += 1 }
 }
 @MainActor final class EarlyCapture: CaptureDriver {
@@ -301,6 +309,14 @@ private actor WarmupBackend: PressWarmableASRBackend {
         #expect(capture.ends == 1 && media.ends.count == 1)
         #expect(insertion.texts.isEmpty)
         #expect(coordinator.recoveryText != nil)
+    }
+    @Test func releaseReadsCaptureBoundaryBeforeProcessing() async throws {
+        let (coordinator, capture, insertion, _) = try await fixture()
+        capture.boundaryValue = 123.45
+        capture.onBoundary = { #expect(coordinator.state == .recording) }
+        coordinator.press(); coordinator.release()
+        try await waitUntil { coordinator.state == .idle && insertion.texts.count == 1 }
+        #expect(capture.endBoundary == 123.45)
     }
     @Test func copyOnlyWithEarlyChunksDismissesStraightToIdle() async throws {
         let capture = EarlyCapture(), insertion = FakeInsertion(), media = FakeMedia()
