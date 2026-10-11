@@ -368,6 +368,14 @@ delivery are unchanged. Demo streaming and HTTP ASR do not use this path. A long
 recording can therefore save cleanup time without changing ASR's final words; real
 speech quality and release-to-visible-text speed still need physical validation.
 
+The release path reads the audio host-time boundary before changing the processing UI
+state and passes it to the capture worker. Early cleaned-prefix reuse keeps leading
+symbols such as currency signs and quotation marks in the remaining tail. Hold warm-up
+restarts after each early chunk while recording; the next chunk waits for it to settle
+before using the engine. Invalid demo-streaming PCM closes its bounded sender with an
+error. Copy-only completion uses the same session teardown as normal completion and
+failure, preserving recovery text while clearing the target and early worker.
+
 General's **Speech model** picker selects Unified (default), Ultra, TDT v2 or TDT v3
 when using direct Parakeet. The saved choice applies on Save; old preferences keep
 Unified. All four use batch in the app. Before loading the replacement, preparation
@@ -387,6 +395,12 @@ accessor to `Bundle.main.resourceURL` before compilation, and stage its bundles 
 build-directory fallback after installation. The bundle smoke check verifies FluidAudio's
 resource bundle can be opened. `WhisprLite --asr-check /absolute/path/to/Models`, from the
 built app's `Contents/MacOS`, prepares real models, transcribes short silence and unloads.
+The build requires ParakeetCore and FluidAudio licence files and the smoke check verifies
+they are present and nonempty in the signed bundle. The app media framework compiles only
+the upstream files needed by the broker; `scripts/build-media-upstream.sh` creates a
+separate full framework for the one-shot media benchmark. The broker restores default
+SIGTERM handling, and its real-framework process test checks that termination exits.
+Explicit `make install` stages and verifies the signed app before replacing the old copy.
 An optional model argument selects another cached stack, for example
 `WhisprLite --asr-check /absolute/path/to/Models ultra`.
 
@@ -530,6 +544,14 @@ The streaming adapter waits for settlement before switching to retained-audio ba
 fallback. The app exposes streaming only in demo mode pending the broader M7/M8 acceptance;
 the real-model bench exercises the adapter directly. Streaming-partial prefill is not
 enabled. Fixed cleanup-prefix warming now runs during app preparation (see below).
+
+Settings distinguishes a missing private prompt or dictionary from an unreadable one.
+Save preserves an unreadable file unless its editor was changed or the prompt was
+explicitly reset. Local HTTP transport failures are mapped by their caller: cleanup
+errors offer raw text, ASR errors report transcription failure, and health/model
+readiness reports an unavailable service. Actual token-budget failures retain the
+context-limit message. Local cleanup benchmark requests use a proxy-free opener so
+private prompts and transcripts remain on the Mac even with proxy settings.
 
 ## Checks and benchmarks
 
