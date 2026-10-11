@@ -835,6 +835,10 @@ physical release, display compositor delay and third-party fields, and therefore
 close release-to-visible-text acceptance. Do not run integration benchmarks alongside
 builds or other model loads when assessing latency.
 
+The finite readiness and acoustic probes share the setup wait. The acoustic and batch
+probes share a native text window and focus check, so both require the intended local
+field to own focus before insertion. These helpers are only used by explicit probes.
+
 For an opt-in acoustic benchmark on this Mac, `--capture-flow-check WAV SOX DEVICE
 EXPECTED_WORDS OUTPUT_JSON REPETITIONS` opens the app's measured native text field, waits for normal
 readiness, starts real microphone capture, plays the synthetic WAV through the named

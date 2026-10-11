@@ -33,13 +33,10 @@ import WhisprLiteCore
             throw CheckFailure("Batch-flow corpus must contain \(Self.expectedFixtureCount) WAV fixtures")
         }
         let audio = try files.map { try PCM16k(contentsOfWAV: $0) }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 650, height: 240),
-            styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "Whispr Lite: synthetic batch check"
-        window.isReleasedWhenClosed = false
         let field = NSTextView(frame: NSRect(x: 20, y: 20, width: 610, height: 200))
         field.font = .systemFont(ofSize: 18)
-        window.contentView?.addSubview(field); window.center()
+        let window = BenchmarkTextWindow.make(title: "Whispr Lite: synthetic batch check",
+            size: NSSize(width: 650, height: 240), field: field)
         NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil); window.makeFirstResponder(field)
         defer { window.close() }
         let insertion = TextInserter()
@@ -52,11 +49,7 @@ import WhisprLiteCore
             for index in files.indices {
                 field.string = ""; field.setSelectedRange(NSRange(location: 0, length: 0))
                 // Give the initial activation/focus notifications a bounded chance to settle.
-                for _ in 0..<100 {
-                    if NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier,
-                       window.isKeyWindow, window.firstResponder === field { break }
-                    try await Task.sleep(for: .milliseconds(10))
-                }
+                _ = try await BenchmarkTextWindow.waitForFocus(window: window, field: field)
                 let session = UUID()
                 let target = insertion.snapshot(session: session)
                 let start = clock.now
@@ -70,8 +63,7 @@ import WhisprLiteCore
                 else { references[index] = text }
                 do { try await insertion.insert(text, target: target) }
                 catch {
-                    let ownFocus = NSWorkspace.shared.frontmostApplication?.processIdentifier
-                        == ProcessInfo.processInfo.processIdentifier
+                    let ownFocus = BenchmarkTextWindow.ownsFocus(window: window, field: field)
                     print("batch-flow insertion failed round=\(repetition) " +
                         "fixture=\(files[index].lastPathComponent) own-focus=\(ownFocus) " +
                         "key-window=\(window.isKeyWindow) own-responder=\(window.firstResponder === field)")

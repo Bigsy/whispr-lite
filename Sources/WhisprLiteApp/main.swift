@@ -206,15 +206,11 @@ import WhisprLiteCore
     private func writeReadinessReport(to output: URL) {
         // Explicit, finite integration probe; normal operation has no readiness polling.
         Task {
-            let deadline = ContinuousClock.now.advanced(by: .seconds(120))
-            while readinessState == .preparing && ContinuousClock.now < deadline {
-                try? await Task.sleep(for: .milliseconds(100))
-            }
+            let ready = (try? await waitForReadiness(timeout: .seconds(120))) ?? false
             let mediaDeadline = ContinuousClock.now.advanced(by: .seconds(4))
             while media.readiness == .starting && ContinuousClock.now < mediaDeadline {
                 try? await Task.sleep(for: .milliseconds(100))
             }
-            let ready = readinessState == .ready && pipelineReady && tapReady
             let permissions = PermissionStatus.current
             let report: [String: Any] = ["schema": 1, "ready": ready, "status": status,
                 "asr_model": store.preferences.asrModel.rawValue,
@@ -233,6 +229,13 @@ import WhisprLiteCore
             try? await Task.sleep(for: .milliseconds(700))
             exit(success ? 0 : 1)
         }
+    }
+    private func waitForReadiness(timeout: Duration) async throws -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while readinessState == .preparing && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        return readinessState == .ready && pipelineReady && tapReady
     }
     private func createMenu() {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -600,9 +603,6 @@ import WhisprLiteCore
     }
     @objc private func showBenchmark() {
         if benchmarkWindow == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 550, height: 180), styleMask: [.titled, .closable], backing: .buffered, defer: false)
-            window.title = "Whispr Lite: visible text benchmark"
-            let view = NSView(frame: NSRect(x: 0, y: 0, width: 550, height: 180))
             let field = MeasuredTextView(frame: NSRect(x: 20, y: 45, width: 510, height: 110))
             field.font = .systemFont(ofSize: 16)
             field.onUpdate = { [weak self] in
@@ -611,10 +611,9 @@ import WhisprLiteCore
                     self?.benchmarkVisible?(ms)
                 }
             }
-            let label = NSTextField(labelWithString: "The console records content-free monotonic text-update times.")
-            label.frame = NSRect(x: 20, y: 10, width: 510, height: 25)
-            view.addSubview(field); view.addSubview(label)
-            window.contentView = view; window.isReleasedWhenClosed = false; window.center()
+            let window = BenchmarkTextWindow.make(title: "Whispr Lite: visible text benchmark",
+                size: NSSize(width: 550, height: 180), field: field,
+                note: "The console records content-free monotonic text-update times.")
             benchmarkField = field; benchmarkWindow = window
         }
         NSApp.activate(ignoringOtherApps: true); benchmarkWindow?.makeKeyAndOrderFront(nil)
@@ -632,11 +631,9 @@ import WhisprLiteCore
         guard !expectedWords.isEmpty else { throw CheckFailure("Capture-flow expected words are empty") }
         let output = URL(fileURLWithPath: arguments[4])
         let device = arguments[2]
-        let deadline = ContinuousClock.now.advanced(by: .seconds(120))
-        while readinessState == .preparing && ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(100))
+        guard try await waitForReadiness(timeout: .seconds(120)), let coordinator else {
+            throw CheckFailure("Dictation pipeline is not ready")
         }
-        guard readinessState == .ready, let coordinator else { throw CheckFailure("Dictation pipeline is not ready") }
         coordinator.timings.setEnabled(true)
         insertion.timings = coordinator.timings
         audio.debugTimings = true
@@ -646,14 +643,9 @@ import WhisprLiteCore
             field.string = ""; field.setSelectedRange(NSRange(location: 0, length: 0))
             NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil)
             window.makeFirstResponder(field)
-            for _ in 0..<100 {
-                if NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier,
-                   window.isKeyWindow, window.firstResponder === field { break }
-                try await Task.sleep(for: .milliseconds(10))
-            }
-            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier,
-                  window.isKeyWindow, window.firstResponder === field else {
-                print("capture-flow focus frontmost=\(NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier) key=\(window.isKeyWindow) responder=\(window.firstResponder === field)")
+            guard try await BenchmarkTextWindow.waitForFocus(window: window, field: field) else {
+                print("capture-flow focus frontmost=\(NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier) " +
+                    "key=\(window.isKeyWindow) responder=\(window.firstResponder === field)")
                 throw CheckFailure("Benchmark field lost focus before capture")
             }
             var visibleMS: Double?
