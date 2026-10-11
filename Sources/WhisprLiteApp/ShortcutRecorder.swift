@@ -110,7 +110,7 @@ import WhisprLiteCore
             return nil // Includes Command shortcuts before AppKit's menu/key-equivalent handling.
         }
         focusObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.finish(.cancelled) }
+            MainActor.assumeIsolated { self?.finish(.cancelled) }
         }
         DispatchQueue.main.async { [weak self, weak window] in
             guard let self, self.window === window else { return }

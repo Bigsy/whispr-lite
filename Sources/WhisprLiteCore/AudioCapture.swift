@@ -354,7 +354,7 @@ public struct CaptureOptions: Sendable {
         engine.prepare()
         self.engine = engine; self.worker = worker
         changeObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.onFailure?() }
+            MainActor.assumeIsolated { self?.onFailure?() }
         }
         if warm { try engine.start() }
     }
