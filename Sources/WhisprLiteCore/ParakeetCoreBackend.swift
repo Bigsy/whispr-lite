@@ -1,5 +1,4 @@
 import Foundation
-#if PARAKEET_CORE
 import ParakeetCore
 
 /// Direct PCM integration with the pinned library; models are prepared before recording.
@@ -51,27 +50,15 @@ public actor ParakeetCoreBackend: PressWarmableASRBackend {
         guard try await transcribe(silence).text.isEmpty else { throw AppError.inference }
     }
 }
-#endif
 
 public enum BackendFactory {
-    public static var hasParakeetCore: Bool {
-        #if PARAKEET_CORE
-        true
-        #else
-        false
-        #endif
-    }
     public static func make(mode: BackendMode, endpoint: String, cacheRoot: URL? = nil,
                             allowDownloads: Bool = false, model: ParakeetModel = .unified) throws -> any ASRBackend {
         switch mode {
         case .demo: return FakeASRBackend()
         case .http: return HTTPASRBackend(endpoint: try LocalEndpoint(endpoint))
         case .parakeet:
-            #if PARAKEET_CORE
             return ParakeetCoreBackend(cacheRoot: cacheRoot, allowDownloads: allowDownloads, model: model)
-            #else
-            throw AppError.unsupported
-            #endif
         }
     }
 }

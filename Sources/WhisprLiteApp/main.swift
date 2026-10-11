@@ -48,7 +48,7 @@ import WhisprLiteCore
         }
         if CommandLine.arguments.contains("--smoke-test") {
             let bundle = Bundle.main
-            let resourcesValid = !BackendFactory.hasParakeetCore || bundle.resourceURL.flatMap {
+            let resourcesValid = bundle.resourceURL.flatMap {
                 Bundle(url: $0.appendingPathComponent("FluidAudio_FluidAudio.bundle"))
             } != nil
             let noticesValid = bundle.resourceURL.map { resources in
@@ -62,8 +62,15 @@ import WhisprLiteCore
                     return (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int).map { $0 > 0 } ?? false
                 } && FileManager.default.fileExists(atPath: resources.appendingPathComponent("Licenses/FluidAudio/ThirdPartyLicenses").path)
             } ?? false
-            let valid = resourcesValid && noticesValid && bundle.bundleIdentifier == "com.hedworth.whispr-lite" && bundle.object(forInfoDictionaryKey: "LSUIElement") as? Bool == true
-            print("bundle=\(valid ? "ok" : "invalid") arch=arm64 parakeet=\(BackendFactory.hasParakeetCore) resources=\(resourcesValid ? "ok" : "invalid") licences=\(noticesValid ? "ok" : "invalid")")
+            #if arch(arm64)
+            let architecture = "arm64"
+            let architectureValid = true
+            #else
+            let architecture = "unsupported"
+            let architectureValid = false
+            #endif
+            let valid = architectureValid && resourcesValid && noticesValid && bundle.bundleIdentifier == "com.hedworth.whispr-lite" && bundle.object(forInfoDictionaryKey: "LSUIElement") as? Bool == true
+            print("bundle=\(valid ? "ok" : "invalid") arch=\(architecture) resources=\(resourcesValid ? "ok" : "invalid") licences=\(noticesValid ? "ok" : "invalid")")
             exit(valid ? 0 : 1)
         }
         if CommandLine.arguments.contains("--permission-status") {

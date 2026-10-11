@@ -77,7 +77,6 @@ import WhisprLiteCore
             return
         }
         if CommandLine.arguments.contains("--candidate-check") {
-            guard BackendFactory.hasParakeetCore else { throw AppError.unsupported }
             let cache = ProcessInfo.processInfo.environment["PARAKEET_MODEL_CACHE"].map {
                 URL(fileURLWithPath: $0, isDirectory: true)
             }

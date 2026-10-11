@@ -14,7 +14,6 @@ import Testing
         catch { #expect(await backend.readiness() == .failed) }
         do { _ = try await backend.transcribe(PCM16k([0.1])); Issue.record("Unprepared models must reject transcription") }
         catch {}
-        #expect(BackendFactory.hasParakeetCore)
     }
     @Test func defaultAndSavedHTTPPreferencesStayDistinct() throws {
         #expect(Preferences().backend == .parakeet)

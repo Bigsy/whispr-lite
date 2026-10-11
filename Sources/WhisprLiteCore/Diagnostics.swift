@@ -1,8 +1,6 @@
 import Foundation
 import CoreGraphics
-#if PARAKEET_CORE
 import ParakeetCore
-#endif
 
 public enum DiagnosticKind: String, Codable, Sendable {
     case loggingEnabled, loggingDisabled, configuration, preparationStarted, preparationProgress, preparationReady, preparationFailed
@@ -37,7 +35,6 @@ public enum DiagnosticCode: String, Codable, Sendable {
     public static func failure(_ error: any Error) -> Self {
         if let error = error as? AppError { return failure(error) }
         if error is CancellationError { return .cancelled }
-        #if PARAKEET_CORE
         if let error = error as? ParakeetError {
             switch error {
             case .missingCache: return .missingCache
@@ -55,7 +52,6 @@ public enum DiagnosticCode: String, Codable, Sendable {
             case .inferenceFailed: return .inference
             }
         }
-        #endif
         return .inference
     }
 }
