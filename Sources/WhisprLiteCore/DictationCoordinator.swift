@@ -70,8 +70,9 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     public func press() {
         guard !activationHeld else { return }
         activationHeld = true
-        guard ready, !draining, state == .idle || state == .error else {
-            if !ready, !draining, state == .idle || state == .error {
+        let canStart = !draining && (state == .idle || state == .error)
+        guard ready, canStart else {
+            if !ready, canStart {
                 // The event tap swallowed the shortcut, so say why rather than doing nothing.
                 diagnostics?.record(.init(.failure, code: .notReady))
                 message = "Dictation isn't ready yet. Check the Whispr Lite menu."; state = .error
