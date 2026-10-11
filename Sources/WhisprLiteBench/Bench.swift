@@ -101,19 +101,20 @@ import WhisprLiteCore
         guard DictionaryCorrections(dictionary).apply(to: "dochler") == "Doccla" else { throw AppError.notReady }
         let cleanup = HTTPCleanup(try .init(preferences: preferences, prompt: store.prompt(),
                                             dictionary: dictionary + "\nhappy fire > hapi fhir"))
-        let fixtures = ["i work at dochler", "send the report to dochler", "dochler", "the doctor called me", "we use happy fire"]
+        let doccla: (String) -> Bool = {
+            $0.contains("Doccla") && !$0.localizedCaseInsensitiveContains("dochler")
+        }
+        let fixtures: [(input: String, accepts: (String) -> Bool)] = [
+            ("i work at dochler", doccla),
+            ("send the report to dochler", doccla),
+            ("dochler", doccla),
+            ("the doctor called me", { $0.localizedCaseInsensitiveContains("doctor") && !$0.contains("Doccla") }),
+            ("we use happy fire", { $0.contains("hapi fhir") && !$0.localizedCaseInsensitiveContains("happy fire") })
+        ]
         var passed = 0
-        for (index, input) in fixtures.enumerated() {
-            let output = try await cleanup.clean(input)
-            let correct: Bool
-            if index == 3 {
-                correct = output.localizedCaseInsensitiveContains("doctor") && !output.contains("Doccla")
-            } else if index == 4 {
-                correct = output.contains("hapi fhir") && !output.localizedCaseInsensitiveContains("happy fire")
-            } else {
-                correct = output.contains("Doccla") && !output.localizedCaseInsensitiveContains("dochler")
-            }
-            guard correct else { throw AppError.cleanup }
+        for fixture in fixtures {
+            let output = try await cleanup.clean(fixture.input)
+            guard fixture.accepts(output) else { throw AppError.cleanup }
             passed += 1
         }
         print("Dictionary check: \(passed)/\(fixtures.count) synthetic cases passed; private text not recorded.")

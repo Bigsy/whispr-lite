@@ -6,6 +6,7 @@ third-party insertion, actual media playback compatibility or release acceptance
 
 | Check | Result |
 |---|---|
+| 11 October dictionary bench case table, Apple M1 Max | `whispr-bench` compiled after replacing fixture-index expectations with per-case predicates. The live cleanup check was not rerun because it uses saved private dictionary settings. Existing shared synthetic correction tests remain the behavior gate. |
 | 11 October synthetic speech script structure, Apple M1 Max | The generator imported without running `say` or writing audio; Python AST and diff checks passed. PCM rate, channels and sample width now use named constants. Speech fixture generation was not rerun. |
 | 11 October archive export file ownership, Apple M1 Max | Synthetic setup tests passed (27 cases), including repeated reads from a tiny synthetic ASAR without a retained open file. No installed OpenWhispr archive or private export was read. |
 | 11 October compiler-path cache, Apple M1 Max | A synthetic override check ran the Swift compiler adapter with no `xcrun` in `PATH`. An incremental signed arm64 `build-app.sh` completed and verified its app signature. The app installed under Applications was unchanged. |

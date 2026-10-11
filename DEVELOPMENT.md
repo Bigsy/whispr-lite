@@ -78,6 +78,8 @@ when preparing settings, with no audio callback work, extra inference or timing 
 `whispr-bench --dictionary-check` runs five synthetic inputs through the actual saved
 cleanup configuration (requires the private Doccla conversion); the HAPI FHIR rule is
 added in RAM for that check. It records only the pass count, never private text or outputs.
+Each input carries its own acceptance predicate, so changing fixture order does not
+change which correction the check expects.
 
 A compact native floating pill shows Listening, Processing, Inserting or a recoverable
 error with Copy when text is available. It uses a nonactivating panel, hides when idle,
