@@ -152,12 +152,14 @@ import WhisprLiteCore
                 raw.append(milliseconds(start.duration(to: .now)))
                 guard result == expected else { throw AppError.inference }
             }
-            let sorted = raw.sorted()
+            let median = ReportStatistics.median(raw)!
             observations.append(["fixture": file.lastPathComponent, "audio_seconds": audio.duration,
                                  "synthetic_transcript": expected.text, "count": raw.count, "raw_ms": raw,
-                                 "median_ms": sorted[15], "p90_ms": sorted[26], "p95_ms": sorted[28],
+                                 "median_ms": median,
+                                 "p90_ms": ReportStatistics.nearestRank(raw, fraction: 0.9)!,
+                                 "p95_ms": ReportStatistics.nearestRank(raw, fraction: 0.95)!,
                                  "repeat_text_parity": true])
-            print("\(model.rawValue): \(file.lastPathComponent) median-ms=\(sorted[15])")
+            print("\(model.rawValue): \(file.lastPathComponent) median-ms=\(median)")
         }
         guard let longest, let shortest else { throw AppError.invalidAudio }
         let cancelled = Task { try await backend.transcribe(longest) }

@@ -658,6 +658,9 @@ the experiment, UTC timestamp, Git commit/dirty state, cleanup stack revision,
 nearest-rank percentile method and one false `private_content_recorded` flag. The
 writer checks supplied private strings before publishing a report. Earlier report
 formats and percentile values remain historical and are not rewritten.
+Swift reports use the same nearest-rank p90/p95 helper and a conventional median that
+averages the two middle values for even counts. `JSONReport` names the method in its
+object reports; old raw observations can be recomputed if a comparison needs it.
 Retained benchmark entry points use `run_guarded()` to print only known safe failure
 reasons or the exception type; request, response and private prompt text is suppressed.
 [CHECKS.md](CHECKS.md) records the checked revision/environment and remaining

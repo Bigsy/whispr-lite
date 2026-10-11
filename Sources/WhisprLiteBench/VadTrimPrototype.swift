@@ -75,19 +75,20 @@ extension Bench {
                 }
             }
             let original = asrMS["original"] ?? []
-            let vadPass = percentile(passMS, 0.5)
-            let vadChunk = percentile(chunkMS, 0.5)
+            let vadPass = ReportStatistics.median(passMS) ?? 0
+            let vadChunk = ReportStatistics.median(chunkMS) ?? 0
             var conditions: [String: Any] = [:]
             for variant in variants {
                 let timings = asrMS[variant.id] ?? []
                 var entry: [String: Any] = ["audio_seconds": variant.audio.duration,
                     "unified_windows": unifiedWindows(variant.audio.samples.count),
                     "synthetic_transcript": texts[variant.id] ?? "", "asr_skipped": timings.isEmpty,
-                    "asr_median_ms": percentile(timings, 0.5), "asr_p95_ms": percentile(timings, 0.95)]
+                    "asr_median_ms": ReportStatistics.median(timings) ?? 0,
+                    "asr_p95_ms": ReportStatistics.nearestRank(timings, fraction: 0.95) ?? 0]
                 if variant.id != "original" {
                     let text = texts[variant.id] ?? ""
                     let saving = original.indices.map { original[$0] - (timings.isEmpty ? 0 : timings[$0]) }
-                    let pairedSaving = percentile(saving, 0.5)
+                    let pairedSaving = ReportStatistics.median(saving) ?? 0
                     entry["text_equal_to_original"] = text == texts["original"]
                     entry["words_equal_to_original"] = WordTokens.words(text) == WordTokens.words(texts["original"] ?? "")
                     entry["paired_asr_saving_median_ms"] = pairedSaving
@@ -100,12 +101,14 @@ extension Bench {
             observations.append(["fixture": fixture.id, "audio_seconds": Double(audio.count) / Double(PCM16k.rate),
                 "vad_chunks": reference.count, "vad_repeatable": repeatable,
                 "speech_segments": ranges.map { [Double($0.lowerBound) / Double(PCM16k.rate), Double($0.upperBound) / Double(PCM16k.rate)] },
-                "vad_pass_median_ms": vadPass, "vad_pass_p95_ms": percentile(passMS, 0.95),
-                "vad_chunk_median_ms": vadChunk, "vad_chunk_p95_ms": percentile(chunkMS, 0.95),
+                "vad_pass_median_ms": vadPass,
+                "vad_pass_p95_ms": ReportStatistics.nearestRank(passMS, fraction: 0.95) ?? 0,
+                "vad_chunk_median_ms": vadChunk,
+                "vad_chunk_p95_ms": ReportStatistics.nearestRank(chunkMS, fraction: 0.95) ?? 0,
                 "conditions": conditions])
             let summary = variants.map { variant in
                 String(format: "%@=%.2fs/%dw/%.1fms", variant.id, variant.audio.duration,
-                       unifiedWindows(variant.audio.samples.count), percentile(asrMS[variant.id] ?? [], 0.5))
+                       unifiedWindows(variant.audio.samples.count), ReportStatistics.median(asrMS[variant.id] ?? []) ?? 0)
             }.joined(separator: " ")
             print(String(format: "vad-trim fixture=%@ vad-pass=%.1fms chunk=%.2fms ", fixture.id, vadPass, vadChunk) + summary
                   + " edges-equal=\(texts["edges"] == texts["original"]) pauses-equal=\(texts["pauses"] == texts["original"])")
@@ -175,10 +178,5 @@ extension Bench {
             state = state &* 1_664_525 &+ 1_013_904_223
             return (Float(state >> 8) / Float(1 << 24) * 2 - 1) * amplitude
         }
-    }
-    static func percentile(_ values: [Double], _ fraction: Double) -> Double {
-        guard !values.isEmpty else { return 0 }
-        let sorted = values.sorted()
-        return sorted[min(sorted.count - 1, Int(Double(sorted.count) * fraction))]
     }
 }
