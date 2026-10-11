@@ -181,7 +181,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         await holdWarmup?.value
         guard generation == owner, !Task.isCancelled else { throw CancellationError() }
         let recorder = timings
-        var mark: (@Sendable (TimingStage) async -> Void)?
+        var mark: StageMark?
         if recorder.isEnabled { mark = { stage in await recorder.mark(stage, session: id) } }
         if let streaming {
             await delivery?.value

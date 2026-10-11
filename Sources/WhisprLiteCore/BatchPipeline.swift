@@ -26,14 +26,14 @@ public struct BatchPipeline: Sendable {
     public var asrDeadline: Duration = .seconds(10)
     public var cleanupDeadline: Duration = .seconds(10)
     public init(backend: any ASRBackend, cleanup: any TextCleanup) { self.backend = backend; self.cleanup = cleanup }
-    public func run(_ audio: PCM16k, mark: (@Sendable (TimingStage) async -> Void)? = nil) async throws -> String? {
+    public func run(_ audio: PCM16k, mark: StageMark? = nil) async throws -> String? {
         try await process(audio, mark: mark)?.cleaned
     }
-    public func process(_ audio: PCM16k, mark: (@Sendable (TimingStage) async -> Void)? = nil) async throws -> DictationText? {
+    public func process(_ audio: PCM16k, mark: StageMark? = nil) async throws -> DictationText? {
         guard let raw = try await transcribe(audio, mark: mark) else { return nil }
         return try await finish(raw, mark: mark)
     }
-    public func transcribe(_ audio: PCM16k, mark: (@Sendable (TimingStage) async -> Void)? = nil) async throws -> String? {
+    public func transcribe(_ audio: PCM16k, mark: StageMark? = nil) async throws -> String? {
         await mark?(.asrStart)
         let result = try await withDeadline(asrDeadline, stage: "ASR") { try await backend.transcribe(audio) }
         await mark?(.asrEnd)
@@ -44,7 +44,7 @@ public struct BatchPipeline: Sendable {
     /// Reuse cleanup completed during a long recording only when every chunk is a
     /// word-for-word prefix of the authoritative full ASR and ends at a sentence.
     /// Otherwise the ordinary full cleanup remains the single source of output.
-    public func finish(_ raw: String, early: [DictationText] = [], mark: (@Sendable (TimingStage) async -> Void)? = nil) async throws -> DictationText {
+    public func finish(_ raw: String, early: [DictationText] = [], mark: StageMark? = nil) async throws -> DictationText {
         do {
             await mark?(.cleanupStart)
             let cleaned: String

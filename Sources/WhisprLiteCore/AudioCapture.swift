@@ -202,10 +202,19 @@ final class AudioWorker: @unchecked Sendable {
                 let pair = AsyncThrowingStream<PCM16k, any Error>.makeStream(bufferingPolicy: .bufferingOldest(1))
                 earlyStream = pair.stream; earlyContinuation = pair.continuation
             } else { earlyStream = nil; earlyContinuation = nil }
-            if warm {
-                for index in 0..<rollCount { let value = preRoll[(rollHead - rollCount + index + preRoll.count) % preRoll.count]; samples[count] = value; count += 1; deliver(value) }
-            }
+            if warm { appendPreRoll() }
             rollCount = 0; recording = true
+        }
+    }
+    private func appendPreRoll() {
+        var index = (rollHead - rollCount + preRoll.count) % preRoll.count
+        for _ in 0..<rollCount {
+            let value = preRoll[index]
+            samples[count] = value
+            count += 1
+            deliver(value)
+            index += 1
+            if index == preRoll.count { index = 0 }
         }
     }
     func chunks() -> AsyncThrowingStream<PCM16k, any Error>? { queue.sync { stream } }

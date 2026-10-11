@@ -835,6 +835,8 @@ whether another restart is scheduled instead of waiting for an arbitrary interva
 The capture worker releases its finished stream references at finalization. If an
 early or streaming consumer has terminated, it stops producing that stream's chunks;
 the final owned PCM still goes through the existing batch handoff.
+Warm pre-roll is replayed from its ring in chronological order by `appendPreRoll()`;
+pipeline timing callbacks use the shared `StageMark` function type.
 HTTP request builders, WAV encoding, clipboard snapshots/system access, history entry
 schema/file names and internal diagnostic counters likewise stay inside Core. The app
 constructs `TextInserter()` and can settle its clipboard transaction; tests retain
