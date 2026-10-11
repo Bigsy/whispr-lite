@@ -719,6 +719,184 @@ prompt, dictionary or generated text was saved in reports. The installed Gemma
 service and settings were unchanged. Human review of real disagreements and memory
 testing on a constrained Mac are still needed before adding a supported alternative.
 
+## MTP plus n-gram speculation and long-dictation chunks — 11 October 2026
+
+The pinned llama-server b10809 starts with `--spec-type draft-mtp,ngram-simple`,
+`draft-mtp,ngram-map-k` and `draft-mtp,ngram-mod`. All six 3-/4-token lookup variants
+completed 50/50 public synthetic requests with exact trimmed output parity against
+MTP alone. Each ran on an isolated port 11437 with the pinned Gemma/MTP weights,
+the bundled default prompt and a public dictionary; the installed service was unchanged.
+The sandbox could not create a Metal command queue even for unchanged MTP, so actual
+runs used normal session access. The first timing pass varied enough to warrant a
+focused 30-repetition comparison of `ngram-mod` at a 4-token match, with MTP passes
+before and after. All three focused conditions completed 150/150 and matched exactly.
+
+| Public synthetic input | MTP before / after median | MTP + ngram-mod4 median |
+|---|---:|---:|
+| Short question, 5 words | 85 / 87 ms | 83 ms |
+| Short correction, 8 words | 164 / 168 ms | 127 ms |
+| Short instruction, 8 words | 126 / 129 ms | 167 ms |
+| Mixed passage, 82 words | 1,134 / 1,160 ms | 806 ms |
+| Repeated copy passage, 140 words | 230 / 242 ms | 212 ms |
+
+For the mixed passage, MTP accepted 2,610/4,320 drafted tokens across 30 requests;
+the combination accepted 2,810/3,878. The same combination slowed one short input
+by about 40 ms, so it is not a general win for common short dictations. No service
+setting was adopted. Results are warm cleanup HTTP calls with public text, one server
+mode loaded at a time; they exclude ASR, capture, insertion and physical contention.
+Reports: ignored `bench/results/ngram-cleanup.json` and
+`bench/results/ngram-cleanup-followup.json`; neither stores model output.
+
+For a separate 25 s public synthetic dictation, split the WAV at a quiet point at
+14.45 s. Thirty warm Unified batch calls per segment had medians of 251 ms full,
+143 ms first chunk and 90 ms tail. The first and tail batch transcripts joined to
+the same 51-word sequence as full batch. One capture-paced streaming pass emitted
+18 partials, but only 10 were exact word prefixes of full batch, and its final
+transcript differed by one word. Thus partial text is not yet a safe finished-sentence
+boundary or authoritative replacement for batch ASR.
+
+On an isolated pinned Gemma service, 20 cleanup calls each for full, first and tail
+transcripts used the saved prompt/dictionary in RAM. Each input produced one repeatable
+output; the two cleaned chunks joined to the exact full cleaned output for this fixture.
+Median cleanup calls were 535 ms full, 366 ms first and 171 ms tail. If the 143 + 366 ms
+first-chunk work finished during the remaining 10.55 s of speech, projected release
+work would fall from about 251 + 535 = 786 ms to 90 + 171 = 261 ms, a **525 ms
+projection**. These separate calls did not run concurrently with capture/ASR in the app
+and did not measure release-to-visible-text. Reports are ignored
+`bench/results/long-chunk-batch.json`, `long-chunk-streaming.json` and
+`long-chunk-cleanup.json`; only synthetic transcripts appear in ASR reports, and no
+private prompt, dictionary or cleanup output was saved. The normal app was reopened;
+the installed cleanup service and settings were not changed. Real speech, several
+sentence boundaries, chunk overlap/ownership, final output parity and contention
+remained open at that point.
+
+The direct Parakeet path now begins speculative chunking after 10 s with a 250 ms
+quiet stretch, closing at 15 s at the latest. The worker emits bounded owned PCM;
+the coordinator stops hold warming, transcribes and cleans completed sentences during
+recording, and verifies their word prefix against final full-audio ASR. An unsafe
+boundary falls back to full cleanup. Final ASR, history and insertion still use the
+complete recording. Demo/HTTP paths are unchanged.
+
+On the same 25 s public synthetic WAV, the threshold rule cut at 14.51 s. Thirty
+warm cached Unified calls measured 254 ms full, 154 ms first chunk and 92 ms tail.
+The first chunk ended in a period and its word sequence exactly prefixed full ASR.
+The cached-model streaming regression passed on the same three synthetic WAVs. New
+capture, cleanup fallback, lifecycle and cancellation tests cover the path. Reports
+are ignored `bench/results/early-chunk-asr.json` and `early-chunk-streaming.json`.
+These are separate synthetic calls, not integrated release-to-visible-text results.
+Real dictations, multiple boundary quality, 10–15 s release contention, output parity
+and physical latency remain open.
+
+An exploratory three-call probe against the unchanged installed Gemma service used
+the bundled default prompt, a synthetic dictionary and plain input. That differs
+from this app's saved custom prompt, dictionary and transcript wrapper. Under the
+exploratory request, both full and chunked output dropped opening text, and the two
+outputs differed. This result must not be treated as an app-quality observation.
+
+The follow-up used the app's actual saved request configuration without printing or
+persisting its private prompt or dictionary. On the 25 s synthetic ASR transcript,
+full and chunked cleanup matched exactly: 51 cleaned words, including the opening
+ten-word sequence. Across four additional public synthetic composite passages, two
+were exactly equal. In the other two, chunked cleanup removed the three superseded
+words in a dictated Thursday-to-Friday correction that full cleanup retained. These
+five synthetic cases show no observed content loss from chunking, but reviewed real
+dictations and integrated release-to-visible-text timings remain open.
+
+The same 14.51 s split was also checked with the user's cached Ultra model (30 warm
+calls per WAV, no downloads). Its first chunk ended at a sentence, all 38 first-chunk
+words exactly prefixed the 51-word full transcript, and full versus chunked cleanup
+with the saved app configuration matched exactly, including the opening. Warm Ultra
+batch medians were 237 ms full, 153 ms first chunk and 81 ms tail. The ignored ASR
+report is `bench/results/early-chunk-ultra-asr.json`; this still does not measure
+physical capture or visible-text latency.
+
+Final validation with normal macOS session access: `make check` passed 93 Swift tests
+in 26 suites, 16 broker tests, 14 setup tests and four release tests; it produced a
+signed arm64 app, and doctor plus bundle smoke check passed. The cached Unified batch
+check and streaming regression above also passed. The installed cleanup service and
+app preferences were not changed by these checks.
+
+The pinned FluidAudio TDT path used by Ultra also pads short audio to its fixed
+15 s `ASRConstants.maxModelSamples` input. Existing short synthetic results above
+show 56–91 ms warm Ultra batch calls. A smaller CoreML encoder export and compatible
+library path are needed to measure a shorter window; current cached weights cannot
+benchmark that proposed change. It remains lower priority than validating the
+long-dictation chunk path.
+
+An encoder-only probe on the M1 Max (64 GB) bounds that saving. The cached Ultra
+`Encoder.mlmodelc`, loaded for CPU and Neural Engine with silent 15 s input, had a
+41.7 ms median (p90 42.1 ms) over 30 back-to-back calls after five warmups; the
+preprocessor took 1.9 ms. After 2 s idle, five single calls took 86–98 ms. A shorter
+window can therefore save only part of the warm 42 ms (roughly 25–30 ms if encoder
+time scales with input length) on under-five-second dictations, while idle state
+roughly doubles the same call. This supports keeping the hold-time keep-warm and
+deferring a new export. The temporary probe used no audio or text and was not retained.
+
+## Real dictation timings from the debug log, 11 October 2026
+
+Analysed the content-free debug log on the M1 Max (64 GB) MacBook Pro: 81 dictations
+with finalized capture on 10 October 2026, across several development builds, with
+Ultra selected from the first configuration record onward. The log holds only stage
+times, sample counts and fixed codes; no audio or text was read. Spans end at Command-V
+dispatch, not visible text, and the day includes development testing. Earlier tables in
+this file come from either this Mac or an M4 Pro, so compare only same-chip results.
+`scripts/analyze-diagnostics.py` gives the overall summary; the per-run split, length
+distribution and fit below were a one-off analysis of the same fields.
+
+The last two app runs, started after the hold-time keep-warm commit with low-latency
+capture on, had 19 complete dictations:
+
+| Stage | Median | p90 |
+|---|---:|---:|
+| Release → capture finalized | 22.6 ms | 31.0 ms |
+| ASR (Ultra) | 133.5 ms | 199.0 ms |
+| Cleanup | 244.6 ms | 477.5 ms |
+| Result → insertion dispatch | 6.2 ms | 7.0 ms |
+
+Release to dispatch had a 410 ms median. A least-squares fit over the same dictations
+gives cleanup ≈ 128 ms + 23 ms per second of audio and ASR ≈ 75 ms + 9 ms per second,
+so cleanup is about 60% of the span and grows fastest with length. Capture drain and
+dispatch are no longer material.
+
+Recording length across all 81: median 6.0 s, p25 3.3 s, p75 10.1 s, p90 15.6 s; 44%
+under 5 s, 43% from 5 to 15 s and 12% at 15 s or more. This differs from the roughly 99%
+under-five-second workload assumed by the streaming and VAD decisions above, although
+one day of development use is a small and biased sample. Dictations of 15 s or more took
+0.9–1.4 s from release to dispatch, which supports the long-dictation chunk work. The
+nine capture failures in the log all occurred between 18:12 and 18:16 UTC, before the
+hardware-sized tap buffer fix; none followed it.
+
+## Published dictation-cleanup fine-tunes, 11 October 2026
+
+Desk research only; nothing below was downloaded or measured here. Several dictation
+apps publish cleanup models fine-tuned on synthetic raw/cleaned pairs:
+[Utter E4B](https://huggingface.co/ductai199x/utter-cleanup-e4b) (Gemma 4 E4B, trained
+on Parakeet output of TTS speech, Apache 2.0),
+[Pigeon](https://huggingface.co/BadXStudio/pigeon-gemma-4-dictation) (Gemma 4 E2B and
+E4B, Gemma terms, system prompt unpublished),
+[S1-mini](https://huggingface.co/superwhisper/s1-mini) (Superwhisper, Qwen3 0.6B),
+[SpeakoFlow Mini](https://huggingface.co/SpeakoFlow/speakoflow-mini) (Qwen3.5 0.8B,
+corrections only) and [Fluid-1 Mini](https://huggingface.co/altic-dev/fluid-1-mini)
+(Qwen3.5 2B, personal non-commercial use). Their self-reported results favour
+fine-tuning over prompting, including much larger models: Utter's tuned E4B needs no
+edit on 18.8% of its main set versus 7.2% prompted and 11.3% for prompted Gemma 4
+26B-A4B; Pigeon reports 83.2% for E2B and 87.9% for E4B on its own 825 cases. Each uses
+its own test set and frozen prompt, so cross-model comparisons are unreliable, and none
+would keep this app's prompt (British spelling, private context, dictionary guidance).
+
+Candidate next steps: screen S1-mini, SpeakoFlow Mini and Utter E4B with their own
+prompts through `scripts/bench-cleanup-models.py --candidate-prompt`, judged mainly on
+the public synthetic cases; or LoRA-tune the installed E2B with the existing prompt.
+Training data could combine public sets
+([sotto-transcript-cleanup](https://huggingface.co/datasets/juanquivilla/sotto-transcript-cleanup),
+142k pairs, MIT; [handy-dictation-editing](https://huggingface.co/datasets/MagicNoThief/handy-dictation-editing),
+about 90k pairs, CC-BY-4.0), synthetic speech transcribed by Parakeet and local history.
+History targets are the installed Gemma's own output, so they need correction (review
+of disagreements with a larger local teacher model) before they can improve on it.
+History, the teacher and any model trained on it stay on this Mac and private. A
+reviewed, never-trained test set of real dictations is the prerequisite for claiming
+an improvement.
+
 Open gates: reviewed cleanup/streaming accuracy and historical parity; first-use ASR
 download/default-cache acceptance; physical hotkeys/onset/endings/devices/sleep/lock and
 permission denial/revocation/re-sign; full insertion/layout/clipboard matrix; actual Music,

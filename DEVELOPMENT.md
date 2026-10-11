@@ -354,6 +354,20 @@ whose published tag points to `09873950b95b966ad8237caca1be1d604d235db6`. A sibl
 is unnecessary. Keep `Package.resolved` with the app to freeze transitive dependencies.
 Both batch and streaming APIs are linked, while normal dictation uses batch.
 
+For direct Parakeet dictation, the audio worker publishes completed speculative PCM
+chunks while the key is held. It waits for a 250 ms quiet stretch after at least 10 s
+of audio and closes a chunk at 15 s at the latest. The worker copies owned audio on
+its serial conversion queue; the real-time callback still only hands off packets.
+Each chunk is transcribed and cleaned only if ASR ends it with sentence punctuation.
+The normal full-audio batch transcription still runs after release and owns the raw
+history text. Completed cleanup is reused only when all early chunk words exactly
+match the start of that final transcript and cleaned chunks end as sentences. The
+remaining final transcript is cleaned separately. An unsafe seam, failed early work
+or missing chunk falls back to full cleanup. The insertion target and final-only
+delivery are unchanged. Demo streaming and HTTP ASR do not use this path. A long
+recording can therefore save cleanup time without changing ASR's final words; real
+speech quality and release-to-visible-text speed still need physical validation.
+
 General's **Speech model** picker selects Unified (default), Ultra, TDT v2 or TDT v3
 when using direct Parakeet. The saved choice applies on Save; old preferences keep
 Unified. All four use batch in the app. Before loading the replacement, preparation
@@ -421,6 +435,18 @@ written to the report. Use normal Metal session access, verified GGUFs in an ign
 directory, and the pinned llama-server. Historical cleaned text and Gemma outputs are
 comparison references, not reviewed ground truth; this is cleanup-only, not an ASR or
 release-to-visible-text measurement.
+
+`python3 -B scripts/bench-ngram-cleanup.py --repetitions 10` starts the checksum-verified
+Gemma/MTP stack on isolated port 11437 and compares MTP alone with `ngram-simple`,
+`ngram-map-k` and `ngram-mod` combined with MTP at 3- and 4-token lookups. A final MTP
+pass brackets the candidates. Simple/map draft lengths are 8; mod uses minimum 4 and
+maximum 8, while the pinned MTP draft maximum stays 6. Use
+`--focus ngram-mod4 --repetitions 30` to repeat one candidate with both MTP brackets.
+It uses only public synthetic transcripts and the bundled prompt;
+responses remain in RAM. The ignored report `bench/results/ngram-cleanup.json` contains
+completion, exact-parity, draft-token and latency aggregates. Use normal Metal session
+access if the execution sandbox fails to create a command queue. The installed cleanup
+service, saved prompt and settings are untouched.
 
 `python3 -B scripts/bench-apple-cleanup.py` compares the installed Gemma service
 with Apple's on-device Foundation Model on the same real and synthetic inputs. It

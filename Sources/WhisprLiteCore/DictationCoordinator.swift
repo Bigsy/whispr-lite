@@ -5,11 +5,13 @@ import Foundation
     func end() async throws -> PCM16k
     func suspend()
     func chunks() -> AsyncThrowingStream<PCM16k, any Error>?
+    func completedChunks() -> AsyncThrowingStream<PCM16k, any Error>?
     var firstAudioUptime: Double? { get }
     var drainTimedOut: Bool { get }
 }
 public extension CaptureDriver {
     func chunks() -> AsyncThrowingStream<PCM16k, any Error>? { nil }
+    func completedChunks() -> AsyncThrowingStream<PCM16k, any Error>? { nil }
     var firstAudioUptime: Double? { nil }
     var drainTimedOut: Bool { false }
 }
@@ -37,6 +39,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     public private(set) var partial: PartialSnapshot?
     private var streaming: StreamingPipeline?
     private var delivery: Task<Void, Never>?
+    private var earlyDelivery: Task<[DictationText]?, Never>?
     private var streamingFailed = false
     public var safetyDuration: Duration = .seconds(120)
     public let timings: LatencyRecorder
@@ -101,6 +104,27 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                     }
                 } catch { await streaming.cancel(); if self.generation == owner { self.streamingFailed = true } }
             }
+        } else if let chunks = capture.completedChunks() {
+            let pipeline = self.pipeline
+            earlyDelivery = Task { [weak self] in
+                guard let self else { return nil }
+                var completed: [DictationText] = []
+                do {
+                    for try await chunk in chunks {
+                        guard self.generation == owner, self.state == .recording else { break }
+                        // Stop the periodic silence pass before using the same CoreML engine.
+                        self.pressWarmup?.cancel()
+                        await self.pressWarmup?.value
+                        guard self.generation == owner, self.state == .recording else { break }
+                        guard let raw = try await pipeline.transcribe(chunk),
+                              raw.last.map({ ".!?".contains($0) }) == true else { break }
+                        let result = try await pipeline.finish(raw)
+                        guard result.cleaned.trimmingCharacters(in: .whitespacesAndNewlines).last.map({ ".!?".contains($0) }) == true else { break }
+                        completed.append(result)
+                    }
+                    return completed
+                } catch { return completed }
+            }
         }
         ceiling = Task { [weak self] in
             do { try await Task.sleep(for: self?.safetyDuration ?? .seconds(120)) } catch { return }
@@ -129,6 +153,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
             let audio: PCM16k
             do { audio = try await self.capture.end() }
             catch {
+                _ = await self.earlyDelivery?.value
                 self.draining = false; self.media.end(id)
                 if self.generation == owner { self.fail(.capture) }
                 return
@@ -156,7 +181,11 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                     if !self.streamingFailed { text = try await streaming.finish(cleanup: self.pipeline.cleanup) }
                     else { text = try await self.pipeline.run(audio, mark: mark) }
                 } else {
-                    dictation = try await self.pipeline.process(audio, mark: mark)
+                    let early = self.earlyDelivery
+                    async let prepared = early?.value
+                    if let raw = try await self.pipeline.transcribe(audio, mark: mark) {
+                        dictation = try await self.pipeline.finish(raw, early: await prepared ?? [], mark: mark)
+                    } else { dictation = nil }
                     text = dictation?.cleaned
                 }
                 guard self.generation == owner, !Task.isCancelled else { return }
@@ -198,8 +227,18 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
             task = Task { [weak self] in
                 guard let self else { return }
                 _ = try? await self.capture.end()
+                _ = await self.earlyDelivery?.value
                 self.media.end(id); self.draining = false
                 if self.generation == owner { self.complete() }
+            }
+        } else if let earlyDelivery {
+            // A cancelled cleanup request can return before CoreML finishes. Keep
+            // the coordinator busy until the early worker has actually settled.
+            draining = true; message = "Cancelling"; state = .processing
+            task = Task { [weak self] in
+                _ = await earlyDelivery.value
+                guard let self, self.generation == owner else { return }
+                self.draining = false; self.complete()
             }
         } else { complete() }
     }
@@ -215,7 +254,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         cancel()
         capture.suspend()
     }
-    public func settlePressWarmup() async { await pressWarmup?.value }
+    public func settlePressWarmup() async { await pressWarmup?.value; _ = await earlyDelivery?.value }
     private func startHoldWarmup() {
         guard !streamingEnabled, pressWarmup == nil, let interval = holdWarmupInterval,
               let backend = pipeline.backend as? any PressWarmableASRBackend else { return }
@@ -232,6 +271,6 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         }
     }
     public func setMessage(_ value: String) { message = value; onChange?() }
-    private func fail(_ error: AppError) { diagnostics?.record(.init(.failure, session: session, code: .failure(error))); streaming = nil; delivery = nil; partial = nil; message = error.localizedDescription; state = .error; session = nil }
-    private func complete() { if let session { diagnostics?.record(.init(.completed, session: session)) }; streaming = nil; delivery = nil; partial = nil; session = nil; currentTarget = nil; message = ready ? "Ready" : "Not ready"; state = .idle }
+    private func fail(_ error: AppError) { diagnostics?.record(.init(.failure, session: session, code: .failure(error))); streaming = nil; delivery = nil; earlyDelivery = nil; partial = nil; message = error.localizedDescription; state = .error; session = nil }
+    private func complete() { if let session { diagnostics?.record(.init(.completed, session: session)) }; streaming = nil; delivery = nil; earlyDelivery = nil; partial = nil; session = nil; currentTarget = nil; message = ready ? "Ready" : "Not ready"; state = .idle }
 }

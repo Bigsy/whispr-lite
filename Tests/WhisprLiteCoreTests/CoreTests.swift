@@ -85,6 +85,18 @@ actor CountingCleanup: TextCleanup {
     var calls = 0
     func clean(_ text: String) -> String { calls += 1; return text }
 }
+actor RecordingCleanup: TextCleanup {
+    var inputs: [String] = []
+    func clean(_ text: String) -> String { inputs.append(text); return text }
+}
+actor SlowRecordingCleanup: TextCleanup {
+    var started = false
+    func clean(_ text: String) async throws -> String {
+        started = true
+        try await Task.sleep(for: .milliseconds(80))
+        return text
+    }
+}
 struct FailingCleanup: TextCleanup { func clean(_ text: String) throws -> String { throw AppError.cleanup } }
 
 @MainActor final class FakeCapture: CaptureDriver {
@@ -92,6 +104,27 @@ struct FailingCleanup: TextCleanup { func clean(_ text: String) throws -> String
     func begin() { begins += 1 }
     func end() async throws -> PCM16k { ends += 1; return try PCM16k([0.1]) }
     func suspend() { suspended += 1 }
+}
+@MainActor final class EarlyCapture: CaptureDriver {
+    var ends = 0
+    private var stream: AsyncThrowingStream<PCM16k, any Error>?
+    private var continuation: AsyncThrowingStream<PCM16k, any Error>.Continuation?
+    func begin() {
+        let pair = AsyncThrowingStream<PCM16k, any Error>.makeStream()
+        stream = pair.stream; continuation = pair.continuation
+    }
+    func completedChunks() -> AsyncThrowingStream<PCM16k, any Error>? { stream }
+    func publish() throws { continuation?.yield(try PCM16k([0.1])) }
+    func end() throws -> PCM16k { ends += 1; continuation?.finish(); return try PCM16k([0.1, 0.2]) }
+    func suspend() {}
+}
+private actor EarlyBackend: ASRBackend {
+    nonisolated let capabilities = ASRCapabilities()
+    func prepare() async throws {}
+    func readiness() async -> BackendReadiness { .ready }
+    func transcribe(_ audio: PCM16k) async throws -> ASRResult {
+        .init(text: audio.samples.count == 1 ? "First sentence." : "First sentence. Second sentence.", audioDuration: audio.duration)
+    }
 }
 @MainActor final class FakeInsertion: InsertionDriver {
     var texts: [String] = []; var shouldFail = false
@@ -131,6 +164,40 @@ private actor WarmupBackend: PressWarmableASRBackend {
     }
 }
 @MainActor @Suite struct LifecycleTests {
+    @Test func longRecordingReusesEarlyCleanupAndInsertsOnce() async throws {
+        let capture = EarlyCapture(), insertion = FakeInsertion(), media = FakeMedia()
+        let cleanup = RecordingCleanup()
+        let coordinator = DictationCoordinator(capture: capture, insertion: insertion, media: media,
+            pipeline: .init(backend: EarlyBackend(), cleanup: cleanup))
+        coordinator.ready = true
+        coordinator.press(); try capture.publish()
+        for _ in 0..<500 {
+            if await cleanup.inputs.count == 1 { break }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        #expect(await cleanup.inputs == ["First sentence."])
+        coordinator.release()
+        try await waitUntil { coordinator.state == .idle }
+        #expect(await cleanup.inputs == ["First sentence.", "Second sentence."])
+        #expect(insertion.texts == ["First sentence. Second sentence."])
+        #expect(capture.ends == 1 && media.ends.count == 1)
+    }
+    @Test func cancellingDuringEarlyCleanupWaitsAndNeverInserts() async throws {
+        let capture = EarlyCapture(), insertion = FakeInsertion(), media = FakeMedia()
+        let cleanup = SlowRecordingCleanup()
+        let coordinator = DictationCoordinator(capture: capture, insertion: insertion, media: media,
+            pipeline: .init(backend: EarlyBackend(), cleanup: cleanup))
+        coordinator.ready = true
+        coordinator.press(); try capture.publish()
+        for _ in 0..<500 {
+            if await cleanup.started { break }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+        #expect(await cleanup.started)
+        coordinator.cancel()
+        try await waitUntil { coordinator.state == .idle }
+        #expect(insertion.texts.isEmpty && capture.ends == 1 && media.ends.count == 1)
+    }
     func fixture(_ config: FakeASRConfiguration = .init()) async throws -> (DictationCoordinator, FakeCapture, FakeInsertion, FakeMedia) {
         let capture = FakeCapture(), insertion = FakeInsertion(), media = FakeMedia()
         let backend = FakeASRBackend(config); try await backend.prepare()
@@ -358,6 +425,30 @@ private actor WarmupBackend: PressWarmableASRBackend {
     }
 }
 @Suite struct AudioTests {
+    @Test func longCapturePublishesCompletedChunksWithoutChangingFinalAudio() async throws {
+        let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false))
+        let worker = try AudioWorker(format: format)
+        try worker.begin(warm: false, earlyChunks: true)
+        let stream = try #require(worker.completedChunks())
+        let reader = Task { () throws -> [PCM16k] in
+            var result: [PCM16k] = []
+            for try await chunk in stream { result.append(chunk) }
+            return result
+        }
+        let packet = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 3200))
+        packet.frameLength = 3200
+        func feed(_ value: Float, packets: Int) {
+            for index in 0..<3200 { packet.floatChannelData![0][index] = value }
+            for _ in 0..<packets { worker.receive(packet); worker.queue.sync {} }
+        }
+        feed(0.2, packets: 50); feed(0, packets: 2)
+        feed(0.3, packets: 50); feed(0, packets: 2)
+        let full = try await worker.end()
+        let chunks = try await reader.value
+        #expect(chunks.count == 2)
+        #expect(chunks.allSatisfy { (10...15).contains($0.duration) })
+        #expect(Array(full.samples.prefix(chunks.flatMap(\.samples).count)) == chunks.flatMap(\.samples))
+    }
     @MainActor @Test func engineTapCallbackRunsOffMainActorWithOwnedAudio() async throws {
         let format = try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false))
         let worker = try AudioWorker(format: format)
@@ -417,6 +508,27 @@ private actor WarmupBackend: PressWarmableASRBackend {
         let audio = try await worker.end()
         #expect(abs(audio.samples.count - 1600) <= 2)
         #expect(audio.samples.suffix(100).contains { abs($0) > 0.1 })
+    }
+}
+@Suite struct EarlyCleanupTests {
+    @Test func completedSentenceReusesCleanupAndOnlyCleansTail() async throws {
+        let backend = FakeASRBackend(); try await backend.prepare()
+        let cleanup = RecordingCleanup()
+        let pipeline = BatchPipeline(backend: backend, cleanup: cleanup)
+        let early = [DictationText(raw: "First sentence.", cleaned: "First sentence.")]
+        let result = try await pipeline.finish("First sentence. Second sentence.", early: early)
+        #expect(result.cleaned == "First sentence. Second sentence.")
+        #expect(await cleanup.inputs == ["Second sentence."])
+    }
+    @Test func mismatchOrUnfinishedSentenceFallsBackToFullCleanup() async throws {
+        let backend = FakeASRBackend(); try await backend.prepare()
+        let cleanup = RecordingCleanup()
+        let pipeline = BatchPipeline(backend: backend, cleanup: cleanup)
+        let mismatch = [DictationText(raw: "First mistake.", cleaned: "First mistake.")]
+        let unfinished = [DictationText(raw: "First sentence", cleaned: "First sentence")]
+        _ = try await pipeline.finish("First sentence. Second sentence.", early: mismatch)
+        _ = try await pipeline.finish("First sentence. Second sentence.", early: unfinished)
+        #expect(await cleanup.inputs == ["First sentence. Second sentence.", "First sentence. Second sentence."])
     }
 }
 @Suite struct LowLatencyCaptureTests {

@@ -282,6 +282,7 @@ import WhisprLiteCore
                     self.update("Microphone permission needed", detail: "Allow microphone access below, then check readiness.", readiness: .needsAttention); return
                 }
                 try self.audio.prepare(warm: preferences.warmCapture, microphoneUID: preferences.microphoneUID, streaming: preferences.backend == .demo && preferences.streamingDemo,
+                                       earlyChunks: preferences.backend == .parakeet,
                                        lowLatency: preferences.lowLatencyCapture)
                 guard AXIsProcessTrusted() else {
                     self.audio.suspend(); self.update("Accessibility permission needed", detail: "Enable Whispr Lite in Accessibility settings below, then check readiness.", readiness: .needsAttention); return
@@ -344,7 +345,8 @@ import WhisprLiteCore
             }
             do {
                 try self.audio.prepare(warm: preferences.warmCapture, microphoneUID: preferences.microphoneUID,
-                                       streaming: preferences.backend == .demo && preferences.streamingDemo, lowLatency: preferences.lowLatencyCapture)
+                                       streaming: preferences.backend == .demo && preferences.streamingDemo,
+                                       earlyChunks: preferences.backend == .parakeet, lowLatency: preferences.lowLatencyCapture)
             } catch {
                 self.update("Microphone unavailable", detail: "Reconnect or choose a microphone in Advanced, then check readiness.", readiness: .needsAttention)
                 return

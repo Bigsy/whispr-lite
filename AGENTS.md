@@ -59,7 +59,14 @@ remaining gates belong in the checks.
 - Native pasteboard tests and signing may need normal session/keychain access when the
   execution sandbox restricts them; use the permitted escalation rather than weakening
   the check or silently skipping it.
+- Metal model benchmarks may fail to create a command queue in the execution sandbox,
+  including the unchanged Gemma/MTP baseline. Diagnose startup separately, then use
+  permitted normal-session access for isolated benchmarks; do not count sandbox startup
+  failures as model or speculation incompatibility.
 - For real ASR changes, run the synthetic batch/streaming commands in `DEVELOPMENT.md`
   against cached models. Avoid repeating expensive model benchmarks for UI-only edits.
+- Unified and Ultra currently pad short audio to fixed 15-second CoreML inputs. A
+  shorter-window claim needs a compatible exported model and measured output/timing;
+  changing the app's audio length alone does not test it.
 - Record what actually passed and leave hardware/player/accuracy/performance gates open
   until measured. ASR-only or synthetic timings are not release-to-visible-text latency.

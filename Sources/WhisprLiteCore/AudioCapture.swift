@@ -67,6 +67,10 @@ final class AudioWorker: @unchecked Sendable {
     private var outputPosition = 0
     private var stream: AsyncThrowingStream<PCM16k, any Error>?
     private var streamContinuation: AsyncThrowingStream<PCM16k, any Error>.Continuation?
+    private var earlyStream: AsyncThrowingStream<PCM16k, any Error>?
+    private var earlyContinuation: AsyncThrowingStream<PCM16k, any Error>.Continuation?
+    private var earlyStart = 0
+    private var quietSamples = 0
     private var chunk: [Float] = []
     private var streamingEnabled = false
     private var endBoundary: Double?
@@ -152,7 +156,7 @@ final class AudioWorker: @unchecked Sendable {
             if status != .haveData { break }
         }
     }
-    func begin(warm: Bool, streaming: Bool = false, activity: Bool = false, timings: Bool = false) throws {
+    func begin(warm: Bool, streaming: Bool = false, earlyChunks: Bool = false, activity: Bool = false, timings: Bool = false) throws {
         try queue.sync {
             guard !recording, completion == nil else { throw AppError.capture }
             let overflow = callbackOverflow; callbackOverflow = false
@@ -164,6 +168,11 @@ final class AudioWorker: @unchecked Sendable {
                 let pair = AsyncThrowingStream<PCM16k, any Error>.makeStream(bufferingPolicy: .bufferingOldest(16))
                 stream = pair.stream; streamContinuation = pair.continuation
             } else { stream = nil; streamContinuation = nil }
+            earlyStart = 0; quietSamples = 0
+            if earlyChunks {
+                let pair = AsyncThrowingStream<PCM16k, any Error>.makeStream(bufferingPolicy: .bufferingOldest(1))
+                earlyStream = pair.stream; earlyContinuation = pair.continuation
+            } else { earlyStream = nil; earlyContinuation = nil }
             if warm {
                 for index in 0..<rollCount { let value = preRoll[(rollHead - rollCount + index + preRoll.count) % preRoll.count]; samples[count] = value; count += 1; deliver(value) }
             }
@@ -171,12 +180,33 @@ final class AudioWorker: @unchecked Sendable {
         }
     }
     func chunks() -> AsyncThrowingStream<PCM16k, any Error>? { queue.sync { stream } }
+    func completedChunks() -> AsyncThrowingStream<PCM16k, any Error>? { queue.sync { earlyStream } }
     func firstAudioUptime() -> Double? { queue.sync { firstAudio } }
     func lastDrainTimedOut() -> Bool { queue.sync { drainTimedOut } }
     private func deliver(_ value: Float) {
+        if earlyContinuation != nil {
+            let length = count - earlyStart
+            if abs(value) < 0.01 { quietSamples += 1 } else { quietSamples = 0 }
+            // Prefer a clear pause after 10 s; always finish the chunk by 15 s so it fits
+            // Parakeet's window. The final full transcription verifies every seam.
+            if (length >= 160_000 && quietSamples >= 4_000) || length >= 240_000 {
+                flushEarlyChunk()
+            }
+        }
         guard streamingEnabled, streamContinuation != nil else { return }
         chunk.append(value)
         if chunk.count == 640 { flushChunk() }
+    }
+    private func flushEarlyChunk() {
+        guard let continuation = earlyContinuation else { return }
+        let end = count
+        guard let pcm = try? PCM16k(Array(samples[earlyStart..<end])) else {
+            continuation.finish(throwing: AppError.capture); earlyContinuation = nil; return
+        }
+        earlyStart = end; quietSamples = 0
+        if case .dropped = continuation.yield(pcm) {
+            continuation.finish(throwing: AppError.overflow); earlyContinuation = nil
+        }
     }
     private func flushChunk() {
         guard !chunk.isEmpty, let continuation = streamContinuation, let pcm = try? PCM16k(chunk) else { return }
@@ -220,8 +250,13 @@ final class AudioWorker: @unchecked Sendable {
         activityEnabled = false; activity.publish(0)
         let overflow = callbackOverflow; callbackOverflow = false
         defer { count = 0; rollCount = 0; endBoundary = nil; audioEpoch = nil; outputPosition = 0 }
-        guard !failed, !overflow else { streamContinuation?.finish(throwing: AppError.overflow); streamContinuation = nil; continuation.resume(throwing: AppError.overflow); return }
+        guard !failed, !overflow else {
+            streamContinuation?.finish(throwing: AppError.overflow); streamContinuation = nil
+            earlyContinuation?.finish(throwing: AppError.overflow); earlyContinuation = nil
+            continuation.resume(throwing: AppError.overflow); return
+        }
         flushChunk(); streamContinuation?.finish(); streamContinuation = nil
+        earlyContinuation?.finish(); earlyContinuation = nil
         do { continuation.resume(returning: try PCM16k(Array(samples.prefix(count)))) }
         catch { continuation.resume(throwing: error) }
     }
@@ -261,6 +296,7 @@ final class AudioTap: @unchecked Sendable {
     private var tapInstalled = false
     private var warm = true
     private var streamingEnabled = false
+    private var earlyChunksEnabled = false
     public var showAudioActivity = true
     public var debugTimings = false
     public var recordingActivity: Float { worker?.activity.read() ?? 0 }
@@ -271,8 +307,8 @@ final class AudioTap: @unchecked Sendable {
     public init() {}
     /// `lowLatency` reads each hardware I/O cycle through a sink node instead of a 100 ms tap,
     /// so release waits about 6 ms rather than about 50 ms for the packet holding its boundary.
-    public func prepare(warm: Bool, microphoneUID: String, streaming: Bool = false, lowLatency: Bool = true) throws {
-        suspend(); self.warm = warm; streamingEnabled = streaming
+    public func prepare(warm: Bool, microphoneUID: String, streaming: Bool = false, earlyChunks: Bool = false, lowLatency: Bool = true) throws {
+        suspend(); self.warm = warm; streamingEnabled = streaming; earlyChunksEnabled = earlyChunks
         let engine = AVAudioEngine()
         if !microphoneUID.isEmpty {
             guard var device = MicrophoneDevice.available().first(where: { $0.id == microphoneUID })?.deviceID,
@@ -301,9 +337,10 @@ final class AudioTap: @unchecked Sendable {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { throw AppError.capture }
         guard let engine, let worker else { throw AppError.notReady }
         if !engine.isRunning { try engine.start() }
-        try worker.begin(warm: warm, streaming: streamingEnabled, activity: showAudioActivity, timings: debugTimings)
+        try worker.begin(warm: warm, streaming: streamingEnabled, earlyChunks: earlyChunksEnabled, activity: showAudioActivity, timings: debugTimings)
     }
     public func chunks() -> AsyncThrowingStream<PCM16k, any Error>? { worker?.chunks() }
+    public func completedChunks() -> AsyncThrowingStream<PCM16k, any Error>? { worker?.completedChunks() }
     public func end() async throws -> PCM16k {
         guard let worker else { throw AppError.capture }
         let boundary = AVAudioTime.seconds(forHostTime: AudioGetCurrentHostTime())
