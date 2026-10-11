@@ -26,7 +26,6 @@ if [[ -n "${APP_BUILD_NUMBER:-}" ]]; then
 fi
 cp Resources/*.txt "$app/Contents/Resources/"
 cp Vendor/mediaremote-adapter/patches/broker.pl "$app/Contents/Resources/"
-cp Vendor/mediaremote-adapter/bin/mediaremote-adapter.pl "$app/Contents/Resources/"
 cp Vendor/mediaremote-adapter/LICENSE "$app/Contents/Resources/MediaRemoteAdapter-LICENSE"
 cp THIRD_PARTY_NOTICES.md "$app/Contents/Resources/"
 parakeet_source="${PARAKEET_CORE_PATH:-$PWD/$task_scratch_path/checkouts/parakeet-ane-server}"

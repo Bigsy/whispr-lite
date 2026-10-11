@@ -6,7 +6,8 @@ mkdir -p "$framework/Versions/A/Resources"
 task_sdk_path=$(xcrun --sdk macosx --show-sdk-path)
 xcrun clang -isysroot "$task_sdk_path" -arch arm64 -mmacosx-version-min=14.0 -dynamiclib -fobjc-arc -fvisibility=default \
   -I Vendor/mediaremote-adapter/include -I Vendor/mediaremote-adapter/src \
-  Vendor/mediaremote-adapter/src/adapter/*.m Vendor/mediaremote-adapter/src/private/*.m \
+  Vendor/mediaremote-adapter/src/adapter/{env,get,globals,keys,now_playing,repeat,seek,send,shuffle,speed,stream}.m \
+  Vendor/mediaremote-adapter/src/private/*.m \
   Vendor/mediaremote-adapter/src/utility/*.m \
   -framework Foundation -framework AppKit -framework UniformTypeIdentifiers \
   -install_name '@rpath/MediaRemoteAdapter.framework/Versions/A/MediaRemoteAdapter' \

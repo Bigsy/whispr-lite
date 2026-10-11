@@ -5,6 +5,8 @@ Upstream v0.7.6 files are unchanged. `broker.m` adds an exported `adapter_broker
 upstream `globals.m`, `MediaRemote.m`, `helpers.m` and this addition into an arm64 framework.
 The benchmark builds full upstream sources separately in `.build/media-upstream` for its
 one-shot `get` comparison. The broker restores default SIGINT/SIGTERM handling at entry.
+Unused upstream build/test tooling is omitted from this vendored copy; the adapter's
+public headers and sources needed for the one-shot benchmark are retained unchanged.
 
 The protocol uses inherited pipes, UTF-8 newline-delimited JSON, version 1, a helper UUID,
 request/session UUIDs and a bounded `deadlineMS`. Only `snapshot`, `begin`, `end` and
