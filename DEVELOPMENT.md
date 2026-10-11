@@ -562,6 +562,8 @@ errors offer raw text, ASR errors report transcription failure, and health/model
 readiness reports an unavailable service. Actual token-budget failures retain the
 context-limit message. Local cleanup benchmark requests use a proxy-free opener so
 private prompts and transcripts remain on the Mac even with proxy settings.
+The private file helper creates/tightens 0700 directories and 0600 files, rejects
+symlinks, and writes settings through 0600 temporary files renamed in the same directory.
 
 ## Checks and benchmarks
 

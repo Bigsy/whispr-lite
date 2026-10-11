@@ -146,22 +146,21 @@ public struct SettingsValidationError: Error, Equatable, Sendable {
         catch { throw SettingsValidationError(.asrEndpoint, "Speech recognition URL must be a local HTTP address.") }
         do { _ = try LocalEndpoint(value.cleanupEndpoint) }
         catch { throw SettingsValidationError(.cleanupEndpoint, "Cleanup URL must be a local HTTP address.") }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-                                              attributes: [.posixPermissions: 0o700])
+        try PrivateFiles.ensureDirectory(at: directory)
         var files = [("preferences.json", try JSONEncoder().encode(value))]
         if let prompt { files.append(("prompt.txt", Data(prompt.utf8))) }
         if let dictionary { files.append(("dictionary.txt", Data(dictionary.utf8))) }
+        for (name, _) in files { _ = try PrivateFiles.regularFileExists(at: directory.appendingPathComponent(name)) }
         for (name, data) in files {
             let path = directory.appendingPathComponent(name)
-            try data.write(to: path, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path.path)
+            try PrivateFiles.writeAtomically(data, to: path)
         }
         preferences = value
     }
     public func privateText(_ name: String) throws -> String? {
         guard ["prompt.txt", "dictionary.txt"].contains(name) else { throw AppError.unsupported }
         let path = directory.appendingPathComponent(name)
-        guard FileManager.default.fileExists(atPath: path.path) else { return nil }
+        guard try PrivateFiles.regularFileExists(at: path) else { return nil }
         guard (try path.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) <= Self.maxPrivateTextBytes else { throw AppError.contextLimit }
         return try String(contentsOf: path, encoding: .utf8)
     }

@@ -887,6 +887,21 @@ private actor FinishGatedSession: ASRSession {
         #expect(try store.privateText("dictionary.txt") == "updated synthetic dictionary")
         #expect(try SettingsStore(directory: root).preferences.pauseMedia == false)
     }
+    @Test func settingsRejectSymlinkAndTightenExistingDirectory() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("whispr-test-\(UUID())")
+        let outside = FileManager.default.temporaryDirectory.appendingPathComponent("whispr-synthetic-\(UUID())")
+        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: outside) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false,
+                                                attributes: [.posixPermissions: 0o755])
+        try Data("synthetic outside".utf8).write(to: outside)
+        let store = try SettingsStore(directory: root)
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("prompt.txt"), withDestinationURL: outside)
+        #expect(throws: CocoaError.self) { try store.save(Preferences(), prompt: "synthetic prompt", dictionary: nil) }
+        #expect(throws: CocoaError.self) { try store.privateText("prompt.txt") }
+        #expect(try String(contentsOf: outside, encoding: .utf8) == "synthetic outside")
+        #expect(try FileManager.default.attributesOfItem(atPath: root.path)[.posixPermissions] as? Int == 0o700)
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("preferences.json").path))
+    }
 }
 @Suite struct StreamingAudioTests {
     @Test func invalidStreamingChunkFinishesInsteadOfGrowing() async throws {

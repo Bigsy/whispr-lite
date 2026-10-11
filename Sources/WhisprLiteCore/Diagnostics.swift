@@ -192,13 +192,9 @@ public final class DiagnosticLogger: @unchecked Sendable {
         }
     }
     private func open() throws {
-        let manager = FileManager.default
-        try manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        try PrivateFiles.ensureDirectory(at: directory)
         let file = directory.appendingPathComponent("debug.jsonl")
-        if !manager.fileExists(atPath: file.path) { guard manager.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) } }
-        guard try file.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw CocoaError(.fileWriteNoPermission) }
-        try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        try PrivateFiles.ensureFile(at: file)
         handle = try FileHandle(forWritingTo: file); bytes = Int(try handle!.seekToEnd())
     }
     private func write(_ value: DiagnosticRecord) throws {

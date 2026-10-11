@@ -80,16 +80,12 @@ public final class DictationHistory: @unchecked Sendable {
     /// Explicit tests/deletion only; normal dictation never waits for disk.
     public func flush() async { await withCheckedContinuation { continuation in queue.async { continuation.resume() } } }
     private func open() throws {
-        let manager = FileManager.default
-        try manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+        try PrivateFiles.ensureDirectory(at: directory)
         var folder = directory, values = URLResourceValues()
         values.isExcludedFromBackup = true
         try folder.setResourceValues(values)
         let file = directory.appendingPathComponent(Self.fileName)
-        if !manager.fileExists(atPath: file.path) { guard manager.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw CocoaError(.fileWriteUnknown) } }
-        guard try file.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw CocoaError(.fileWriteNoPermission) }
-        try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        try PrivateFiles.ensureFile(at: file)
         handle = try FileHandle(forWritingTo: file); bytes = Int(try handle!.seekToEnd())
     }
     private func write(_ entry: Entry) throws {
