@@ -450,14 +450,19 @@ import WhisprLiteCore
     }
     @objc private func locked() { suspendSession() }
     @objc func retry() { resumeSession() }
+    private func reveal(_ directory: URL) {
+        let destination = FileManager.default.fileExists(atPath: directory.path)
+            ? directory : directory.deletingLastPathComponent()
+        NSWorkspace.shared.open(destination)
+    }
     func showDiagnosticLogs() {
         guard let diagnostics else { return }
-        if FileManager.default.fileExists(atPath: diagnostics.directory.path) { NSWorkspace.shared.open(diagnostics.directory) }
+        reveal(diagnostics.directory)
     }
     var diagnosticLogFailed: Bool { diagnostics?.hasFailed == true }
     func showDictationHistory() {
         guard let history else { return }
-        if FileManager.default.fileExists(atPath: history.directory.path) { NSWorkspace.shared.open(history.directory) }
+        reveal(history.directory)
     }
     func deleteDictationHistory() async -> Bool {
         guard let history else { return false }
