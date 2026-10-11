@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Optional cleanup baseline, separate from fake orchestration. No private dictionaries required."""
+"""Optional cleanup baseline. No private dictionaries required."""
 import argparse
 import json
 from pathlib import Path

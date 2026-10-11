@@ -562,8 +562,8 @@ private prompts and transcripts remain on the Mac even with proxy settings.
 - `make doctor` / `make status`: read-only toolchain, plist, signature, port and service health checks.
   Missing services are reported and do not fail the fake development check.
 - `make check`: tests, build, doctor and bundle smoke check.
-- `make bench`: 30 warm fake orchestration observations. Its JSON explicitly excludes real
-  inference, visible insertion and performance claims.
+- The fake orchestration benchmark was retired in the D15 tidy-up. Use the real
+  synthetic batch and streaming checks above for ASR behavior.
 - `make bench-media`: 30 one-shot state reads versus 30 persistent broker state reads,
   plus a native state probe. Default is read-only. `scripts/bench-media.py --cycles` performs
   30 actual pause/resume cycles on an identifiable playing player; run for each player.

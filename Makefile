@@ -1,4 +1,4 @@
-.PHONY: build test install uninstall status doctor bench bench-media check candidate-check cleanup-prepare cleanup-install cleanup-uninstall
+.PHONY: build test install uninstall status doctor bench-media check candidate-check cleanup-prepare cleanup-install cleanup-uninstall
 build:
 	./scripts/build-app.sh
 test:
@@ -15,9 +15,6 @@ status:
 	./scripts/doctor.sh --status
 doctor:
 	./scripts/doctor.sh
-bench:
-	mkdir -p bench/results
-	CLANG_MODULE_CACHE_PATH=$(CURDIR)/.build/clang-cache SWIFTPM_MODULECACHE_OVERRIDE=$(CURDIR)/.build/swift-cache swift run -c release --disable-sandbox --disable-keychain --manifest-cache none --cache-path .build/package-cache whispr-bench > bench/results/fake-orchestration.json
 bench-media:
 	./scripts/bench-media.py
 check: test build doctor

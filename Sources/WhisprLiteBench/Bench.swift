@@ -11,6 +11,10 @@ import WhisprLiteCore
         }
     }
     static func run() async throws {
+        guard CommandLine.arguments.count > 1 else {
+            fputs("Specify a benchmark or check mode; see DEVELOPMENT.md.\n", stderr)
+            exit(2)
+        }
         if CommandLine.arguments.contains("--cleanup-prefill-check") {
             try await cleanupPrefillCheck()
             return
@@ -86,22 +90,8 @@ import WhisprLiteCore
             print("candidate ready=\(await backend.readiness() == .ready) audio-seconds=\(result.audioDuration)")
             return
         }
-        let backend = FakeASRBackend(); try await backend.prepare()
-        let pipeline = BatchPipeline(backend: backend, cleanup: DemoCleanup())
-        let audio = try PCM16k((0..<128_000).map { 0.05 * sin(Float($0) * 0.04) })
-        var samples: [Double] = []
-        _ = try await pipeline.run(audio)
-        for _ in 0..<30 {
-            let start = ContinuousClock.now
-            _ = try await pipeline.run(audio)
-            let duration = start.duration(to: .now).components
-            samples.append(Double(duration.seconds) * 1000 + Double(duration.attoseconds) / 1e15)
-        }
-        let sorted = samples.sorted()
-        let result: [String: Any] = ["schema": 1, "mode": "fake-orchestration-only", "count": samples.count,
-            "audio_seconds": audio.duration, "raw_ms": samples, "median_ms": sorted[15],
-            "p90_ms": sorted[26], "p95_ms": sorted[28], "visible_text_measured": false]
-        print(String(data: try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]), encoding: .utf8)!)
+        fputs("Unknown or incomplete benchmark mode; see DEVELOPMENT.md.\n", stderr)
+        exit(2)
     }
     @MainActor static func cleanupPrefillCheck() async throws {
         let store = try SettingsStore()
