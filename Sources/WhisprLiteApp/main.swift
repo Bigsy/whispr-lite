@@ -40,6 +40,21 @@ import WhisprLiteCore
     private var recordingShortcut = false
     private var observers: [NSObjectProtocol] = []
     private var settingsEpoch = UUID()
+    private func tearDownPipeline(bumpEpoch: Bool, clearCoordinator: Bool = false,
+                                  settleClipboard: Bool = false) {
+        // Invalidate queued tap callbacks before stopping the tap or cancelling preparation.
+        if bumpEpoch { settingsEpoch = UUID() }
+        captureRecovery?.cancel(); captureRecovery = nil
+        setupTask?.cancel(); setupTask = nil
+        hotkey?.stop(); hotkey = nil
+        if let coordinator { coordinator.suspend() }
+        else { audio.suspend() }
+        if clearCoordinator { coordinator = nil }
+        pipelineReady = false; tapReady = false
+        indicator.hide()
+        if settleClipboard { insertion.clipboard.settle() }
+        media.shutdown()
+    }
     func applicationDidFinishLaunching(_ notification: Notification) {
         let command: LaunchCommand
         do { command = try LaunchCommand.parse(Array(CommandLine.arguments.dropFirst())) }
@@ -109,7 +124,7 @@ import WhisprLiteCore
                 try JSONReport.write(report, to: output)
                 print("readiness-check ready=\(ready) event-tap=\(tapReady)")
             } catch { success = false; print("readiness report could not be written") }
-            setupTask?.cancel(); hotkey?.stop(); coordinator?.suspend(); audio.suspend(); media.shutdown()
+            tearDownPipeline(bumpEpoch: true, settleClipboard: true)
             try? await Task.sleep(for: .milliseconds(700))
             exit(success ? 0 : 1)
         }
@@ -148,11 +163,8 @@ import WhisprLiteCore
         }
         let previousSetup = setupTask
         let previousCoordinator = coordinator
-        previousSetup?.cancel(); hotkey?.stop(); hotkey = nil
-        previousCoordinator?.suspend(); audio.suspend(); media.shutdown()
-        indicator.hide()
-        pipelineReady = false; tapReady = false
-        settingsEpoch = UUID(); let epoch = settingsEpoch
+        tearDownPipeline(bumpEpoch: true, clearCoordinator: true)
+        let epoch = settingsEpoch
         let preferences = store.preferences
         diagnostics?.setEnabled(preferences.debugLogging)
         diagnostics?.record(.init(.configuration, configuration: .init(preferences)))
@@ -378,18 +390,14 @@ import WhisprLiteCore
     private func suspendSession() {
         diagnostics?.record(.init(.suspended))
         sessionAvailable = false
-        settingsEpoch = UUID(); setupTask?.cancel(); hotkey?.stop(); hotkey = nil
-        pipelineReady = false; tapReady = false
-        coordinator?.suspend(); audio.suspend(); media.shutdown(); indicator.hide()
+        tearDownPipeline(bumpEpoch: true)
         update("Dictation paused", detail: "Unlock your Mac or return to this session, then check readiness.", readiness: .needsAttention)
     }
     private func resumeSession() { sessionAvailable = true; configure() }
     func beginShortcutRecording() {
         guard !recordingShortcut else { return }
         recordingShortcut = true
-        settingsEpoch = UUID(); setupTask?.cancel(); hotkey?.stop(); hotkey = nil
-        pipelineReady = false; tapReady = false
-        coordinator?.suspend(); audio.suspend(); media.shutdown(); indicator.hide()
+        tearDownPipeline(bumpEpoch: true)
         update("Choosing a shortcut", detail: "Dictation is paused while you record the shortcut.", readiness: .needsAttention)
     }
     func endShortcutRecording() {
@@ -599,14 +607,12 @@ import WhisprLiteCore
         try JSONReport.write(report, to: output)
     }
     @objc private func quit() {
-        setupTask?.cancel(); hotkey?.stop(); coordinator?.suspend(); audio.suspend()
-        indicator.hide()
-        insertion.clipboard.settle(); media.shutdown()
+        tearDownPipeline(bumpEpoch: true, settleClipboard: true)
         Task { try? await Task.sleep(for: .milliseconds(700)); NSApp.terminate(nil) }
     }
     func applicationWillTerminate(_ notification: Notification) {
         diagnostics?.record(.init(.shutdown))
-        coordinator?.suspend(); audio.suspend(); media.shutdown(); insertion.clipboard.settle(); indicator.hide()
+        tearDownPipeline(bumpEpoch: true, settleClipboard: true)
     }
 }
 /// Settings that select and load the ASR model; anything else can change without a reload.

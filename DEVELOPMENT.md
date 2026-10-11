@@ -31,6 +31,10 @@ endpoint and HTTP client; app startup retains the roughly 15-second retry sequen
 The coordinator owns an immutable batch pipeline and keeps its insertion-session marker
 private. Demo ASR test knobs and the fake streaming session are internal; the public
 demo backend remains available to the app. Timing stages contain only emitted stages.
+App reconfiguration, session suspend, shortcut capture, probe exit and termination use
+one `tearDownPipeline` path. It advances the settings epoch before cancelling queued
+work, stops the tap, suspends capture, shuts down media and resets readiness; a new
+configuration drops the suspended old coordinator after retaining it for setup settlement.
 ASR preparation progress stores stable enum codes in diagnostics and exposes separate
 display labels for the Settings status line.
 LatencyRecorder supplies session-scoped millisecond spans for app and synthetic native
