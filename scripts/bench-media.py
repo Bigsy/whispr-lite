@@ -12,6 +12,7 @@ import time
 ROOT = Path(__file__).resolve().parent.parent
 VENDOR = ROOT / 'Vendor/mediaremote-adapter'
 FRAMEWORK = ROOT / '.build/media/MediaRemoteAdapter.framework'
+UPSTREAM_FRAMEWORK = ROOT / '.build/media-upstream/MediaRemoteAdapter.framework'
 
 
 def distribution(values):
@@ -25,13 +26,14 @@ def main():
     parser.add_argument('--cycles', action='store_true', help='Actually pause/resume the active identifiable player for 30 cycles')
     args = parser.parse_args()
     subprocess.run([str(ROOT / 'scripts/build-media.sh')], check=True)
+    subprocess.run([str(ROOT / 'scripts/build-media-upstream.sh')], check=True)
     sdk = subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip()
-    native_source = ROOT / '.build/media/native-probe.m'
+    native_source = ROOT / '.build/media-upstream/native-probe.m'
     native_source.write_text('void adapter_get(void); int main(void) { adapter_get(); return 0; }\n')
-    native = ROOT / '.build/media/native-probe'
+    native = ROOT / '.build/media-upstream/native-probe'
     subprocess.run(['xcrun', 'clang', '-isysroot', sdk, '-arch', 'arm64', str(native_source),
-                    '-F', str(FRAMEWORK.parent), '-framework', 'MediaRemoteAdapter',
-                    '-Wl,-rpath,' + str(FRAMEWORK.parent), '-o', str(native)], check=True)
+                    '-F', str(UPSTREAM_FRAMEWORK.parent), '-framework', 'MediaRemoteAdapter',
+                    '-Wl,-rpath,' + str(UPSTREAM_FRAMEWORK.parent), '-o', str(native)], check=True)
     native_result = subprocess.run([str(native)], capture_output=True, timeout=5)
     try:
         native_state = json.loads(native_result.stdout)
@@ -42,7 +44,7 @@ def main():
     for _ in range(30):
         start = time.monotonic()
         # Keep metadata in process memory only; report no media titles.
-        subprocess.run(['/usr/bin/perl', str(VENDOR / 'bin/mediaremote-adapter.pl'), str(FRAMEWORK),
+        subprocess.run(['/usr/bin/perl', str(VENDOR / 'bin/mediaremote-adapter.pl'), str(UPSTREAM_FRAMEWORK),
                         'get', '--no-artwork'], capture_output=True, check=True, timeout=5)
         one_shot.append((time.monotonic()-start)*1000)
     process = subprocess.Popen(['/usr/bin/perl', str(VENDOR / 'patches/broker.pl'), str(FRAMEWORK / 'MediaRemoteAdapter')],

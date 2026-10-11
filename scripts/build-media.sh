@@ -5,9 +5,11 @@ framework="$PWD/.build/media/MediaRemoteAdapter.framework"
 mkdir -p "$framework/Versions/A/Resources"
 task_sdk_path=$(xcrun --sdk macosx --show-sdk-path)
 xcrun clang -isysroot "$task_sdk_path" -arch arm64 -mmacosx-version-min=14.0 -dynamiclib -fobjc-arc -fvisibility=default \
-  -I Vendor/mediaremote-adapter/include -I Vendor/mediaremote-adapter/src \
-  Vendor/mediaremote-adapter/src/adapter/*.m Vendor/mediaremote-adapter/src/private/*.m \
-  Vendor/mediaremote-adapter/src/utility/*.m Vendor/mediaremote-adapter/patches/broker.m \
+  -I Vendor/mediaremote-adapter/src \
+  Vendor/mediaremote-adapter/src/adapter/globals.m \
+  Vendor/mediaremote-adapter/src/private/MediaRemote.m \
+  Vendor/mediaremote-adapter/src/utility/helpers.m \
+  Vendor/mediaremote-adapter/patches/broker.m \
   -framework Foundation -framework AppKit -framework UniformTypeIdentifiers \
   -install_name '@rpath/MediaRemoteAdapter.framework/Versions/A/MediaRemoteAdapter' \
   -o "$framework/Versions/A/MediaRemoteAdapter"

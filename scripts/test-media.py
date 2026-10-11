@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 import queue
+import select
+import signal
 import subprocess
 import threading
 import time
@@ -224,6 +226,28 @@ class LeaseTests(unittest.TestCase):
         b.process.stdin.write(b'x' * 8193); b.process.stdin.flush()
         b.process.wait(timeout=2)
         self.assertEqual(b.commands, [])
+
+
+class RealFrameworkTests(unittest.TestCase):
+    def test_broker_exits_on_sigterm(self):
+        subprocess.run([str(ROOT / 'scripts/build-media.sh')], check=True)
+        framework = ROOT / '.build/media/MediaRemoteAdapter.framework/MediaRemoteAdapter'
+        broker = ROOT / 'Vendor/mediaremote-adapter/patches/broker.pl'
+        process = subprocess.Popen(['/usr/bin/perl', str(broker), str(framework)],
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL)
+        try:
+            ready, _, _ = select.select([process.stdout], [], [], 2)
+            self.assertTrue(ready, 'real broker did not become ready')
+            self.assertEqual(json.loads(process.stdout.readline())['type'], 'ready')
+            process.send_signal(signal.SIGTERM)
+            self.assertEqual(process.wait(timeout=1), -signal.SIGTERM)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=2)
+            process.stdin.close()
+            process.stdout.close()
 
 if __name__ == '__main__':
     build()

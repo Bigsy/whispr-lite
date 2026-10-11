@@ -9,6 +9,8 @@ in [Vendor/mediaremote-adapter/LICENSE](Vendor/mediaremote-adapter/LICENSE) and 
 into the app bundle. Original source files are unchanged. Local additions live only in
 `Vendor/mediaremote-adapter/patches/`; see its README. The app does not link this framework:
 the bundled framework is dynamically loaded by the system Perl host.
+The bundled broker framework compiles only the upstream globals, MediaRemote wrapper and
+utility helpers it uses. The full upstream adapter is built separately for local benchmarks.
 
 ## Behavioral reference
 

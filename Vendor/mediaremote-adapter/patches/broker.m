@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <math.h>
+#include <signal.h>
 
 static NSString *generation;
 static NSMutableData *input, *output;
@@ -276,6 +277,9 @@ static void handle(NSDictionary *request) {
     else brokerShutdown();
 }
 void adapter_broker(void) {
+    // An upstream adapter constructor only stops one run-loop iteration.
+    signal(SIGTERM, SIG_DFL);
+    signal(SIGINT, SIG_DFL);
     @autoreleasepool {
         generation = NSUUID.UUID.UUIDString;
         const char *debug = getenv("WHISPR_DEBUG_DIAGNOSTICS");
