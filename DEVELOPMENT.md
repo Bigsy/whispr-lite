@@ -77,6 +77,8 @@ the synthetic renders). A page taller than the screen is capped and scrolls, wit
 visible. The prompt and dictionary editors scroll inside; drag the grip under each to
 resize it, and the window follows. Editor heights are remembered. Help/errors wrap.
 Saving unrelated settings preserves custom hotkey configurations.
+The Hold shortcut picker binds directly to the saved hotkey value; its three presets
+are shared with the hotkey model, and an unsaved custom value stays selectable by name.
 
 Cleanup's **Use default prompt** replaces only the editor text; **Save settings** applies
 it. The general default makes minimal edits, preserves meaning and uncertainty, treats

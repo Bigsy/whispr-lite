@@ -24,7 +24,6 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
     @State private var promptEdited = false
     @State private var dictionaryEdited = false
     @State private var error: String
-    @State private var shortcut: String
     @State private var recordingShortcut = false
     @State private var microphones: [MicrophoneDevice] = []
     @State private var confirmingHistoryDelete = false
@@ -48,19 +47,11 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
         _dictionaryUnreadable = State(initialValue: loadedDictionary.unreadable)
         _error = State(initialValue: loadedPrompt.unreadable || loadedDictionary.unreadable
             ? "A private prompt or dictionary could not be read. Its file will be preserved until you edit or reset it." : "")
-        _shortcut = State(initialValue: Self.selection(for: store.preferences.hotkey))
     }
     private static func loadPrivateText(_ file: PrivateFile, fallback: String, store: SettingsStore) -> (text: String, unreadable: Bool) {
         do { return (try store.privateText(file) ?? fallback, false) }
         catch { return (fallback, true) }
     }
-    private static func selection(for hotkey: HotkeyConfiguration) -> String {
-        if hotkey == .init() { return "fn" }
-        else if hotkey == .init(keyCode: KeyCode.space, modifiers: CGEventFlags.maskControl.rawValue) { return "ctrl-space" }
-        else if hotkey == .init(keyCode: KeyCode.space, modifiers: CGEventFlags.maskControl.rawValue | CGEventFlags.maskAlternate.rawValue) { return "ctrl-alt-space" }
-        else { return "custom" }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -91,7 +82,6 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
         .sheet(isPresented: $recordingShortcut, onDismiss: { app.endShortcutRecording() }) {
             ShortcutRecordingSheet(recorded: { configuration in
                 preferences.hotkey = configuration
-                shortcut = Self.selection(for: configuration)
                 recordingShortcut = false
             }, cancelled: { recordingShortcut = false })
         }
@@ -153,11 +143,13 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
                 }
                 Divider()
                 row("Hold shortcut") {
-                    Picker("Hold shortcut", selection: $shortcut) {
-                        Text("Globe / Fn").tag("fn")
-                        Text("Control + Space").tag("ctrl-space")
-                        Text("Control + Option + Space").tag("ctrl-alt-space")
-                        if shortcut == "custom" { Text(ShortcutLabel.name(preferences.hotkey)).tag("custom") }
+                    Picker("Hold shortcut", selection: $preferences.hotkey) {
+                        ForEach(HotkeyConfiguration.presets, id: \.self) { preset in
+                            Text(ShortcutLabel.name(preset)).tag(preset)
+                        }
+                        if !HotkeyConfiguration.presets.contains(preferences.hotkey) {
+                            Text(ShortcutLabel.name(preferences.hotkey)).tag(preferences.hotkey)
+                        }
                     }.labelsHidden().fixedSize()
                     Button("Record…") {
                         app.beginShortcutRecording()
@@ -338,12 +330,6 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
     }
     private func save() {
         do {
-            switch shortcut {
-            case "ctrl-space": preferences.hotkey = .init(keyCode: KeyCode.space, modifiers: CGEventFlags.maskControl.rawValue)
-            case "ctrl-alt-space": preferences.hotkey = .init(keyCode: KeyCode.space, modifiers: CGEventFlags.maskControl.rawValue | CGEventFlags.maskAlternate.rawValue)
-            case "fn": preferences.hotkey = .init()
-            default: break // Preserve custom saved gestures when changing unrelated settings.
-            }
             try store.save(preferences,
                 prompt: promptUnreadable && !promptEdited ? nil : prompt,
                 dictionary: dictionaryUnreadable && !dictionaryEdited ? nil : dictionary)

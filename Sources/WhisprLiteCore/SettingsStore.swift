@@ -12,7 +12,7 @@ public enum ParakeetModel: String, Codable, CaseIterable, Sendable {
         }
     }
 }
-public struct HotkeyConfiguration: Codable, Sendable, Equatable {
+public struct HotkeyConfiguration: Codable, Sendable, Hashable {
     public var keyCode: UInt16? = nil // nil: Globe/Fn, or a legacy modifier-only chord
     public var modifiers: UInt64 = 0
     public init(keyCode: UInt16? = nil, modifiers: UInt64 = 0) { self.keyCode = keyCode; self.modifiers = modifiers }

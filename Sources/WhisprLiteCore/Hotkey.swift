@@ -2,6 +2,15 @@ import Foundation
 import CoreGraphics
 import IOKit.hidsystem
 
+public extension HotkeyConfiguration {
+    static let presets: [Self] = [
+        .init(),
+        .init(keyCode: KeyCode.space, modifiers: CGEventFlags.maskControl.rawValue),
+        .init(keyCode: KeyCode.space,
+              modifiers: CGEventFlags.maskControl.rawValue | CGEventFlags.maskAlternate.rawValue)
+    ]
+}
+
 /// Physical modifier key codes and device flags from macOS IOLLEvent.h.
 public enum HotkeyModifier: UInt16, CaseIterable, Sendable {
     case rightCommand = 54, leftCommand = 55, leftShift = 56, leftOption = 58
