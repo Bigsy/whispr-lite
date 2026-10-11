@@ -1,23 +1,24 @@
 import Testing
 import Foundation
 import CoreGraphics
+import Carbon
 import AVFoundation
 @testable import WhisprLiteCore
 
 @Suite struct HotkeyTests {
     @Test func fnShortcutPassesThroughAndCancelsRecording() {
         var machine = HotkeyMachine(.init())
-        #expect(machine.consume(.init(.flags, code: 63, flags: HotkeyMachine.fnMask)).0 == .press)
-        let shortcut = machine.consume(.init(.down, code: 123, flags: HotkeyMachine.fnMask))
-        #expect(shortcut.0 == .cancel && !shortcut.1)
-        #expect(machine.consume(.init(.flags, code: 63)).0 == nil)
+        #expect(machine.consume(.init(.flags, code: HotkeyModifier.fn.rawValue, flags: HotkeyMachine.fnMask)).action == .press)
+        let shortcut = machine.consume(.init(.down, code: UInt16(kVK_LeftArrow), flags: HotkeyMachine.fnMask))
+        #expect(shortcut.action == .cancel && !shortcut.swallow)
+        #expect(machine.consume(.init(.flags, code: HotkeyModifier.fn.rawValue)).action == nil)
     }
     @Test func repeatInjectedAndModifierChangesDoNotRetrigger() {
-        var machine = HotkeyMachine(.init(keyCode: 49, modifiers: CGEventFlags.maskControl.rawValue))
-        #expect(machine.consume(.init(.down, code: 49, flags: CGEventFlags.maskControl.rawValue, injected: true)).0 == nil)
-        #expect(machine.consume(.init(.down, code: 49, flags: CGEventFlags.maskControl.rawValue)).0 == .press)
-        #expect(machine.consume(.init(.down, code: 49, flags: CGEventFlags.maskControl.rawValue, repeated: true)).0 == nil)
-        #expect(machine.consume(.init(.up, code: 49)).0 == .release)
+        var machine = HotkeyMachine(.init(keyCode: KeyCode.space, modifiers: CGEventFlags.maskControl.rawValue))
+        #expect(machine.consume(.init(.down, code: KeyCode.space, flags: CGEventFlags.maskControl.rawValue, injected: true)).action == nil)
+        #expect(machine.consume(.init(.down, code: KeyCode.space, flags: CGEventFlags.maskControl.rawValue)).action == .press)
+        #expect(machine.consume(.init(.down, code: KeyCode.space, flags: CGEventFlags.maskControl.rawValue, repeated: true)).action == nil)
+        #expect(machine.consume(.init(.up, code: KeyCode.space)).action == .release)
     }
 }
 @MainActor final class MemoryClipboard: ClipboardAccess {
@@ -33,14 +34,14 @@ import AVFoundation
     @Test func modifierOnlyAndFnModifierShortcutsKeepOrdinaryShortcuts() {
         let modifiers = CGEventFlags.maskControl.rawValue | CGEventFlags.maskAlternate.rawValue
         var machine = HotkeyMachine(.init(modifiers: modifiers))
-        #expect(machine.consume(.init(.flags, code: 59, flags: modifiers)).0 == .press)
-        #expect(machine.consume(.init(.down, code: 1, flags: modifiers)).0 == .cancel)
-        #expect(machine.consume(.init(.flags, code: 59)).0 == nil)
-        #expect(machine.consume(.init(.flags, code: 59, flags: modifiers)).0 == .press)
+        #expect(machine.consume(.init(.flags, code: HotkeyModifier.leftControl.rawValue, flags: modifiers)).action == .press)
+        #expect(machine.consume(.init(.down, code: UInt16(kVK_ANSI_S), flags: modifiers)).action == .cancel)
+        #expect(machine.consume(.init(.flags, code: HotkeyModifier.leftControl.rawValue)).action == nil)
+        #expect(machine.consume(.init(.flags, code: HotkeyModifier.leftControl.rawValue, flags: modifiers)).action == .press)
         var fn = HotkeyMachine(.init())
-        _ = fn.consume(.init(.flags, code: 63, flags: HotkeyMachine.fnMask))
-        let shortcut = fn.consume(.init(.flags, code: 59, flags: HotkeyMachine.fnMask | CGEventFlags.maskControl.rawValue))
-        #expect(shortcut.0 == .cancel && !shortcut.1)
+        _ = fn.consume(.init(.flags, code: HotkeyModifier.fn.rawValue, flags: HotkeyMachine.fnMask))
+        let shortcut = fn.consume(.init(.flags, code: HotkeyModifier.leftControl.rawValue, flags: HotkeyMachine.fnMask | CGEventFlags.maskControl.rawValue))
+        #expect(shortcut.action == .cancel && !shortcut.swallow)
     }
 }
 
