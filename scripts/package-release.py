@@ -25,6 +25,24 @@ def command(*args):
     return subprocess.run(args, check=True, text=True, capture_output=True).stdout
 
 
+def digest(path):
+    result = hashlib.sha256()
+    with path.open('rb') as file:
+        for chunk in iter(lambda: file.read(256 * 1024), b''):
+            result.update(chunk)
+    return result.hexdigest()
+
+
+def failure_message(error):
+    if isinstance(error, subprocess.CalledProcessError):
+        tool = Path(error.cmd[0] if isinstance(error.cmd, (list, tuple)) else error.cmd).name
+        tail = '\n'.join((error.stderr or '').splitlines()[-8:]).strip()
+        return f'{tool} exited with status {error.returncode}' + (f':\n{tail}' if tail else '')
+    if isinstance(error, ValueError):
+        return str(error)
+    return f'{type(error).__name__}: {error}'
+
+
 def zip_app(app, destination):
     command('/usr/bin/ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(app), str(destination))
 
@@ -81,14 +99,14 @@ def package(release_version, channel, output, notary_profile=None):
         for name in ['scripts/cleanup-service.py', 'Resources/cleanup-stack.json', 'Resources/RELEASE-INSTALL.md']:
             archive.write(ROOT / name, 'WhisprLite-Cleanup-Setup/' + name)
     commit = command('git', '-C', str(ROOT), 'rev-parse', 'HEAD').strip()
-    artifacts = [{ 'file': p.name, 'bytes': p.stat().st_size, 'sha256': hashlib.sha256(p.read_bytes()).hexdigest() }
+    artifacts = [{ 'file': p.name, 'bytes': p.stat().st_size, 'sha256': digest(p) }
                  for p in [app_zip, setup_zip]]
     manifest_path.write_text(json.dumps(dict(schema=1, version=release_version, channel=channel,
         commit=commit, source_dirty=bool(command('git', '-C', str(ROOT), 'status', '--porcelain').strip()),
         architecture='arm64', minimum_macos=info['LSMinimumSystemVersion'],
         notarized=channel == 'notarized', cleanup_setup_requires_python='3.9+',
         model_weights_included=False, artifacts=artifacts), indent=2) + '\n')
-    artifacts.append(dict(file=manifest_path.name, sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest()))
+    artifacts.append(dict(file=manifest_path.name, sha256=digest(manifest_path)))
     checksums.write_text(''.join(f"{a['sha256']}  {a['file']}\n" for a in artifacts))
     print(f'Packaged {release_version} ({channel}) in {output}')
 
@@ -103,4 +121,4 @@ if __name__ == '__main__':
     try:
         package(args.version, args.channel, args.output_directory, args.notary_profile)
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
-        parser.exit(1, f'Release packaging failed: {type(error).__name__}. Check version, signature and notarization configuration.\n')
+        parser.exit(1, f'Release packaging failed: {failure_message(error)}\n')

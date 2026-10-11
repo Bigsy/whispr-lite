@@ -124,6 +124,8 @@ app ZIP, allowlisted cleanup setup ZIP, version/commit/hash manifest and SHA256S
 contains only the existing setup script, pinned public asset lock and installation guide;
 it still requires Python 3.9+. Models, personal settings/dictionaries/prompts and raw results
 are excluded. Native first-run cleanup provisioning and another-Mac installation remain open.
+Archive hashes stream from disk. Packaging failures name the validation error or failed
+tool, exit status and the last eight stderr lines, without printing command arguments.
 
 References: [GitHub runner image/toolchain inventory](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md),
 [GitHub certificate setup](https://docs.github.com/en/actions/how-tos/deploy/deploy-to-third-party-platforms/sign-xcode-applications)

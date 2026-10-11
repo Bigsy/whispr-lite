@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Release regression checks: synthetic inputs, no certificates, network or login items."""
 import importlib.util
+import hashlib
 from pathlib import Path
+import subprocess
 import tempfile
 import types
 import unittest
@@ -21,6 +23,19 @@ local_http = module('local_http', 'local_http.py')
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_packaging_errors_name_the_failed_step_and_stream_hashes(self):
+        self.assertEqual(packaging.failure_message(ValueError('Synthetic version mismatch')),
+                         'Synthetic version mismatch')
+        failed = subprocess.CalledProcessError(7, ['/usr/bin/codesign', '--verify'],
+                                               stderr='first line\nlast synthetic failure')
+        self.assertEqual(packaging.failure_message(failed),
+                         'codesign exited with status 7:\nfirst line\nlast synthetic failure')
+        with tempfile.TemporaryDirectory() as temporary:
+            file = Path(temporary) / 'synthetic-archive.zip'
+            content = b'synthetic release bytes' * 20_000
+            file.write_bytes(content)
+            self.assertEqual(packaging.digest(file), hashlib.sha256(content).hexdigest())
+
     def test_local_http_ignores_configured_proxies(self):
         from urllib.request import ProxyHandler
         self.assertFalse(any(isinstance(handler, ProxyHandler) for handler in local_http.LOCAL.handlers))
