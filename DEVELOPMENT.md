@@ -816,6 +816,9 @@ Core tests are split by backend, coordinator, pipeline, streaming, audio worker,
 clipboard, hotkey and broker protocol, with shared fakes in `TestSupport.swift`.
 Suite and test names are unchanged, so existing `swift test --filter` commands still
 target the same checks.
+Coordinator tests use a shared async condition poll for actor state and one recording
+cleanup fake with an optional delay, instead of copied polling loops and separate
+fast/slow cleanup actors.
 
 `whispr-bench --cleanup-prefill-check` compares three synthetic outputs before/after
 the actual Swift prefix-preparation method using the saved service configuration. It

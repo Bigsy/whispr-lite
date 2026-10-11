@@ -12,32 +12,26 @@ import AVFoundation
             pipeline: .init(backend: EarlyBackend(), cleanup: cleanup))
         coordinator.ready = true
         coordinator.press(); try capture.publish()
-        for _ in 0..<500 {
-            if await cleanup.inputs.count == 1 { break }
-            try await Task.sleep(for: .milliseconds(2))
-        }
+        try await poll { await cleanup.inputs.count == 1 }
         #expect(await cleanup.inputs == ["First sentence."])
         coordinator.release()
-        try await waitUntil { coordinator.state == .idle }
+        try await poll { coordinator.state == .idle }
         #expect(await cleanup.inputs == ["First sentence.", "Second sentence."])
         #expect(insertion.texts == ["First sentence. Second sentence."])
         #expect(capture.ends == 1 && media.ends.count == 1)
     }
     @Test func cancellingDuringEarlyCleanupWaitsAndNeverInserts() async throws {
         let capture = EarlyCapture(), insertion = FakeInsertion(), media = FakeMedia()
-        let cleanup = SlowRecordingCleanup()
+        let cleanup = RecordingCleanup(delay: .milliseconds(80))
         let coordinator = DictationCoordinator(capture: capture, insertion: insertion, media: media,
             pipeline: .init(backend: EarlyBackend(), cleanup: cleanup))
         coordinator.ready = true
         coordinator.press(); try capture.publish()
-        for _ in 0..<500 {
-            if await cleanup.started { break }
-            try await Task.sleep(for: .milliseconds(2))
-        }
+        try await poll { await cleanup.started }
         #expect(await cleanup.started)
         coordinator.cancel()
         #expect(coordinator.isCancelling && coordinator.state == .processing)
-        try await waitUntil { coordinator.state == .idle }
+        try await poll { coordinator.state == .idle }
         #expect(!coordinator.isCancelling)
         #expect(insertion.texts.isEmpty && capture.ends == 1 && media.ends.count == 1)
     }
@@ -49,16 +43,12 @@ import AVFoundation
         coordinator.ready = true
         return (coordinator, capture, insertion, media)
     }
-    func waitUntil(_ condition: @MainActor () -> Bool) async throws {
-        for _ in 0..<500 { if condition() { return }; try await Task.sleep(for: .milliseconds(2)) }
-        Issue.record("Lifecycle did not settle")
-    }
     @Test func releaseFinalizesAndInsertsExactlyOnce() async throws {
         let (coordinator, capture, insertion, media) = try await fixture()
         coordinator.press()
         #expect(insertion.snapshots.count == 1)
         coordinator.press(); coordinator.release(); coordinator.release()
-        try await waitUntil { coordinator.state == .idle }
+        try await poll { coordinator.state == .idle }
         #expect(capture.begins == 1 && capture.ends == 1)
         #expect(insertion.texts.count == 1)
         #expect(insertion.snapshots.count == 1)
@@ -75,9 +65,9 @@ import AVFoundation
         let (coordinator, _, insertion, _) = try await fixture(config)
         coordinator.history = history
         coordinator.press(); coordinator.release()
-        try await waitUntil { coordinator.state == .idle }
+        try await poll { coordinator.state == .idle }
         coordinator.press(); coordinator.release(); coordinator.cancel()
-        try await waitUntil { coordinator.state == .idle }
+        try await poll { coordinator.state == .idle }
         try await Task.sleep(for: .milliseconds(100)) // Past the cancelled inference.
         await history.flush()
         let lines = try String(contentsOf: directory.appendingPathComponent(DictationHistory.fileName), encoding: .utf8)
@@ -87,7 +77,7 @@ import AVFoundation
     @Test func busyPressIsIgnoredThroughItsRelease() async throws {
         let (coordinator, capture, _, _) = try await fixture()
         coordinator.press(); coordinator.release(); coordinator.press()
-        try await waitUntil { coordinator.state == .idle }
+        try await poll { coordinator.state == .idle }
         coordinator.release()
         #expect(capture.begins == 1)
     }
@@ -95,7 +85,7 @@ import AVFoundation
         var config = FakeASRConfiguration(); config.ignoresCancellation = true; config.inferenceDelay = .milliseconds(150)
         let (coordinator, _, insertion, media) = try await fixture(config)
         coordinator.press(); coordinator.release()
-        try await waitUntil { media.ends.count == 1 }
+        try await poll { media.ends.count == 1 }
         coordinator.cancel()
         try await Task.sleep(for: .milliseconds(180))
         #expect(insertion.texts.isEmpty)
@@ -105,7 +95,7 @@ import AVFoundation
     @Test func escapeRecordingAndRepeatedEndAreHarmless() async throws {
         let (coordinator, capture, insertion, media) = try await fixture()
         coordinator.press(); coordinator.cancel(); coordinator.release()
-        try await waitUntil { coordinator.state == .idle }
+        try await poll { coordinator.state == .idle }
         #expect(capture.ends == 1 && media.ends.count == 1)
         #expect(insertion.texts.isEmpty)
     }
@@ -113,7 +103,7 @@ import AVFoundation
         let (coordinator, capture, insertion, media) = try await fixture()
         coordinator.press()
         coordinator.suspend()
-        try await waitUntil { coordinator.state == .idle }
+        try await poll { coordinator.state == .idle }
         #expect(capture.suspended == 1 && capture.ends == 1)
         #expect(media.ends.count == 1 && insertion.texts.isEmpty)
         coordinator.press()
@@ -123,7 +113,7 @@ import AVFoundation
         let (coordinator, capture, insertion, media) = try await fixture()
         coordinator.safetyDuration = .milliseconds(5)
         coordinator.press()
-        try await waitUntil { coordinator.state == .error }
+        try await poll { coordinator.state == .error }
         coordinator.release()
         #expect(capture.ends == 1 && media.ends.count == 1)
         #expect(insertion.texts.isEmpty)
@@ -134,7 +124,7 @@ import AVFoundation
         capture.boundaryValue = 123.45
         capture.onBoundary = { #expect(coordinator.state == .recording) }
         coordinator.press(); coordinator.release()
-        try await waitUntil { coordinator.state == .idle && insertion.texts.count == 1 }
+        try await poll { coordinator.state == .idle && insertion.texts.count == 1 }
         #expect(capture.endBoundary == 123.45)
     }
     @Test func copyOnlyWithEarlyChunksDismissesStraightToIdle() async throws {
@@ -145,7 +135,7 @@ import AVFoundation
         coordinator.safetyDuration = .milliseconds(30)
         coordinator.press()
         try capture.publish()
-        try await waitUntil { coordinator.state == .error }
+        try await poll { coordinator.state == .error }
         #expect(coordinator.message.contains("Copy the result"))
         #expect(coordinator.recoveryText != nil && insertion.texts.isEmpty)
         coordinator.cancel()
@@ -189,7 +179,7 @@ import AVFoundation
         let (coordinator, _, insertion, _) = try await fixture()
         insertion.shouldFail = true
         coordinator.press(); coordinator.release()
-        try await waitUntil { coordinator.state == .error }
+        try await poll { coordinator.state == .error }
         #expect(coordinator.recoveryText != nil && insertion.texts.isEmpty)
     }
     @Test func holdWarmupRepeatsWhileHeldAndStopsAtRelease() async throws {
@@ -200,7 +190,7 @@ import AVFoundation
         coordinator.press()
         try await Task.sleep(for: .milliseconds(300))
         coordinator.release()
-        try await waitUntil { coordinator.state == .idle && insertion.texts.count == 1 }
+        try await poll { coordinator.state == .idle && insertion.texts.count == 1 }
         let held = await backend.warmCalls
         #expect(held >= 2)
         #expect(await backend.finalBeforeWarmSettled == false)
@@ -208,7 +198,7 @@ import AVFoundation
         #expect(await backend.warmCalls == held)
         coordinator.holdWarmupInterval = nil
         coordinator.press(); coordinator.release()
-        try await waitUntil { coordinator.state == .idle && insertion.texts.count == 2 }
+        try await poll { coordinator.state == .idle && insertion.texts.count == 2 }
         #expect(await backend.warmCalls == held)
     }
     @Test func cancelledHoldWarmupSettlesBeforeNextFinalASR() async throws {
@@ -220,10 +210,10 @@ import AVFoundation
         coordinator.press()
         await gate.waitUntilEntered()
         coordinator.cancel()
-        try await waitUntil { coordinator.state == .idle }
+        try await poll { coordinator.state == .idle }
         coordinator.press(); coordinator.release()
         await gate.open()
-        try await waitUntil { coordinator.state == .idle && insertion.texts.count == 1 }
+        try await poll { coordinator.state == .idle && insertion.texts.count == 1 }
         await coordinator.settleBackendWork()
         #expect(await backend.warmCalls == 1)
         #expect(await backend.finalBeforeWarmSettled == false)
@@ -235,19 +225,13 @@ import AVFoundation
             pipeline: .init(backend: backend, cleanup: DemoCleanup()))
         coordinator.ready = true; coordinator.holdWarmupInterval = .seconds(2)
         coordinator.press()
-        for _ in 0..<500 {
-            if await backend.warmCalls >= 1 { break }
-            try await Task.sleep(for: .milliseconds(2))
-        }
+        try await poll { await backend.warmCalls >= 1 }
         #expect(await backend.warmCalls == 1)
         try capture.publish()
-        for _ in 0..<500 {
-            if await backend.warmCalls >= 2 { break }
-            try await Task.sleep(for: .milliseconds(2))
-        }
+        try await poll { await backend.warmCalls >= 2 }
         #expect(await backend.warmCalls >= 2)
         coordinator.release()
-        try await waitUntil { coordinator.state == .idle && insertion.texts.count == 1 }
+        try await poll { coordinator.state == .idle && insertion.texts.count == 1 }
         #expect(await backend.transcribedWhileWarming == false)
     }
 }

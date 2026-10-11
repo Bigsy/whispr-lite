@@ -10,13 +10,13 @@ actor CountingCleanup: TextCleanup {
 }
 actor RecordingCleanup: TextCleanup {
     var inputs: [String] = []
-    func clean(_ text: String) -> String { inputs.append(text); return text }
-}
-actor SlowRecordingCleanup: TextCleanup {
     var started = false
+    private let delay: Duration?
+    init(delay: Duration? = nil) { self.delay = delay }
     func clean(_ text: String) async throws -> String {
         started = true
-        try await Task.sleep(for: .milliseconds(80))
+        inputs.append(text)
+        if let delay { try await Task.sleep(for: delay) }
         return text
     }
 }
@@ -123,4 +123,14 @@ actor WarmupBackend: HoldWarmableASRBackend {
         if warming { transcribedWhileWarming = true }
         return .init(text: "Synthetic words", audioDuration: audio.duration)
     }
+}
+
+@MainActor func poll(timeout: Duration = .seconds(1),
+                     _ condition: @escaping @MainActor () async -> Bool) async throws {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+    while ContinuousClock.now < deadline {
+        if await condition() { return }
+        try await Task.sleep(for: .milliseconds(2))
+    }
+    #expect(await condition(), "Condition was not met before the test deadline")
 }
