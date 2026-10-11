@@ -4,6 +4,41 @@ The configured local batch stack and signed synthetic native insertion work on t
 machine. These checks do not establish physical release-to-visible-text latency,
 third-party insertion, actual media playback compatibility or release acceptance.
 
+## Remaining code tidy-up gates from PLAN.md
+
+- **Coordinator and capture shape (A1, A8):** Session teardown is centralized and
+  finished streams are released, but per-session fields are not yet one `ActiveSession`,
+  and `CaptureDriver` still exposes separate stream/metadata accessors with serial
+  `queue.sync` reads. A typed `CaptureStreams`/`CapturedAudio` handoff needs a coordinated
+  app, fake-capture and real-device migration.
+- **App structure (B1):** Launch parsing, status, preparation, teardown and probe helpers
+  have been separated or simplified, but `main.swift` is still a large `AppDelegate`.
+  A full controller/window/menu split remains, with native startup and window checks.
+- **ASR integration (A17, A20):** The bench-only streaming adapter now maps cancellation
+  consistently, but its small setup/readiness mapping is still duplicated across target
+  boundaries. A validated-PCM fast path requires a measured benefit and a new published
+  ParakeetCore version before the app can keep its published-version pin.
+- **Measured performance (C15):** The POSIX locale, paste key translation buffer,
+  JSONL encoder and broker decoder are reused. HTTP body byte iteration and remaining
+  pipe/coder allocations have not been changed without a bounded before/after measure.
+  Dvorak/AZERTY physical paste layout checks remain open.
+- **Further test and style cleanup (D20, D22, D25, B38, C19, E16, E28):** JSONL decoding
+  and media broker waits are shared or event based, while temporary-directory setup,
+  a few coordinator negative assertions with fixed waits, the deliberate 17th-packet
+  pool-bound test, and remaining long-line formatting are still present. The 17th packet
+  currently asserts the fixed 16-slot callback buffer contract.
+- **Lock and keyboard helpers (X7, X12):** Existing `NSLock` boxes and layout/modifier
+  helpers remain where sharing them would widen app/Core APIs or touch callback paths.
+  Their current behavior is covered by synthetic tests; no callback-path lock migration
+  or new layout claim has been made.
+- **VAD prototype (D8):** The earlier VAD trimming experiment remains only in the bench.
+  It was neither rerun nor integrated after the user's direction that the experiment
+  had already been tried. Its extra FluidAudio pin still needs an explicit retire/isolate
+  decision if that prototype is revisited.
+
+Physical microphone, shortcut, target-application paste, player compatibility,
+accuracy and release-to-visible-text latency gates remain open until measured.
+
 | Check | Result |
 |---|---|
 | 11 October bench streaming cancellation, Apple M1 Max | Post-edit `make test` passed with 113 registered Swift tests in 27 suites (one optional skip), 1 synthetic app CLI test, 2 synthetic bench CLI tests, 17 native broker, 27 synthetic setup and 6 release tests. A concurrently started `make check` passed signed arm64 build, doctor and bundle smoke; its test phase started before this bench-only edit, while its release bench build finished after it. Cached Unified streaming passed 3 synthetic fixtures, cancellation, retained-audio fallback and reset. The installed app was closed for exclusive model ownership and reopened. The benchmark did not force `ParakeetError.cancelled` specifically in batch fallback. |
