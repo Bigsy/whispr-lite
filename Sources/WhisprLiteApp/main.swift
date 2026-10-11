@@ -257,7 +257,7 @@ import WhisprLiteCore
                 // Serialise replacements. Cancellation cannot preempt CoreML work;
                 // a busy old engine rejects unloading, so no new model is loaded yet.
                 await previousSetup?.value
-                await previousCoordinator?.settlePressWarmup()
+                await previousCoordinator?.settleBackendWork()
                 guard self.settingsEpoch == epoch, self.sessionAvailable, !Task.isCancelled else { return }
                 if reused == nil {
                     self.preparedASR = nil

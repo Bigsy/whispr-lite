@@ -177,7 +177,7 @@ private actor AsyncGate {
     }
     func open() { exitWaiter?.resume(); exitWaiter = nil }
 }
-private actor WarmupBackend: PressWarmableASRBackend {
+private actor WarmupBackend: HoldWarmableASRBackend {
     nonisolated let capabilities = ASRCapabilities()
     private let warmGate: AsyncGate?
     private(set) var warmCalls = 0
@@ -402,7 +402,7 @@ private actor WarmupBackend: PressWarmableASRBackend {
         try await waitUntil { coordinator.state == .idle && insertion.texts.count == 2 }
         #expect(await backend.warmCalls == held)
     }
-    @Test func cancelledPressWarmupSettlesBeforeNextFinalASR() async throws {
+    @Test func cancelledHoldWarmupSettlesBeforeNextFinalASR() async throws {
         let gate = AsyncGate()
         let backend = WarmupBackend(warmGate: gate), capture = FakeCapture(), insertion = FakeInsertion(), media = FakeMedia()
         let coordinator = DictationCoordinator(capture: capture, insertion: insertion, media: media,
@@ -415,7 +415,7 @@ private actor WarmupBackend: PressWarmableASRBackend {
         coordinator.press(); coordinator.release()
         await gate.open()
         try await waitUntil { coordinator.state == .idle && insertion.texts.count == 1 }
-        await coordinator.settlePressWarmup()
+        await coordinator.settleBackendWork()
         #expect(await backend.warmCalls == 1)
         #expect(await backend.finalBeforeWarmSettled == false)
         #expect(insertion.texts == ["Synthetic words"])

@@ -56,7 +56,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     private var session: UUID?
     private var generation: UInt64 = 0
     private var task: Task<Void, Never>?
-    private var pressWarmup: Task<Void, Never>?
+    private var holdWarmup: Task<Void, Never>?
     private var ceiling: Task<Void, Never>?
     private var finalized = false
     private var activationHeld = false
@@ -115,8 +115,8 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                     for try await chunk in chunks {
                         guard self.generation == owner, self.state == .recording else { break }
                         // Stop the periodic silence pass before using the same CoreML engine.
-                        self.pressWarmup?.cancel()
-                        await self.pressWarmup?.value
+                        self.holdWarmup?.cancel()
+                        await self.holdWarmup?.value
                         guard self.generation == owner, self.state == .recording else { break }
                         // Resume keep-warm after this chunk's ASR/cleanup settles. The next
                         // chunk cancels and awaits that pass before reusing the engine.
@@ -150,7 +150,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     }
     private func finish(_ id: UUID, target: UUID, copyOnly: Bool, boundary: Double?) {
         guard session == id, !finalized else { return }
-        pressWarmup?.cancel() // No new pass after release; final ASR awaits any pass in flight.
+        holdWarmup?.cancel() // No new pass after release; final ASR awaits any pass in flight.
         finalized = true; draining = true; ceiling?.cancel(); ceiling = nil
         message = "Processing"; state = .processing
         let owner = generation
@@ -174,7 +174,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
             do {
                 // A cancelled task can return before CoreML has settled. The warm-up
                 // itself is never cancelled; final ASR and model replacement await it.
-                await self.pressWarmup?.value
+                await self.holdWarmup?.value
                 guard self.generation == owner, !Task.isCancelled else { return }
                 let recorder = self.timings
                 var mark: (@Sendable (TimingStage) async -> Void)?
@@ -221,7 +221,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         guard session != nil || state != .idle || draining else { activationHeld = false; insertionSession = nil; return }
         if let session { diagnostics?.record(.init(.cancelled, session: session)) }
         generation &+= 1; activationHeld = false; insertionSession = nil
-        pressWarmup?.cancel()
+        holdWarmup?.cancel()
         let owner = generation
         task?.cancel(); task = nil; ceiling?.cancel(); ceiling = nil
         delivery?.cancel(); delivery = nil
@@ -261,17 +261,17 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         cancel()
         capture.suspend()
     }
-    public func settlePressWarmup() async { await pressWarmup?.value; _ = await earlyDelivery?.value }
+    public func settleBackendWork() async { await holdWarmup?.value; _ = await earlyDelivery?.value }
     private func startHoldWarmup() {
-        guard !streamingEnabled, pressWarmup == nil, let interval = holdWarmupInterval,
-              let backend = pipeline.backend as? any PressWarmableASRBackend else { return }
-        pressWarmup = Task { [weak self] in
+        guard !streamingEnabled, holdWarmup == nil, let interval = holdWarmupInterval,
+              let backend = pipeline.backend as? any HoldWarmableASRBackend else { return }
+        holdWarmup = Task { [weak self] in
             repeat {
                 // Its own task: cancelling the loop never cancels CoreML mid-inference.
                 await Task { _ = try? await backend.warmForRecording() }.value
                 do { try await Task.sleep(for: interval) } catch { break }
             } while !Task.isCancelled && self?.state == .recording
-            self?.pressWarmup = nil
+            self?.holdWarmup = nil
         }
     }
     private enum SessionEnd { case completed, failed(any Error), copyOnly }

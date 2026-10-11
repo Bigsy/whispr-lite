@@ -71,8 +71,8 @@ public protocol ASRBackend: Sendable {
     func transcribe(_ audio: PCM16k) async throws -> ASRResult
     func makeSession() async throws -> any ASRSession
 }
-/// Optional one-shot work started away from the event-tap callback on a long-idle press.
-public protocol PressWarmableASRBackend: ASRBackend {
+/// Optional keep-warm work while a recording is held, away from the event-tap callback.
+public protocol HoldWarmableASRBackend: ASRBackend {
     func warmForRecording() async throws
 }
 public extension ASRBackend {

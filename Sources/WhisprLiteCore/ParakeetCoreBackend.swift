@@ -2,7 +2,7 @@ import Foundation
 import ParakeetCore
 
 /// Direct PCM integration with the pinned library; models are prepared before recording.
-public actor ParakeetCoreBackend: PressWarmableASRBackend {
+public actor ParakeetCoreBackend: HoldWarmableASRBackend {
     private static let warmupSilence = try! PCM16k([Float](repeating: 0, count: PCM16k.rate))
     public nonisolated let capabilities = ASRCapabilities()
     public nonisolated var modelID: String { engine.modelID }
