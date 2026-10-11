@@ -39,7 +39,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     public private(set) var partial: PartialSnapshot?
     private var streaming: StreamingPipeline?
     private var delivery: Task<Void, Never>?
-    private var earlyDelivery: Task<[DictationText]?, Never>?
+    private var earlyDelivery: Task<[DictationText], Never>?
     private var streamingFailed = false
     public var safetyDuration: Duration = .seconds(120)
     public let timings: LatencyRecorder
@@ -107,7 +107,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         } else if let chunks = capture.completedChunks() {
             let pipeline = self.pipeline
             earlyDelivery = Task { [weak self] in
-                guard let self else { return nil }
+                guard let self else { return [] }
                 var completed: [DictationText] = []
                 do {
                     for try await chunk in chunks {
@@ -186,6 +186,8 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                     else { text = try await self.pipeline.run(audio, mark: mark) }
                 } else {
                     let early = self.earlyDelivery
+                    // The structured child is awaited even if final ASR throws, so the
+                    // early worker has settled before this task releases the engine.
                     async let prepared = early?.value
                     if let raw = try await self.pipeline.transcribe(audio, mark: mark) {
                         dictation = try await self.pipeline.finish(raw, early: await prepared ?? [], mark: mark)
