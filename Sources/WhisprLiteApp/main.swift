@@ -49,8 +49,19 @@ import WhisprLiteCore
             let resourcesValid = !BackendFactory.hasParakeetCore || bundle.resourceURL.flatMap {
                 Bundle(url: $0.appendingPathComponent("FluidAudio_FluidAudio.bundle"))
             } != nil
-            let valid = resourcesValid && bundle.bundleIdentifier == "com.hedworth.whispr-lite" && bundle.object(forInfoDictionaryKey: "LSUIElement") as? Bool == true
-            print("bundle=\(valid ? "ok" : "invalid") arch=arm64 parakeet=\(BackendFactory.hasParakeetCore) resources=\(resourcesValid ? "ok" : "invalid")")
+            let noticesValid = bundle.resourceURL.map { resources in
+                let required = [
+                    "MediaRemoteAdapter-LICENSE", "THIRD_PARTY_NOTICES.md",
+                    "Licenses/ParakeetCore-MIT.txt", "Licenses/ParakeetCore-NOTICES.md",
+                    "Licenses/FluidAudio/Apache-2.0.txt"
+                ]
+                return required.allSatisfy {
+                    let path = resources.appendingPathComponent($0).path
+                    return (try? FileManager.default.attributesOfItem(atPath: path)[.size] as? Int).map { $0 > 0 } ?? false
+                } && FileManager.default.fileExists(atPath: resources.appendingPathComponent("Licenses/FluidAudio/ThirdPartyLicenses").path)
+            } ?? false
+            let valid = resourcesValid && noticesValid && bundle.bundleIdentifier == "com.hedworth.whispr-lite" && bundle.object(forInfoDictionaryKey: "LSUIElement") as? Bool == true
+            print("bundle=\(valid ? "ok" : "invalid") arch=arm64 parakeet=\(BackendFactory.hasParakeetCore) resources=\(resourcesValid ? "ok" : "invalid") licences=\(noticesValid ? "ok" : "invalid")")
             exit(valid ? 0 : 1)
         }
         if CommandLine.arguments.contains("--permission-status") {

@@ -30,13 +30,16 @@ cp Vendor/mediaremote-adapter/bin/mediaremote-adapter.pl "$app/Contents/Resource
 cp Vendor/mediaremote-adapter/LICENSE "$app/Contents/Resources/MediaRemoteAdapter-LICENSE"
 cp THIRD_PARTY_NOTICES.md "$app/Contents/Resources/"
 parakeet_source="${PARAKEET_CORE_PATH:-$PWD/$task_scratch_path/checkouts/parakeet-ane-server}"
-if [[ -d "$parakeet_source" ]]; then
-  mkdir -p "$app/Contents/Resources/Licenses/FluidAudio"
-  cp "$parakeet_source/LICENSE" "$app/Contents/Resources/Licenses/ParakeetCore-MIT.txt"
-  cp "$parakeet_source/THIRD_PARTY_NOTICES.md" "$app/Contents/Resources/Licenses/ParakeetCore-NOTICES.md"
-  cp "$task_scratch_path/checkouts/FluidAudio/LICENSE" "$app/Contents/Resources/Licenses/FluidAudio/Apache-2.0.txt"
-  cp -R "$task_scratch_path/checkouts/FluidAudio/ThirdPartyLicenses" "$app/Contents/Resources/Licenses/FluidAudio/"
-fi
+fluid_source="$PWD/$task_scratch_path/checkouts/FluidAudio"
+for required in "$parakeet_source/LICENSE" "$parakeet_source/THIRD_PARTY_NOTICES.md" \
+  "$fluid_source/LICENSE" "$fluid_source/ThirdPartyLicenses"; do
+  [[ -e "$required" ]] || { print -u2 "Missing required third-party licence: $required"; exit 1; }
+done
+mkdir -p "$app/Contents/Resources/Licenses/FluidAudio"
+cp "$parakeet_source/LICENSE" "$app/Contents/Resources/Licenses/ParakeetCore-MIT.txt"
+cp "$parakeet_source/THIRD_PARTY_NOTICES.md" "$app/Contents/Resources/Licenses/ParakeetCore-NOTICES.md"
+cp "$fluid_source/LICENSE" "$app/Contents/Resources/Licenses/FluidAudio/Apache-2.0.txt"
+cp -R "$fluid_source/ThirdPartyLicenses" "$app/Contents/Resources/Licenses/FluidAudio/"
 cp -R .build/media/MediaRemoteAdapter.framework "$app/Contents/Frameworks/"
 # SwiftPM resources must accompany a candidate that packages CoreML/resource bundles.
 for resource in "$binary_dir"/*.bundle(N); do cp -R "$resource" "$app/Contents/Resources/"; done
