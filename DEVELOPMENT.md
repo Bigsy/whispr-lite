@@ -410,6 +410,9 @@ reuse and unload/reprepare. `--streaming-check` uses the same arguments and chec
 640-sample input, partial revisions, final text versus batch, cancellation/settlement,
 batch fallback and returning to streaming. It sends audio without capture pacing and
 does not measure physical partial lag, visible insertion, cleanup or ground-truth WER.
+The Parakeet streaming adapter lives only in the bench target; the signed app uses
+the batch adapter. Published builds include streaming bench modes. Local candidate
+builds enable them with `PARAKEET_STREAMING=1` when that candidate supports sessions.
 
 `--streaming-prototype CACHE WAV_DIRECTORY OUTPUT_JSON --repetitions 30` compares
 the pinned Unified adapter with batch on the same synthetic files. It feeds 640-sample
@@ -420,7 +423,7 @@ outside the timed capture spans. It also measures a cancelled-stream-to-batch fa
 and reset. The raw JSON is ignored under `bench/results/`. Use normal GPU access, close
 the running app during measurement, and do not supply private recordings. This bench
 does not include microphone buffering, Gemma cleanup or visible insertion.
-With `--repetitions 1`, the prototype also records synthetic partial text for a
+With `--record-partials`, the prototype also records synthetic partial text for a
 follow-up prompt-cache mock; the 30-run report retains only partial counts and timing.
 `python3 -B scripts/bench-cleanup-models.py --binary /absolute/path/to/llama-server
 --candidate LABEL /absolute/path/to/model.gguf MODEL_ALIAS` compares the installed
@@ -496,7 +499,7 @@ a general accuracy ranking.
 committed ParakeetCore revision in `Package.resolved` from the sibling checkout by default
 and restores that lockfile after the isolated candidate build. `PARAKEET_CORE_PATH` and
 `PARAKEET_CORE_REF` override source/ref; `PARAKEET_MODEL_CACHE` selects a cached model root.
-Local streaming candidates additionally use `PARAKEET_STREAMING_CANDIDATE=1`. This check
+Local streaming candidates additionally use `PARAKEET_STREAMING=1`. This check
 requires cached models and never substitutes fake output or downloads weights. Run a
 normal `make check` afterwards to restore the published release's lockfile.
 

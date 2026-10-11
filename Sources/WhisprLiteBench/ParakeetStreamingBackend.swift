@@ -1,8 +1,9 @@
-#if PARAKEET_STREAMING_CANDIDATE
+#if PARAKEET_STREAMING
 import Foundation
 import ParakeetCore
+import WhisprLiteCore
 
-/// Opt-in integration with the committed v0.2.0 session API.
+/// Bench-only integration with the pinned ParakeetCore streaming session API.
 public actor ParakeetStreamingBackend: ASRBackend {
     public nonisolated let capabilities = ASRCapabilities(streaming: true)
     private var engine: ParakeetEngine

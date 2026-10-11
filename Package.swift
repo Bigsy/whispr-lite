@@ -4,7 +4,7 @@ import Foundation
 
 // Published release. Local committed candidates can override it for validation.
 let candidate = ProcessInfo.processInfo.environment["PARAKEET_CORE_PATH"]
-let streamingCandidate = candidate == nil || ProcessInfo.processInfo.environment["PARAKEET_STREAMING_CANDIDATE"] == "1"
+let streamingEnabled = candidate == nil || ProcessInfo.processInfo.environment["PARAKEET_STREAMING"] == "1"
 let package = Package(
     name: "whispr-lite", platforms: [.macOS(.v14)],
     products: [.library(name: "WhisprLiteCore", targets: ["WhisprLiteCore"]),
@@ -19,12 +19,12 @@ let package = Package(
     ],
     targets: [
         .target(name: "WhisprLiteCore", dependencies:
-                    [.product(name: "ParakeetCore", package: "parakeet-ane-server")],
-                swiftSettings: streamingCandidate ? [.define("PARAKEET_STREAMING_CANDIDATE")] : []),
+                    [.product(name: "ParakeetCore", package: "parakeet-ane-server")]),
         .executableTarget(name: "WhisprLiteApp", dependencies: ["WhisprLiteCore"]),
         .executableTarget(name: "WhisprLiteBench", dependencies:
-                            ["WhisprLiteCore", .product(name: "FluidAudio", package: "FluidAudio")],
-                          swiftSettings: streamingCandidate ? [.define("PARAKEET_STREAMING_CANDIDATE")] : []),
+                            ["WhisprLiteCore", .product(name: "ParakeetCore", package: "parakeet-ane-server"),
+                             .product(name: "FluidAudio", package: "FluidAudio")],
+                          swiftSettings: streamingEnabled ? [.define("PARAKEET_STREAMING")] : []),
         .testTarget(name: "WhisprLiteCoreTests", dependencies:
                     ["WhisprLiteCore", .product(name: "ParakeetCore", package: "parakeet-ane-server")])
     ]

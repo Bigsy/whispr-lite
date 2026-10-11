@@ -36,14 +36,15 @@ import WhisprLiteCore
                 threshold: threshold, allowDownloads: CommandLine.arguments.contains("--allow-model-downloads"))
             return
         }
-        #if PARAKEET_STREAMING_CANDIDATE
+        #if PARAKEET_STREAMING
         if let index = CommandLine.arguments.firstIndex(of: "--streaming-prototype"), CommandLine.arguments.count > index + 3 {
             let repeatIndex = CommandLine.arguments.firstIndex(of: "--repetitions")
             let repetitions = repeatIndex.flatMap { CommandLine.arguments.indices.contains($0 + 1) ? Int(CommandLine.arguments[$0 + 1]) : nil } ?? 30
             guard repetitions > 0 else { throw AppError.invalidAudio }
             try await streamingPrototype(cache: URL(fileURLWithPath: CommandLine.arguments[index + 1], isDirectory: true),
                 corpus: URL(fileURLWithPath: CommandLine.arguments[index + 2], isDirectory: true),
-                output: URL(fileURLWithPath: CommandLine.arguments[index + 3]), repetitions: repetitions)
+                output: URL(fileURLWithPath: CommandLine.arguments[index + 3]), repetitions: repetitions,
+                recordPartials: CommandLine.arguments.contains("--record-partials"))
             return
         }
         if let index = CommandLine.arguments.firstIndex(of: "--streaming-check"), CommandLine.arguments.count > index + 3 {
@@ -197,8 +198,67 @@ import WhisprLiteCore
         try JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted, .sortedKeys]).write(to: output, options: .atomic)
         print("real-batch fixtures=\(files.count) warm-observations=\(files.count * 30) cancellation=ok unload=ok")
     }
-    #if PARAKEET_STREAMING_CANDIDATE
-    static func streamingPrototype(cache: URL, corpus: URL, output: URL, repetitions: Int) async throws {
+    #if PARAKEET_STREAMING
+    private static let streamingChunkSamples = 640
+    private static let samplesPerMillisecond = Double(PCM16k.rate) / 1_000
+    private struct StreamingFeed {
+        var firstPartialMS: Double?
+        var partialRevisions = 0
+        var snapshots: [[String: Any]] = []
+        var maximumAppendLagMS = 0.0
+    }
+    private static func feed(_ audio: PCM16k, into session: any ASRSession,
+                             pacedFrom start: ContinuousClock.Instant? = nil,
+                             recordPartials: Bool = false) async throws -> StreamingFeed {
+        var stats = StreamingFeed()
+        var offset = 0
+        var revision = 0
+        while offset < audio.samples.count {
+            if let start {
+                let targetMS = Double(offset) / samplesPerMillisecond
+                let elapsedMS = start.duration(to: .now).milliseconds
+                if targetMS > elapsedMS {
+                    try await Task.sleep(for: .milliseconds(Int((targetMS - elapsedMS).rounded(.up))))
+                }
+            }
+            let end = min(offset + streamingChunkSamples, audio.samples.count)
+            try await session.append(PCM16k(Array(audio.samples[offset..<end])), startingAt: offset)
+            offset = end
+            if let start {
+                stats.maximumAppendLagMS = max(stats.maximumAppendLagMS,
+                    start.duration(to: .now).milliseconds - Double(offset) / samplesPerMillisecond)
+            }
+            if let update = try await session.partial(), update.revision > revision {
+                revision = update.revision
+                stats.partialRevisions += 1
+                if let start {
+                    let atMS = start.duration(to: .now).milliseconds
+                    if stats.firstPartialMS == nil { stats.firstPartialMS = atMS }
+                    if recordPartials { stats.snapshots.append(["at_ms": atMS, "text": update.text]) }
+                }
+            }
+        }
+        return stats
+    }
+    private static func cancelFallbackAndReset(_ backend: ParakeetStreamingBackend,
+                                                audio: PCM16k) async throws -> (ASRResult, Double, Double) {
+        let cancelled = try await backend.makeSession()
+        try await cancelled.append(PCM16k([Float](repeating: 0, count: streamingChunkSamples)), startingAt: 0)
+        await cancelled.cancel()
+        do { _ = try await cancelled.finish(); throw AppError.inference }
+        catch is CancellationError {}
+        let fallbackStarted = ContinuousClock.now
+        let result = try await backend.transcribe(audio)
+        let fallbackMS = fallbackStarted.duration(to: .now).milliseconds
+        let resetStarted = ContinuousClock.now
+        let reset = try await backend.makeSession()
+        let resetMS = resetStarted.duration(to: .now).milliseconds
+        let empty = try await reset.finish()
+        guard empty.text.isEmpty, empty.audioDuration == 0 else { throw AppError.inference }
+        return (result, fallbackMS, resetMS)
+    }
+    static func streamingPrototype(cache: URL, corpus: URL, output: URL, repetitions: Int,
+                                   recordPartials: Bool) async throws {
         let files = try FileManager.default.contentsOfDirectory(at: corpus, includingPropertiesForKeys: nil)
             .filter { $0.pathExtension == "wav" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
         guard !files.isEmpty else { throw AppError.invalidAudio }
@@ -223,31 +283,7 @@ import WhisprLiteCore
             for _ in 0..<repetitions {
                 let session = try await backend.makeSession()
                 let started = ContinuousClock.now
-                var offset = 0
-                var firstPartialMS: Double?
-                var partials = 0
-                var revision = 0
-                var partialSnapshots: [[String: Any]] = []
-                var maximumAppendLagMS = 0.0
-                while offset < audio.samples.count {
-                    let targetMS = Double(offset) / 16
-                    let elapsedMS = milliseconds(started.duration(to: .now))
-                    if targetMS > elapsedMS {
-                        try await Task.sleep(for: .milliseconds(Int((targetMS - elapsedMS).rounded(.up))))
-                    }
-                    let end = min(offset + 640, audio.samples.count)
-                    try await session.append(PCM16k(Array(audio.samples[offset..<end])), startingAt: offset)
-                    offset = end
-                    maximumAppendLagMS = max(maximumAppendLagMS,
-                        milliseconds(started.duration(to: .now)) - Double(offset) / 16)
-                    if let update = try await session.partial(), update.revision > revision {
-                        revision = update.revision; partials += 1
-                        if firstPartialMS == nil { firstPartialMS = milliseconds(started.duration(to: .now)) }
-                        if repetitions <= 2 {
-                            partialSnapshots.append(["at_ms": milliseconds(started.duration(to: .now)), "text": update.text])
-                        }
-                    }
-                }
+                let feed = try await feed(audio, into: session, pacedFrom: started, recordPartials: recordPartials)
                 let releaseMS = audio.duration * 1_000
                 let elapsedMS = milliseconds(started.duration(to: .now))
                 if releaseMS > elapsedMS {
@@ -259,8 +295,9 @@ import WhisprLiteCore
                 guard final.audioDuration == audio.duration else { throw AppError.inference }
                 streaming.append(["total_ms": totalMS, "residual_after_release_ms": max(0, totalMS - releaseMS),
                     "finish_call_ms": milliseconds(finishStarted.duration(to: .now)),
-                    "maximum_append_lag_ms": maximumAppendLagMS, "first_partial_ms": firstPartialMS as Any? ?? NSNull(),
-                    "partial_revisions": partials, "partial_snapshots": partialSnapshots,
+                    "maximum_append_lag_ms": feed.maximumAppendLagMS,
+                    "first_partial_ms": feed.firstPartialMS as Any? ?? NSNull(),
+                    "partial_revisions": feed.partialRevisions, "partial_snapshots": feed.snapshots,
                     "text": final.text, "batch_text_equal": final.text == reference.text])
             }
             // Batch after streaming brackets the streaming run to expose thermal drift.
@@ -276,16 +313,7 @@ import WhisprLiteCore
             print("paced-streaming fixture=\(file.lastPathComponent) repetitions=\(repetitions)")
             fflush(stdout)
         }
-        let cancellation = try await backend.makeSession()
-        try await cancellation.append(PCM16k([Float](repeating: 0, count: 640)), startingAt: 0)
-        await cancellation.cancel()
-        let fallbackStarted = ContinuousClock.now
-        _ = try await backend.transcribe(readPCM(files[0]))
-        let fallbackMS = milliseconds(fallbackStarted.duration(to: .now))
-        let resetStarted = ContinuousClock.now
-        let reset = try await backend.makeSession()
-        let resetMS = milliseconds(resetStarted.duration(to: .now))
-        await reset.cancel()
+        let (_, fallbackMS, resetMS) = try await cancelFallbackAndReset(backend, audio: readPCM(files[0]))
         let result: [String: Any] = ["schema": 1, "mode": "unified-paced-streaming-prototype",
             "repetitions": repetitions, "capture_paced": true, "cleanup_measured": false,
             "visible_text_measured": false, "ground_truth_accuracy_measured": false,
@@ -310,17 +338,7 @@ import WhisprLiteCore
         for file in files {
             let audio = try readPCM(file)
             let session = try await backend.makeSession()
-            var offset = 0
-            var revision = 0
-            var partials = 0
-            while offset < audio.samples.count {
-                let end = min(offset + 640, audio.samples.count)
-                try await session.append(PCM16k(Array(audio.samples[offset..<end])), startingAt: offset)
-                offset = end
-                if let update = try await session.partial(), update.revision > revision {
-                    revision = update.revision; partials += 1
-                }
-            }
+            let feed = try await feed(audio, into: session)
             let start = ContinuousClock.now
             let final = try await session.finish()
             let finishMS = milliseconds(start.duration(to: .now))
@@ -329,20 +347,14 @@ import WhisprLiteCore
             let words: (String) -> [String] = { $0.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init) }
             observations.append(["fixture": file.lastPathComponent, "audio_seconds": audio.duration,
                 "synthetic_transcript": final.text, "batch_text_equal": final.text == reference.text,
-                "batch_words_equal": words(final.text) == words(reference.text), "partial_revisions": partials,
+                "batch_words_equal": words(final.text) == words(reference.text),
+                "partial_revisions": feed.partialRevisions,
                 "adapter_finish_ms": finishMS])
         }
-        let cancelled = try await backend.makeSession()
-        try await cancelled.append(PCM16k([Float](repeating: 0, count: 640)), startingAt: 0)
-        await cancelled.cancel()
-        do { _ = try await cancelled.finish(); throw AppError.inference }
-        catch is CancellationError {}
         // Switching to retained-audio batch fallback must settle the cancelled session first.
         let audio = try readPCM(files[0])
-        guard try await backend.transcribe(audio) == references[files[0].lastPathComponent] else { throw AppError.inference }
-        let reset = try await backend.makeSession() // Batch -> streaming mode must prepare again.
-        let empty = try await reset.finish()
-        guard empty.text.isEmpty, empty.audioDuration == 0 else { throw AppError.inference }
+        let (fallback, _, _) = try await cancelFallbackAndReset(backend, audio: audio)
+        guard fallback == references[files[0].lastPathComponent] else { throw AppError.inference }
         let result: [String: Any] = ["schema": 1, "mode": "real-parakeet-streaming-synthetic",
             "cancel_settle_batch_fallback": "passed", "batch_to_streaming_reset": "passed",
             "capture_paced": false, "ground_truth_accuracy_measured": false, "fixtures": observations]
