@@ -462,6 +462,9 @@ accessor to `Bundle.main.resourceURL` before compilation, and stage its bundles 
 build-directory fallback after installation. The bundle smoke check verifies FluidAudio's
 resource bundle can be opened. `WhisprLite --asr-check /absolute/path/to/Models`, from the
 built app's `Contents/MacOS`, prepares real models, transcribes short silence and unloads.
+Explicit development and synthetic check commands report content-free `CheckFailure`
+messages for failed expectations, such as an unknown model, a missing native update or
+a Settings window that does not fit.
 The build requires ParakeetCore and FluidAudio licence files and the smoke check verifies
 they are present and nonempty in the signed bundle. The app media framework compiles only
 the upstream files needed by the broker; `scripts/build-media-upstream.sh` creates a

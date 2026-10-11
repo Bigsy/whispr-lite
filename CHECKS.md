@@ -6,6 +6,7 @@ third-party insertion, actual media playback compatibility or release acceptance
 
 | Check | Result |
 |---|---|
+| 11 October app check failures, Apple M1 Max | `make check` passed with 113 registered Swift tests (one optional skip), 2 synthetic CLI tests, 17 native broker, 27 synthetic setup and 6 release tests, signed arm64 app, doctor and bundle smoke. Explicit app probe failures now carry content-free, check-specific messages. No physical capture or native preview was run for this message-only change. |
 | 11 October typed media broker protocol, Apple M1 Max | `make test` passed with 113 registered Swift tests (one optional skip), 2 synthetic CLI tests, 17 native broker, 27 synthetic setup and 6 release tests. Swift protocol tests now reject an old version, an unknown event type and an oversized field; native broker behavior remained green. No real player compatibility test was run. |
 | 11 October benchmark failure messages, Apple M1 Max | `make test` passed with 113 registered Swift tests (one optional skip), 2 synthetic CLI tests, 17 native broker, 27 synthetic setup and 6 release tests. A missing VAD cache now produces its own status-1 diagnostic; benchmark parity checks no longer reuse app error descriptions. No model or private settings were used in the CLI test. |
 | 11 October bench small cleanup, Apple M1 Max | `whispr-bench` compiled after simplifying unexpected cancellation propagation and the optional first-partial JSON value. No model run was needed for this representation-only edit. |

@@ -19,7 +19,9 @@ import Darwin
         // check the scroll fallback when a page is taller than the display.
         // Editor heights live in UserDefaults; keep the user's real values out of the renders.
         let suite = "whispr-ui-preview-\(UUID())"
-        guard let previewDefaults = UserDefaults(suiteName: suite) else { throw AppError.unsupported }
+        guard let previewDefaults = UserDefaults(suiteName: suite) else {
+            throw CheckFailure("Preview defaults could not be created")
+        }
         defer { previewDefaults.removePersistentDomain(forName: suite) }
         var heights: [String: CGFloat] = [:]
         func settings(_ name: String, _ page: SettingsPage, _ scheme: ColorScheme, height: CGFloat? = nil) throws {
@@ -29,7 +31,7 @@ import Darwin
             if let height { try snapshot(view, size: NSSize(width: SettingsView.width, height: height), to: file); return }
             app.preferredSettingsHeight = 0
             try snapshot(view, size: NSSize(width: SettingsView.width, height: 1_400), to: file)
-            guard app.preferredSettingsHeight > 0 else { throw AppError.unsupported }
+            guard app.preferredSettingsHeight > 0 else { throw CheckFailure("Settings page did not report a fitted height") }
             try snapshot(view, size: NSSize(width: SettingsView.width, height: app.preferredSettingsHeight), to: file)
             heights[name] = app.preferredSettingsHeight
         }
@@ -66,7 +68,10 @@ import Darwin
         RunLoop.current.run(until: Date().addingTimeInterval(0.3))
         let fitted = window.contentRect(forFrameRect: window.frame).height
         app.settingsWindow = nil; window.close()
-        guard app.preferredSettingsHeight > 0, abs(fitted - app.preferredSettingsHeight) < 1, abs(window.frame.maxY - top) < 1 else { throw AppError.overflow }
+        guard app.preferredSettingsHeight > 0, abs(fitted - app.preferredSettingsHeight) < 1,
+              abs(window.frame.maxY - top) < 1 else {
+            throw CheckFailure("Settings window did not fit while keeping its top edge")
+        }
         heights["window-fit-advanced-http"] = fitted
         try JSONReport.write(heights.mapValues { Double($0) },
                              to: directory.appendingPathComponent("settings-heights.json"))
@@ -98,13 +103,19 @@ import Darwin
     private static func snapshot<Content: View>(_ view: Content, size: NSSize, to file: URL) throws {
         let (window, host) = offscreenHost(view, size: size)
         host.layoutSubtreeIfNeeded()
-        guard abs(host.bounds.width - size.width) < 0.1, abs(host.bounds.height - size.height) < 0.1 else { throw AppError.overflow }
+        guard abs(host.bounds.width - size.width) < 0.1, abs(host.bounds.height - size.height) < 0.1 else {
+            throw CheckFailure("Preview host size did not match the requested render size")
+        }
         // Let native hosting finish a layout pass; this exists only in the explicit preview command.
         RunLoop.current.run(until: Date().addingTimeInterval(0.15))
         host.layoutSubtreeIfNeeded()
-        guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { throw AppError.unsupported }
+        guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+            throw CheckFailure("Preview bitmap could not be created")
+        }
         host.cacheDisplay(in: host.bounds, to: bitmap)
-        guard let png = bitmap.representation(using: .png, properties: [:]) else { throw AppError.unsupported }
+        guard let png = bitmap.representation(using: .png, properties: [:]) else {
+            throw CheckFailure("Preview PNG could not be encoded")
+        }
         try png.write(to: file, options: .atomic)
         window.close()
     }
@@ -124,7 +135,9 @@ import Darwin
                     .environment(\.colorScheme, .dark), size: presentation.size)
                 host.layoutSubtreeIfNeeded()
                 RunLoop.current.run(until: Date().addingTimeInterval(0.01))
-                guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { throw AppError.unsupported }
+                guard let bitmap = host.bitmapImageRepForCachingDisplay(in: host.bounds) else {
+                    throw CheckFailure("Activity preview bitmap could not be created")
+                }
                 let start = cpuMS()
                 for frame in 0..<10 {
                     if enabled { activity.update(frame.isMultiple(of: 2) ? 0.3 : 0.8) }

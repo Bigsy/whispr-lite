@@ -5,10 +5,10 @@ import WhisprLiteCore
 /// Opt-in synthetic integration check in the signed app. No microphone or saved app settings.
 @MainActor enum NativeBatchCheck {
     static func run(arguments: [String]) async throws {
-        guard arguments.count == 5 else { throw AppError.unsupported }
+        guard arguments.count == 5 else { throw CheckFailure("Batch-flow check requires five arguments") }
         guard AXIsProcessTrusted() else {
             print("batch-flow blocked: enable Accessibility for this signed Whispr Lite app, then retry")
-            throw AppError.notReady
+            throw CheckFailure("Accessibility permission is required for native insertion")
         }
         let cache = URL(fileURLWithPath: arguments[0], isDirectory: true)
         let corpus = URL(fileURLWithPath: arguments[1], isDirectory: true)
@@ -17,7 +17,9 @@ import WhisprLiteCore
         let store = try SettingsStore(directory: privateDirectory)
         struct Import: Decodable { let cleanupInputFormat: CleanupInputFormat; let cleanupDictionaryPrefix: String }
         let metadataURL = privateDirectory.appendingPathComponent("cleanup-import.json")
-        guard try metadataURL.resourceValues(forKeys: [.fileSizeKey]).fileSize.map({ $0 <= 65_536 }) == true else { throw AppError.contextLimit }
+        guard try metadataURL.resourceValues(forKeys: [.fileSizeKey]).fileSize.map({ $0 <= 65_536 }) == true else {
+            throw CheckFailure("Cleanup import metadata is missing or too large")
+        }
         let metadata = try JSONDecoder().decode(Import.self, from: Data(contentsOf: metadataURL))
         var preferences = store.preferences
         preferences.cleanupEndpoint = arguments[3]
@@ -29,9 +31,11 @@ import WhisprLiteCore
         try await backend.prepare()
         let pipeline = BatchPipeline(backend: backend, cleanup: cleanup)
         guard try await pipeline.run(PCM16k([])) == nil,
-              try await pipeline.run(PCM16k([Float](repeating: 0, count: 8000))) == nil else { throw AppError.inference }
+              try await pipeline.run(PCM16k([Float](repeating: 0, count: PCM16k.rate / 2))) == nil else {
+            throw CheckFailure("Batch-flow empty or silence check failed")
+        }
         let files = try PCM16k.corpus(in: corpus)
-        guard files.count == 6 else { throw AppError.invalidAudio }
+        guard files.count == 6 else { throw CheckFailure("Batch-flow corpus must contain six WAV fixtures") }
         let audio = try files.map { try PCM16k(contentsOfWAV: $0) }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 650, height: 240),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
@@ -62,9 +66,11 @@ import WhisprLiteCore
                 let start = clock.now
                 guard let text = try await pipeline.run(audio[index], mark: { stage in
                     await stages.mark(stage, session: session)
-                }) else { throw AppError.inference }
+                }) else { throw CheckFailure("Synthetic batch pipeline produced no text") }
                 let resultTime = clock.now
-                if let reference = references[index] { guard reference == text else { throw AppError.cleanup } }
+                if let reference = references[index] {
+                    guard reference == text else { throw CheckFailure("Synthetic batch output changed across rounds") }
+                }
                 else { references[index] = text }
                 do { try await insertion.insert(text, target: target) }
                 catch {
@@ -73,11 +79,16 @@ import WhisprLiteCore
                 }
                 let until = clock.now.advanced(by: .seconds(1))
                 while field.string != text && clock.now < until { try await Task.sleep(for: .milliseconds(2)) }
-                guard field.string == text else { print("batch-flow native update did not match round=\(repetition)"); throw AppError.targetChanged }
+                guard field.string == text else {
+                    print("batch-flow native update did not match round=\(repetition)")
+                    throw CheckFailure("Native text update did not match the synthetic result")
+                }
                 field.displayIfNeeded(); window.displayIfNeeded()
                 let end = clock.now
                 func span(_ first: TimingStage, _ last: TimingStage) throws -> Double {
-                    guard let value = stages.span(from: first, to: last, session: session) else { throw AppError.inference }
+                    guard let value = stages.span(from: first, to: last, session: session) else {
+                        throw CheckFailure("Batch-flow timing span is missing")
+                    }
                     return value
                 }
                 observations.append(["fixture": files[index].lastPathComponent, "condition": repetition == 0 ? "warmup" : "warm",

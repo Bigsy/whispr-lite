@@ -91,14 +91,18 @@ import WhisprLiteCore
                 do {
                     let model: ParakeetModel
                     if CommandLine.arguments.count > index + 2 {
-                        guard let selected = ParakeetModel(rawValue: CommandLine.arguments[index + 2]) else { throw AppError.unsupported }
+                        guard let selected = ParakeetModel(rawValue: CommandLine.arguments[index + 2]) else {
+                            throw CheckFailure("Unknown speech model")
+                        }
                         model = selected
                     } else { model = .unified }
                     let backend = ParakeetCoreBackend(cacheRoot: cache, model: model)
                     try await backend.prepare()
                     let empty = try await backend.transcribe(PCM16k([]))
                     let silence = try await backend.transcribe(PCM16k([Float](repeating: 0, count: 8_000)))
-                    guard empty.text.isEmpty, silence.audioDuration == 0.5 else { throw AppError.inference }
+                    guard empty.text.isEmpty, silence.audioDuration == 0.5 else {
+                        throw CheckFailure("Bundled ASR empty or silence check failed")
+                    }
                     try await backend.unload()
                     print("bundled-asr model=\(model.rawValue) preparation=ok short-input=ok unload=ok")
                     exit(0)
@@ -555,18 +559,20 @@ import WhisprLiteCore
     /// and native paste. Press/release are called here, so the event tap is outside timing.
     private func runCaptureFlowCheck(arguments: [String]) async throws {
         guard arguments.count == 6, let repetitions = Int(arguments[5]), 1...31 ~= repetitions,
-              let field = benchmarkField, let window = benchmarkWindow else { throw AppError.unsupported }
+              let field = benchmarkField, let window = benchmarkWindow else {
+            throw CheckFailure("Invalid capture-flow arguments or benchmark window")
+        }
         let fixture = URL(fileURLWithPath: arguments[0])
         let player = URL(fileURLWithPath: arguments[1])
         let expectedWords = arguments[3].lowercased().split(separator: " ")
-        guard !expectedWords.isEmpty else { throw AppError.unsupported }
+        guard !expectedWords.isEmpty else { throw CheckFailure("Capture-flow expected words are empty") }
         let output = URL(fileURLWithPath: arguments[4])
         let device = arguments[2]
         let deadline = ContinuousClock.now.advanced(by: .seconds(120))
         while readinessState == .preparing && ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(100))
         }
-        guard readinessState == .ready, let coordinator else { throw AppError.notReady }
+        guard readinessState == .ready, let coordinator else { throw CheckFailure("Dictation pipeline is not ready") }
         coordinator.timings.setEnabled(true)
         insertion.timings = coordinator.timings
         audio.debugTimings = true
@@ -584,7 +590,7 @@ import WhisprLiteCore
             guard NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier,
                   window.isKeyWindow, window.firstResponder === field else {
                 print("capture-flow focus frontmost=\(NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier) key=\(window.isKeyWindow) responder=\(window.firstResponder === field)")
-                throw AppError.targetChanged
+                throw CheckFailure("Benchmark field lost focus before capture")
             }
             var visibleMS: Double?
             benchmarkVisible = { visibleMS = $0 }
@@ -595,7 +601,7 @@ import WhisprLiteCore
                 coordinator.release()
                 try await Task.sleep(for: .milliseconds(250))
             }
-            guard coordinator.state == .recording else { throw AppError.notReady }
+            guard coordinator.state == .recording else { throw CheckFailure("Recording did not start") }
             try await Task.sleep(for: .milliseconds(250))
             let playback = Process()
             playback.executableURL = player
@@ -607,18 +613,22 @@ import WhisprLiteCore
                 do { try playback.run() }
                 catch { playback.terminationHandler = nil; continuation.resume(throwing: error) }
             }
-            guard status == 0 else { throw AppError.capture }
+            guard status == 0 else { throw CheckFailure("Synthetic playback failed") }
             try await Task.sleep(for: .milliseconds(150))
             coordinator.release()
             let visibleDeadline = ContinuousClock.now.advanced(by: .seconds(12))
             while visibleMS == nil && ContinuousClock.now < visibleDeadline {
                 try await Task.sleep(for: .milliseconds(10))
             }
-            guard let visibleMS, !field.string.isEmpty else { throw AppError.inference }
+            guard let visibleMS, !field.string.isEmpty else { throw CheckFailure("No native text update was observed") }
             let timings = coordinator.timings
-            guard let session = timings.events.last(where: { $0.stage == .visibleText })?.session else { throw AppError.inference }
+            guard let session = timings.events.last(where: { $0.stage == .visibleText })?.session else {
+                throw CheckFailure("Visible-text timing event is missing")
+            }
             func span(_ start: TimingStage, _ end: TimingStage) throws -> Double {
-                guard let value = timings.span(from: start, to: end, session: session) else { throw AppError.inference }
+                guard let value = timings.span(from: start, to: end, session: session) else {
+                    throw CheckFailure("Capture-flow timing span is missing")
+                }
                 return value
             }
             observations.append(["repetition": repetition, "condition": repetition == 0 ? "first" : "warm",
