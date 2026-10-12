@@ -72,11 +72,12 @@ import AVFoundation
         let start = ContinuousClock.now
         await #expect(throws: AppError.deadline("ASR")) {
             try await withDeadline(.milliseconds(5), stage: "ASR") {
-                await Task.detached { try? await Task.sleep(for: .milliseconds(200)) }.value
+                await Task.detached { try? await Task.sleep(for: .seconds(3)) }.value
                 return "late"
             }
         }
-        #expect(start.duration(to: .now) < .milliseconds(150))
+        // Waiting for the worker would take 3 s; the margin absorbs slow CI runners.
+        #expect(start.duration(to: .now) < .milliseconds(1500))
     }
     @Test func cancellingDeadlineReturnsImmediately() async throws {
         let task = Task {

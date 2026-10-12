@@ -188,7 +188,8 @@ import AVFoundation
             pipeline: .init(backend: backend, cleanup: DemoCleanup()))
         coordinator.ready = true; coordinator.holdWarmupInterval = .milliseconds(10)
         coordinator.press()
-        try await Task.sleep(for: .milliseconds(300))
+        // Wait for repeats rather than a fixed hold, so a slow runner cannot starve the loop.
+        try await poll(timeout: .seconds(5)) { await backend.warmCalls >= 2 }
         coordinator.release()
         try await poll { coordinator.state == .idle && insertion.texts.count == 1 }
         let held = await backend.warmCalls
