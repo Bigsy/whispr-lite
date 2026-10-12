@@ -315,6 +315,7 @@ def main():
     if args.command != 'run':
         # A build accepted on this Mac wins while it is newer than this pin. run keeps the
         # lock copied into its runner, which install already resolved this way.
+        sys.path.insert(0, str(Path(__file__).resolve().parent))  # Also under python3 -I.
         import cleanup_upgrade
         LOCK = cleanup_upgrade.effective_lock(LOCK, directory)
     if args.command in UPGRADE_COMMANDS:

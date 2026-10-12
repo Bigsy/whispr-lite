@@ -23,6 +23,19 @@ local_http = module('local_http', 'local_http.py')
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_cleanup_setup_kit_runs_without_a_checkout(self):
+        root = Path(__file__).resolve().parent.parent
+        with tempfile.TemporaryDirectory() as temporary:
+            kit, models = Path(temporary) / 'WhisprLite-Cleanup-Setup', Path(temporary) / 'Cleanup'
+            for name in packaging.setup_files():
+                (kit / name).parent.mkdir(parents=True, exist_ok=True)
+                (kit / name).write_bytes((root / name).read_bytes())
+            script = kit / 'scripts/cleanup-service.py'
+            for arguments in (['--help'], ['status', '--directory', str(models)]):
+                result = subprocess.run(['python3', '-I', str(script), *arguments], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('"status": "installed"', result.stdout)
+
     def test_packaging_errors_name_the_failed_step_and_stream_hashes(self):
         self.assertEqual(packaging.failure_message(ValueError('Synthetic version mismatch')),
                          'Synthetic version mismatch')

@@ -2,6 +2,7 @@
 """Package an already checked app using an explicit allowlist, without local data/models."""
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,15 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def setup_files():
+    """The standalone cleanup kit: the service, its lock and every file its runner copies."""
+    spec = importlib.util.spec_from_file_location('cleanup_service', ROOT / 'scripts/cleanup-service.py')
+    service = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(service)
+    return ['scripts/cleanup-service.py', 'Resources/cleanup-stack.json', 'Resources/RELEASE-INSTALL.md',
+            *service.RUNNER_FILES]
 
 
 def version(value):
@@ -96,7 +106,7 @@ def package(release_version, channel, output, notary_profile=None):
         shutil.move(candidate, app_zip)
     # A small, standalone setup kit; no source checkout or Swift build is required.
     with zipfile.ZipFile(setup_zip, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
-        for name in ['scripts/cleanup-service.py', 'Resources/cleanup-stack.json', 'Resources/RELEASE-INSTALL.md']:
+        for name in setup_files():
             archive.write(ROOT / name, 'WhisprLite-Cleanup-Setup/' + name)
     commit = command('git', '-C', str(ROOT), 'rev-parse', 'HEAD').strip()
     artifacts = [{ 'file': p.name, 'bytes': p.stat().st_size, 'sha256': digest(p) }
