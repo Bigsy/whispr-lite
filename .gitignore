@@ -1,6 +1,6 @@
-# Keep the local implementation plan out of GitHub.
+# Keep the local implementation plan and agent instructions out of GitHub.
 /PLAN.md
-!/AGENTS.md
+/AGENTS.md
 .build/
 .swiftpm/
 dist/

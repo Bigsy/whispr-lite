@@ -30,10 +30,23 @@ The app is built with Swift, AppKit and SwiftUI. It uses no Electron runtime.
 
 ## Getting started
 
-Prebuilt app ZIPs are produced by the repository's **Checks** workflow. Version tags
-produce draft [GitHub releases](https://github.com/Bigsy/whispr-lite/releases), with the
-app and a separate cleanup setup kit. See the [download installation guide](Resources/RELEASE-INSTALL.md)
-for setup without compiling. Preview builds are not notarized.
+Prebuilt apps are produced by the repository's **Checks** workflow. Version tags
+produce draft [GitHub releases](https://github.com/Bigsy/whispr-lite/releases) with a DMG
+(drag the app onto Applications), the same app as a ZIP, and a separate cleanup setup kit.
+See the [download installation guide](Resources/RELEASE-INSTALL.md) for setup without compiling.
+
+> **Preview builds are not notarized.** macOS blocks their first launch ("Apple could not
+> verify…"). After copying the app to Applications, either open it once and click
+> **Open Anyway** in System Settings → Privacy & Security, or clear the quarantine flag:
+>
+> ```sh
+> xattr -dr com.apple.quarantine "/Applications/Whispr Lite.app"
+> ```
+>
+> Preview builds are also ad-hoc signed, so macOS asks again for Microphone, Accessibility
+> and Input Monitoring after each update. If a permission looks enabled but does not work,
+> remove the app from that list with **−** and add it again. Apps built locally with
+> `make build` are not quarantined.
 
 Requires **Apple Silicon**, **macOS 14 or later**, **Swift 6.2+** to build, and **Python 3.9+**
 for the cleanup setup scripts.
@@ -86,7 +99,12 @@ make test    # Swift, media-broker and setup tests
 make check   # Tests, signed app build, doctor and bundle smoke check
 ```
 
-- [Development guide](DEVELOPMENT.md) — setup, configuration and benchmarks.
-- [Checks](CHECKS.md) — measured results and remaining validation.
-- [Historical notes](bench/HISTORICAL_NOTES.md) — original OpenWhispr stack experiments.
-- [Third-party notices](THIRD_PARTY_NOTICES.md) — dependencies and behavioral references.
+- [Development guide](DEVELOPMENT.md): setup, configuration and benchmarks.
+- [Checks](CHECKS.md): measured results and remaining validation.
+- [Historical notes](bench/HISTORICAL_NOTES.md): original OpenWhispr stack experiments.
+- [Third-party notices](THIRD_PARTY_NOTICES.md): dependencies and behavioral references.
+
+## License
+
+Whispr Lite is [MIT](LICENSE) licensed. Dependencies, the vendored media adapter and the
+downloaded models keep their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
