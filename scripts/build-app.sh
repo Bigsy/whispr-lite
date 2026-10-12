@@ -17,6 +17,7 @@ app="$PWD/dist/Whispr Lite.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
 cp "$binary_dir/WhisprLite" "$app/Contents/MacOS/WhisprLite"
 cp Resources/Info.plist "$app/Contents/Info.plist"
+cp Resources/AppIcon.icns "$app/Contents/Resources/"
 if [[ -n "${APP_VERSION:-}" ]]; then
   [[ "$APP_VERSION" =~ '^[0-9]+\.[0-9]+\.[0-9]+$' ]] || { print -u2 'Invalid APP_VERSION'; exit 1; }
   /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $APP_VERSION" "$app/Contents/Info.plist"

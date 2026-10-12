@@ -59,6 +59,8 @@ Requires Apple Silicon, macOS 14+ and Swift 6.2. `make build` assembles
 `dist/Whispr Lite.app`; open it with `open 'dist/Whispr Lite.app'`. Build/test do not install,
 restart or reconfigure model services or login items. The app's SwiftPM dependency is
 ParakeetCore, pinned to exact 0.2.0 with `Package.resolved` retained.
+The app icon is the committed `Resources/AppIcon.icns`; `swift scripts/make-icon.swift`
+regenerates it (simplified glyph at 16 and 32 px, Apple's 824-point icon grid).
 New settings default to direct local Unified ASR, with real Gemma
 cleanup. Demo output is a development mode with no Settings switch: to test fabricated
 output without services, quit the app and set `"backend": "demo"` (optionally

@@ -64,10 +64,12 @@ import WhisprLiteCore
         let architecture = "unsupported"
         let architectureValid = false
         #endif
-        let valid = architectureValid && resourcesValid && noticesValid
+        let iconValid = bundle.object(forInfoDictionaryKey: "CFBundleIconFile") as? String == "AppIcon"
+            && bundle.url(forResource: "AppIcon", withExtension: "icns") != nil
+        let valid = architectureValid && resourcesValid && noticesValid && iconValid
             && bundle.bundleIdentifier == "com.hedworth.whispr-lite"
             && bundle.object(forInfoDictionaryKey: "LSUIElement") as? Bool == true
-        print("bundle=\(valid ? "ok" : "invalid") arch=\(architecture) resources=\(resourcesValid ? "ok" : "invalid") licences=\(noticesValid ? "ok" : "invalid")")
+        print("bundle=\(valid ? "ok" : "invalid") arch=\(architecture) resources=\(resourcesValid ? "ok" : "invalid") licences=\(noticesValid ? "ok" : "invalid") icon=\(iconValid ? "ok" : "invalid")")
         exit(valid ? 0 : 1)
     }
 }
