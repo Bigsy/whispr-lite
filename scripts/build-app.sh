@@ -13,7 +13,7 @@ scripts/build-media.sh
 binary_dir="$PWD/$task_scratch_path/arm64-apple-macosx/release"
 [[ -x "$binary_dir/WhisprLite" ]] || { print -u2 "Missing built app executable: $binary_dir/WhisprLite"; exit 1; }
 app="$PWD/dist/Whispr Lite.app"
-rm -rf "$app"
+/bin/rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Frameworks"
 cp "$binary_dir/WhisprLite" "$app/Contents/MacOS/WhisprLite"
 cp Resources/Info.plist "$app/Contents/Info.plist"
