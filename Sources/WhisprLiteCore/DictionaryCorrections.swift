@@ -1,7 +1,9 @@
 import Foundation
 
 /// Plain entries remain model vocabulary. Explicit aliases are literal, whole-phrase
-/// replacements, compiled once when settings prepare the cleanup adapter.
+/// replacements, compiled once when settings prepare the cleanup adapter. The model sees
+/// each alias's written form and, after all written words, its spoken phrase, as OpenWhispr
+/// does for snippet triggers: a conversion only fires if cleanup leaves the phrase intact.
 public struct DictionaryCorrections: Sendable {
     private static let posixLocale = Locale(identifier: "en_US_POSIX")
     let vocabulary: String
@@ -14,6 +16,7 @@ public struct DictionaryCorrections: Sendable {
             return
         }
         var words: [String] = []
+        var spoken: [String] = []
         var aliases: [String: String] = [:]
         var conflicts = Set<String>()
         for line in dictionary.components(separatedBy: .newlines) {
@@ -25,9 +28,13 @@ public struct DictionaryCorrections: Sendable {
             let key = Self.key(alias)
             if let previous = aliases[key], previous != spelling { conflicts.insert(key) }
             aliases[key] = spelling
-            words.append(spelling)
+            words.append(spelling); spoken.append(alias)
         }
         for key in conflicts { aliases.removeValue(forKey: key) }
+        var listed = Set(words.map(Self.key))
+        for alias in spoken where aliases[Self.key(alias)] != nil && listed.insert(Self.key(alias)).inserted {
+            words.append(alias)
+        }
         vocabulary = words.joined(separator: "\n")
         replacements = aliases
         let alternatives = aliases.keys.sorted {

@@ -148,7 +148,7 @@ private final class FixtureProtocol: URLProtocol, @unchecked Sendable {
             dictionary: "dochler => Doccla", inputFormat: .openWhispr), http: http)
         let body = try #require(JSONSerialization.jsonObject(with: cleanup.request("dochler", maxTokens: 128).httpBody!) as? [String: Any])
         let messages = try #require(body["messages"] as? [[String: String]])
-        #expect(messages[0]["content"] == "Synthetic prompt\nCustom dictionary:\nDoccla")
+        #expect(messages[0]["content"] == "Synthetic prompt\nCustom dictionary:\nDoccla\ndochler")
         try stub(endpoint, "apply-template", json: ["prompt": "Synthetic template"])
         try stub(endpoint, "tokenize", json: ["tokens": [1, 2, 3]])
         try stub(endpoint, "v1/chat/completions", json: chatReply(" Dochler spoke to the doctor. "))

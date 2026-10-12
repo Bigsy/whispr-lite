@@ -325,7 +325,7 @@ class DictionaryCorrections:
         self._aliases = []
         if '>' not in dictionary:
             return
-        words, aliases, conflicts = [], {}, set()
+        words, spoken, aliases, conflicts = [], [], {}, set()
         for line in re.split(r'[\n\r\v\f\x85\u2028\u2029]', dictionary):
             parts = line.split('=>' if '=>' in line else '>')
             if len(parts) != 2 or not all(part.strip() for part in parts):
@@ -337,6 +337,14 @@ class DictionaryCorrections:
                 conflicts.add(key)
             aliases[key] = spelling
             words.append(spelling)
+            spoken.append(alias)
+        # Spoken phrases follow the written words so cleanup keeps them for the conversion.
+        listed = {word.lower() for word in words}
+        for alias in spoken:
+            key = alias.lower()
+            if key not in conflicts and key not in listed:
+                words.append(alias)
+                listed.add(key)
         self.vocabulary = '\n'.join(words)
         self._aliases = [(re.compile(re.escape(key), re.I), spelling)
                          for key, spelling in sorted(aliases.items(), key=lambda item: (-len(item[0]), item[0]))

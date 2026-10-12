@@ -96,7 +96,9 @@ The dictionary accepts ordinary preferred spellings and explicit phrase conversi
 one rule per line: `happy fire > HAPI FHIR` or `dochler > Doccla`. `=>` is also accepted.
 Plain entries are guidance to Gemma, not guaranteed ASR biasing. Exact conversions run
 once after a successful cleanup, case-insensitively on whole words/phrases; the right side
-keeps its chosen spelling/case. Longer overlapping phrases take precedence. Rules never
+keeps its chosen spelling/case. Gemma sees each conversion's written form and, after all
+written words, its spoken phrase (as OpenWhispr does for snippet triggers), so cleanup
+leaves the phrase intact for the conversion to fire; without it Gemma rewrote some triggers. Longer overlapping phrases take precedence. Rules never
 cascade, regex characters are literal, and conflicting spellings for the same alias are
 ignored. Unrelated words such as “doctor” are untouched. Parsing/regex compilation happens
 when preparing settings, with no audio callback work, extra inference or timing collection.

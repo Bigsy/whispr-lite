@@ -33,7 +33,7 @@ import Testing
 
     @Test func explicitSpellingCorrectsOnlyWholeAliases() {
         let dictionary = DictionaryCorrections("Parakeet\ndochler => Doccla\nmap vee => mapv")
-        #expect(dictionary.vocabulary == "Parakeet\nDoccla\nmapv")
+        #expect(dictionary.vocabulary == "Parakeet\nDoccla\nmapv\ndochler\nmap vee")
         #expect(dictionary.apply(to: "DOCHLER, dochler's map vee. The doctor called; dochlers stayed.")
                 == "Doccla, Doccla's mapv. The doctor called; dochlers stayed.")
         #expect(dictionary.apply(to: "édochler dochleré _dochler dochler_ 2dochler dochler2")
@@ -50,7 +50,7 @@ import Testing
         let dictionary = DictionaryCorrections("happy fire > hapi fhir\ndochler > Doccla")
         #expect(dictionary.apply(to: "Happy Fire, HAPPY FIRE and Dochler; happy fireworks.")
                 == "hapi fhir, hapi fhir and Doccla; happy fireworks.")
-        #expect(dictionary.vocabulary == "hapi fhir\nDoccla")
+        #expect(dictionary.vocabulary == "hapi fhir\nDoccla\nhappy fire\ndochler")
     }
 
     @Test func plainEntriesEmptyAndConflictingAliasesAreConservative() {
