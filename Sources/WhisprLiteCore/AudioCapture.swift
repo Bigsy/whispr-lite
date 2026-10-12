@@ -315,7 +315,15 @@ final class AudioWorker: @unchecked Sendable {
 final class AudioTap: @unchecked Sendable {
     let worker: AudioWorker
     private var expectedSample: AVAudioFramePosition?
+    /// After an on-demand start the device can skip its first cycles under load (the HAL logs
+    /// "skipping cycle due to overload"). Gaps then re-sync instead of failing the recording.
+    static let startupSettleSeconds = 0.25
+    private var settling = false
+    private var settleUntil: Double?
     init(_ worker: AudioWorker) { self.worker = worker }
+    /// A stopped engine starts again on a new I/O timeline; only a gap after it settles is lost
+    /// speech. Call only while the engine is stopped, so no render callback reads these values.
+    func restart() { expectedSample = nil; settling = true; settleUntil = nil }
     // Construct outside MainActor isolation: AVAudioEngine invokes this on its audio
     // queue. An inline non-Sendable closure in prepare inherits MainActor in Swift 6.
     func callback() -> @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void {
@@ -334,8 +342,13 @@ final class AudioTap: @unchecked Sendable {
                 hostSeconds: time.isHostTimeValid ? AVAudioTime.seconds(forHostTime: time.hostTime) : nil)
     }
     private func receive(_ list: UnsafePointer<AudioBufferList>, frames: AVAudioFrameCount, sampleTime: AVAudioFramePosition?, hostSeconds: Double?) {
+        if settling {
+            if let hostSeconds, let settleUntil { settling = hostSeconds < settleUntil }
+            else if let hostSeconds { settleUntil = hostSeconds + Self.startupSettleSeconds }
+            else { settling = false }
+        }
         if let sampleTime {
-            if let expectedSample, sampleTime != expectedSample { worker.markDiscontinuity() }
+            if let expectedSample, sampleTime != expectedSample, !settling { worker.markDiscontinuity() }
             expectedSample = sampleTime + AVAudioFramePosition(frames)
         }
         worker.receive(list, frames: frames, hostSeconds: hostSeconds)
@@ -358,6 +371,7 @@ public struct CaptureOptions: Sendable {
 @MainActor public final class AudioCapture: CaptureDriver {
     private var engine: AVAudioEngine?
     private var worker: AudioWorker?
+    private var tap: AudioTap?
     private var tapInstalled = false
     private var warm = true
     private var streamingEnabled = false
@@ -395,7 +409,7 @@ public struct CaptureOptions: Sendable {
             tapInstalled = true
         }
         engine.prepare()
-        self.engine = engine; self.worker = worker
+        self.engine = engine; self.worker = worker; self.tap = tap
         changeObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.onFailure?() }
         }
@@ -404,7 +418,8 @@ public struct CaptureOptions: Sendable {
     public func begin() throws -> CaptureStreams {
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { throw AppError.capture }
         guard let engine, let worker else { throw AppError.notReady }
-        if !engine.isRunning { try engine.start() }
+        // On-demand capture stopped the engine after the last recording.
+        if !engine.isRunning { tap?.restart(); try engine.start() }
         return try worker.begin(warm: warm, streaming: streamingEnabled, earlyChunks: earlyChunksEnabled,
                                 activity: showAudioActivity, timings: debugTimings)
     }
@@ -418,6 +433,6 @@ public struct CaptureOptions: Sendable {
         if let changeObserver { NotificationCenter.default.removeObserver(changeObserver); self.changeObserver = nil }
         engine?.stop()
         if tapInstalled { engine?.inputNode.removeTap(onBus: 0); tapInstalled = false }
-        engine = nil; worker = nil
+        engine = nil; worker = nil; tap = nil
     }
 }

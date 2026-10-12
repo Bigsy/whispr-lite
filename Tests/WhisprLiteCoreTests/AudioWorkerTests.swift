@@ -87,10 +87,11 @@ import AVFoundation
     }
 }
 @Suite struct LowLatencyCaptureTests {
-    func feed(_ callback: AVAudioSinkNodeReceiverBlock, packets: Int, rate: Double, gapAfter: Int? = nil) throws {
+    func feed(_ callback: AVAudioSinkNodeReceiverBlock, packets: Int, rate: Double, gapAfter: Int? = nil,
+              from start: Double = 0) throws {
         let format = try monoFormat(rate: rate)
         let buffer = try filledBuffer(format: format, frames: 512, value: 0.2)
-        var sample = 0.0
+        var sample = start
         for packet in 0..<packets {
             var stamp = AudioTimeStamp()
             stamp.mSampleTime = sample; stamp.mHostTime = AVAudioTime.hostTime(forSeconds: 10 + sample / rate)
@@ -116,6 +117,24 @@ import AVFoundation
         let callback = AudioTap(worker).sinkCallback()
         _ = try worker.begin(warm: false)
         try feed(callback, packets: 6, rate: 48_000, gapAfter: 2)
+        await #expect(throws: AppError.overflow) { try await worker.end() }
+    }
+    @Test func onDemandRestartStartsAFreshTimelineButAGapWithinARunStillFails() async throws {
+        // Without the warm microphone the engine stops after each recording, and the next
+        // start's I/O timestamps do not continue the last run's. A cycle skipped while the
+        // device settles re-syncs; one after it (here about 320 ms in) is still lost audio.
+        let format = try monoFormat(rate: 48_000)
+        let worker = try AudioWorker(format: format, lowLatency: true)
+        let tap = AudioTap(worker), callback = tap.sinkCallback()
+        for (start, gap) in [(0.0, nil), (960_000, 1)] as [(Double, Int?)] {
+            _ = try worker.begin(warm: false)
+            try feed(callback, packets: 4, rate: 48_000, gapAfter: gap, from: start)
+            let audio = try await worker.end()
+            #expect(abs(audio.pcm.samples.count - 4 * 512 / 3) <= 16)
+            tap.restart()
+        }
+        _ = try worker.begin(warm: false)
+        try feed(callback, packets: 40, rate: 48_000, gapAfter: 30, from: 2_000_000)
         await #expect(throws: AppError.overflow) { try await worker.end() }
     }
     @Test func smallSlotsStillAbsorbAWorkerStall() async throws {
