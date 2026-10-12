@@ -8,6 +8,7 @@ from pathlib import Path
 import plistlib
 import re
 import shlex
+import signal
 import socket
 import subprocess
 import sys
@@ -24,6 +25,11 @@ LABEL = 'com.hedworth.whispr-lite.cleanup'
 LAUNCHER = 'Whispr Lite Cleanup'
 DEFAULT_DIRECTORY = Path.home() / 'Library/Application Support/WhisprLite/Cleanup'
 METAL_RESIDENCY_SECONDS = '86400'
+# Copied into each runner, so the installed launcher can also check for and switch builds
+# (Settings > Advanced > Cleanup engine) without the repository.
+RUNNER_FILES = ('scripts/cleanup_upgrade.py', 'scripts/cleanup_bench.py', 'scripts/local_http.py',
+                'Resources/cleanup-prompt.txt', 'bench/cleanup-fixtures-realistic.json')
+UPGRADE_COMMANDS = ('status', 'upgrade-check', 'upgrade-apply', 'upgrade-rollback')
 
 
 def release_pin():
@@ -237,12 +243,16 @@ def install(directory, port):
     source = Path(__file__).read_bytes()
     lock_data = json.dumps(LOCK, sort_keys=True).encode()
     interpreter = sys.executable.encode()
-    runtime = directory / 'Runtimes' / hashlib.sha256(source + lock_data + interpreter).hexdigest()[:20]
+    support = [(relative, (ROOT / relative).read_bytes(), 0o600) for relative in RUNNER_FILES]
+    identity = hashlib.sha256(source + lock_data + interpreter)
+    for relative, content, _ in support:
+        identity.update(relative.encode() + b'\0' + hashlib.sha256(content).digest())
+    runtime = directory / 'Runtimes' / identity.hexdigest()[:20]
     script = runtime / 'scripts/cleanup-service.py'
     launcher = (f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(script))} "$@"\n').encode()
     for relative, content, mode in [('scripts/cleanup-service.py', source, 0o600),
                                     ('Resources/cleanup-stack.json', lock_data, 0o600),
-                                    (LAUNCHER, launcher, 0o700)]:
+                                    (LAUNCHER, launcher, 0o700), *support]:
         destination = runtime / relative
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if destination.exists():
@@ -288,15 +298,32 @@ def install(directory, port):
 
 
 def main():
+    global LOCK
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('command', choices=['prepare', 'verify', 'run', 'install', 'uninstall'])
+    parser.add_argument('command', choices=['prepare', 'verify', 'run', 'install', 'uninstall', *UPGRADE_COMMANDS])
     parser.add_argument('--directory', type=Path, default=DEFAULT_DIRECTORY)
     parser.add_argument('--port', type=int, default=LOCK['port'])
+    parser.add_argument('--settings-directory', type=Path, default=DEFAULT_DIRECTORY.parent,
+                        help='saved prompt and dictionary for upgrade-check')
+    parser.add_argument('--rounds', type=int, default=3, help='timed passes per build for upgrade-check')
     args = parser.parse_args()
     if not 1024 <= args.port <= 65535:
         parser.error('Port must be between 1024 and 65535')
+    if not 1 <= args.rounds <= 10:
+        parser.error('Rounds must be between 1 and 10')
     directory = args.directory.expanduser().resolve()
-    if args.command == 'prepare':
+    if args.command != 'run':
+        # A build accepted on this Mac wins while it is newer than this pin. run keeps the
+        # lock copied into its runner, which install already resolved this way.
+        import cleanup_upgrade
+        LOCK = cleanup_upgrade.effective_lock(LOCK, directory)
+    if args.command in UPGRADE_COMMANDS:
+        # Let finally blocks stop a candidate server when the app cancels a check.
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+        result = cleanup_upgrade.dispatch(sys.modules[__name__], args.command, directory, args.port,
+                                          args.settings_directory.expanduser().resolve(), args.rounds)
+        print(json.dumps(result), flush=True)
+    elif args.command == 'prepare':
         prepare(directory)
     elif args.command == 'uninstall':
         plist = Path.home() / f'Library/LaunchAgents/{LABEL}.plist'
@@ -314,6 +341,6 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (RuntimeError, subprocess.CalledProcessError, OSError) as error:
+    except (RuntimeError, ValueError, KeyError, subprocess.SubprocessError, OSError) as error:
         print(f'Cleanup setup failed: {error}', file=sys.stderr)
         sys.exit(1)

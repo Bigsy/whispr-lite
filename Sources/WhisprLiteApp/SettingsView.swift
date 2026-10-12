@@ -34,6 +34,7 @@ private final class SettingsSectionHeights {
     static let width: CGFloat = 640
     let store: SettingsStore
     @ObservedObject var status: AppStatus
+    @ObservedObject var engine: CleanupEngineModel
     let actions: SettingsActions
     let onHeightChange: (CGFloat) -> Void
     let saved: () -> Void
@@ -51,15 +52,16 @@ private final class SettingsSectionHeights {
     @State private var microphones: [MicrophoneDevice] = []
     @State private var confirmingHistoryDelete = false
     @State private var historyMessage = ""
+    @State private var showingDifferences = false
     @State private var sectionHeights = SettingsSectionHeights()
     @AppStorage("settingsPromptEditorHeight") private var promptHeight = 132.0
     @AppStorage("settingsDictionaryEditorHeight") private var dictionaryHeight = 84.0
 
-    init(store: SettingsStore, status: AppStatus, actions: SettingsActions,
+    init(store: SettingsStore, status: AppStatus, engine: CleanupEngineModel, actions: SettingsActions,
          page: SettingsPage = .general,
          enumerateMicrophones: Bool = true, onHeightChange: @escaping (CGFloat) -> Void,
          saved: @escaping () -> Void) {
-        self.store = store; self.status = status; self.actions = actions
+        self.store = store; self.status = status; self.engine = engine; self.actions = actions
         self.onHeightChange = onHeightChange
         self.saved = saved; self.enumerateMicrophones = enumerateMicrophones
         _page = State(initialValue: page)
@@ -289,6 +291,7 @@ private final class SettingsSectionHeights {
                         }.labelsHidden().fixedSize()
                     }
                 }
+                cleanupEngine
             }
             section("Performance") {
                 toggleRow("Low-latency capture", "Reads the microphone about every 10 ms so text arrives sooner. Turn off if a microphone records silence or fails.",
@@ -316,6 +319,63 @@ private final class SettingsSectionHeights {
                 }
             }
         }
+    }
+
+    /// The installed cleanup service's llama.cpp build: check for a newer one, compare, switch.
+    private var cleanupEngine: some View {
+        section("Cleanup engine") {
+            row("llama.cpp build", engineCaption) {
+                if engine.busy { ProgressView().controlSize(.small) }
+                if engine.activity == .checking {
+                    Button("Cancel", action: engine.cancel)
+                } else {
+                    Button("Check for update", action: engine.check).disabled(engine.busy)
+                        .help("Downloads the newest build and compares it with the installed one. Nothing changes until you upgrade.")
+                }
+            }
+            if let report = engine.checked, let candidate = report.candidate {
+                Divider()
+                row("\(candidate.tag) is available", Self.comparison(report)) {
+                    if !report.differences.isEmpty {
+                        Button("Show differences…") { showingDifferences = true }
+                    }
+                    Button(report.differences.isEmpty ? "Upgrade" : "Upgrade anyway", action: engine.upgrade)
+                        .disabled(engine.busy)
+                }
+            }
+            if let previous = engine.installed?.previous {
+                Divider()
+                row("Previous build", "\(previous.tag) is kept so you can switch back.") {
+                    Button("Switch back", action: engine.switchBack).disabled(engine.busy)
+                }
+            }
+            if engine.failed { warning(engine.message) }
+        }
+        .onAppear(perform: engine.refresh)
+        .sheet(isPresented: $showingDifferences) {
+            if let report = engine.checked {
+                CleanupDifferencesSheet(report: report, upgrade: { showingDifferences = false; engine.upgrade() },
+                                        close: { showingDifferences = false })
+            }
+        }
+    }
+    private var engineCaption: String {
+        if engine.busy {
+            return engine.progress.isEmpty ? (engine.activity == .switching ? "Restarting cleanup…" : "Starting…") : engine.progress
+        }
+        if !engine.failed, !engine.message.isEmpty { return engine.message }
+        let installed = engine.installed.map { "Running \($0.current.tag) (llama.cpp \($0.current.version)). " } ?? ""
+        return installed + "A check compares the newest build with this one on synthetic dictations, using your saved prompt."
+    }
+    static func comparison(_ report: CleanupEngineReport) -> String {
+        func timing(_ build: CleanupBuild?) -> String {
+            guard let median = build?.medianMilliseconds, let p90 = build?.p90Milliseconds else { return "unmeasured" }
+            return "\(Int(median.rounded())) ms (p90 \(Int(p90.rounded())) ms)"
+        }
+        let count = report.fixtures ?? 0
+        let outputs = report.differences.isEmpty ? "Same output on all \(count) synthetic dictations."
+            : "Different output on \(report.differences.count) of \(count) synthetic dictations."
+        return "Median \(timing(report.candidate)), against \(timing(report.current)) now. \(outputs)"
     }
 
     private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -376,6 +436,47 @@ private final class SettingsSectionHeights {
             self.error = failure.message
         } catch {
             self.error = "Could not save settings. Check access to the settings folder and try again."
+        }
+    }
+}
+
+/// Synthetic dictations the installed and candidate builds cleaned differently, so the
+/// upgrade decision rests on the actual outputs.
+struct CleanupDifferencesSheet: View {
+    let report: CleanupEngineReport
+    let upgrade: () -> Void
+    let close: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("\(report.differences.count) of \(report.fixtures ?? 0) dictations cleaned differently").font(.headline)
+            Text("Synthetic test dictations, cleaned with your saved prompt and dictionary.")
+                .font(.caption).foregroundStyle(.secondary)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(report.differences) { difference in
+                        VStack(alignment: .leading, spacing: 6) {
+                            output("Dictation", difference.input, secondary: true)
+                            output(report.current.tag, difference.current)
+                            output(report.candidate?.tag ?? "Candidate", difference.candidate)
+                        }
+                        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }.textSelection(.enabled)
+            }.frame(height: 340)
+            HStack {
+                Spacer()
+                Button("Close", action: close).keyboardShortcut(.cancelAction)
+                Button("Upgrade anyway", action: upgrade)
+            }
+        }.padding(20).frame(width: 600)
+    }
+    private func output(_ label: String, _ text: String, secondary: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(label).font(.caption.weight(.semibold)).foregroundStyle(.secondary).frame(width: 70, alignment: .leading)
+            Text(text).font(secondary ? .callout : .body).foregroundStyle(secondary ? .secondary : .primary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

@@ -406,6 +406,45 @@ Building/testing never invokes these setup commands. The app itself has no login
 `cleanup-uninstall` removes only the owned LaunchAgent; the release bundle, model files
 and private preferences remain available for reinstall.
 
+### Updating llama.cpp from Settings
+
+llama.cpp changes flags, speed and occasionally output between builds, so a newer build is
+never assumed compatible. **Settings > Advanced > Cleanup engine** shows the installed
+build. **Check for update** runs the installed launcher (read from the LaunchAgent's
+`ProgramArguments`, with the agent's own `--directory`/`--port`) with `upgrade-check`, which:
+
+- takes the newest `bNNNNN` release from the GitHub API that has the exact
+  `llama-bNNNNN-bin-macos-arm64.tar.gz` asset and a published SHA-256 digest, and downloads
+  it with the same size/digest check and safe extraction as `cleanup-prepare`;
+- records every runtime file's SHA-256 and the Mach-O minimum macOS (refusing a build
+  that needs a newer macOS) and checks `--version` against the tag and commit;
+- starts it on 11437 with the service's exact flags (every flag must appear in `--help`);
+- interleaves the app's cleanup request (saved prompt, dictionary and input framing,
+  fixed-prefix fast path) across the running service and the candidate on the 24
+  synthetic realistic dictations: one warmup pass and three timed passes (`--rounds`);
+- reports median/p90 for each build and every dictation whose output differs.
+
+Nothing changes until **Upgrade** (or **Upgrade anyway** when outputs differ; **Show
+differences…** lists them side by side). `upgrade-apply` installs through the normal
+`install` path with rollback. The accepted pin is written to
+`Cleanup/cleanup-stack.local.json`, and the replaced one to `cleanup-stack.previous.json` for
+**Switch back** (`upgrade-rollback`). Downloaded builds other than the current, previous and
+checked ones are removed. `prepare`, `verify`, `install` and the upgrade commands use the
+local pin only while it is newer than `Resources/cleanup-stack.json`, so a later repository
+pin still wins. `run` uses the lock copied into its runner. Each runner now carries
+`cleanup_upgrade.py`, `cleanup_bench.py`, `local_http.py`, the default prompt and the
+realistic fixtures, so the app needs no repository checkout. A runner installed before this
+feature lacks them; Settings then asks for one `make cleanup-install`. Progress goes to
+stderr as `progress: ...` lines and the single JSON result to stdout; cancelling a check
+sends SIGTERM, which stops the candidate server. The same commands work from a shell:
+
+```sh
+python3 scripts/cleanup-service.py status
+python3 scripts/cleanup-service.py upgrade-check
+python3 scripts/cleanup-service.py upgrade-apply
+python3 scripts/cleanup-service.py upgrade-rollback
+```
+
 The server uses MTP draft length 6, `--swa-full`, one 4096-token slot, flash attention,
 `mmap+mlock`, reasoning off, temperature zero and 86400-second Metal residency. Content
 logging, web UI and slot persistence are disabled; launch output goes to `/dev/null`.

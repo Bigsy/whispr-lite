@@ -5,6 +5,8 @@ import WhisprLiteCore
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let appStatus = AppStatus()
+    /// Kept with the app so a llama.cpp check continues while settings are closed.
+    private lazy var cleanupEngine = CleanupEngineModel(switched: { [weak self] in self?.retry() })
     var status: String { appStatus.snapshot.text }
     var statusDetail: String { appStatus.snapshot.detail }
     var readinessState: SetupReadiness { appStatus.snapshot.readiness }
@@ -587,7 +589,7 @@ import WhisprLiteCore
                 requestMicrophone: { [weak self] in self?.requestMicrophone() },
                 requestAccessibility: { [weak self] in self?.requestAccessibility() },
                 requestInputMonitoring: { [weak self] in self?.inputMonitoring() })
-            let view = SettingsView(store: store, status: appStatus, actions: actions,
+            let view = SettingsView(store: store, status: appStatus, engine: cleanupEngine, actions: actions,
                 onHeightChange: { [weak self] in self?.fitSettings(height: $0) },
                 saved: { [weak self] in self?.configure() })
             let host = NSHostingView(rootView: view)

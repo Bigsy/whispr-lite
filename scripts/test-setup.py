@@ -11,12 +11,14 @@ import queue
 import socket
 import struct
 import subprocess
+import sys
 import tempfile
 import tarfile
 import types
 import unittest
 from unittest.mock import patch
 import cleanup_bench as bench_common
+import cleanup_upgrade as upgrade
 from broker_client import BrokerClient
 from cleanup_bench import DEFAULT_PROMPT, load_saved_cleanup
 
@@ -459,6 +461,114 @@ class SetupTests(unittest.TestCase):
             result = subprocess.run([launcher, '--help'], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('install', result.stdout)
+            # The runner carries what Settings needs to check and switch builds.
+            result = subprocess.run([launcher, 'status', '--directory', str(models)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['current']['tag'], service.LOCK['llama_server']['release']['tag'])
+
+    @staticmethod
+    def pin(tag):
+        return {'path': 'llama-server', 'version': f'synthetic-{tag}', 'commit': 'abc1234', 'sha256': '0' * 64,
+                'release': {'tag': tag, 'file': f'llama-{tag}-bin-macos-arm64.tar.gz', 'directory': f'llama-{tag}'},
+                'files_sha256': {}}
+
+    def test_a_local_build_is_used_only_while_newer_than_the_repository_pin(self):
+        base = service.LOCK
+        build = upgrade.build_number(base['llama_server']['release']['tag'])
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            self.assertIs(upgrade.effective_lock(base, directory), base)
+            upgrade.write_private(directory / upgrade.LOCAL_LOCK, self.pin(f'b{build}'))
+            self.assertIs(upgrade.effective_lock(base, directory), base)
+            upgrade.write_private(directory / upgrade.LOCAL_LOCK, self.pin(f'b{build + 1}'))
+            effective = upgrade.effective_lock(base, directory)
+            self.assertEqual(effective['llama_server']['release']['tag'], f'b{build + 1}')
+            self.assertEqual(effective['artifacts'], base['artifacts'])
+            self.assertEqual((directory / upgrade.LOCAL_LOCK).stat().st_mode & 0o777, 0o600)
+            (directory / upgrade.LOCAL_LOCK).write_text('{"release": {"tag": "latest"}}')
+            with self.assertRaisesRegex(RuntimeError, 'not a llama-server pin'): upgrade.effective_lock(base, directory)
+
+    def test_newest_release_needs_the_exact_archive_and_a_published_digest(self):
+        def release(tag, **asset):
+            name = f'llama-{tag}-bin-macos-arm64.tar.gz'
+            return {'tag_name': tag, 'published_at': 'synthetic', 'assets': [{'name': name, 'size': 10,
+                    'digest': 'sha256:' + 'a' * 64, 'browser_download_url': upgrade.DOWNLOAD_PREFIX + f'{tag}/{name}'} | asset]}
+        releases = [release('b12'), release('b15', digest=None), release('b14', browser_download_url='https://example.invalid/x'),
+                    release('b13', size='10'), release('latest'), release('b11')]
+        found = upgrade.newest_release(releases)
+        self.assertEqual((found['tag'], found['sha256'], found['bytes']), ('b12', 'a' * 64, 10))
+        self.assertIsNone(upgrade.newest_release([release('b9', digest='md5:abc')]))
+
+    def test_minimum_macos_reads_the_mach_o_build_version(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            binary = Path(temporary) / 'llama-server'
+            command = struct.pack('<IIIIII', 0x32, 24, 1, (13 << 16) | (3 << 8), 0, 0)
+            binary.write_bytes(struct.pack('<IiiIIIII', 0xFEEDFACF, 0, 0, 2, 1, len(command), 0, 0) + command)
+            self.assertEqual(upgrade.minimum_macos(binary), '13.3')
+            binary.write_bytes(b'#!/bin/sh\n')
+            self.assertEqual(upgrade.minimum_macos(binary), 'unknown')
+        self.assertGreater(upgrade.os_version('26.7.1'), upgrade.os_version('26.7'))
+
+    def test_switch_keeps_one_build_to_return_to_and_restores_files_on_failure(self):
+        current, newer, older = self.pin('b100'), self.pin('b200'), self.pin('b50')
+        lock = {**service.LOCK, 'llama_server': current}
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            binaries = directory / 'Binaries'
+            for tag in ('b50', 'b100', 'b200'):
+                (binaries / f'llama-{tag}').mkdir(parents=True)
+                (binaries / f'llama-{tag}-bin-macos-arm64.tar.gz').write_bytes(b'x')
+            (binaries / '.release-stage-keep').mkdir()
+            upgrade.write_private(directory / upgrade.PREVIOUS_LOCK, older)
+            installed = []
+            def install(path, port):
+                installed.append((service.LOCK['llama_server']['release']['tag'], path, port))
+                raise RuntimeError('LaunchAgent bootstrap failed')
+            with upgrade.using_lock(service, lock), patch.object(service, 'install', side_effect=install):
+                with self.assertRaisesRegex(RuntimeError, 'bootstrap'), redirect_stderr(io.StringIO()):
+                    upgrade.switch(service, directory, 11436, newer)
+                self.assertEqual(service.LOCK, lock)
+            self.assertEqual(installed, [('b200', directory, 11436)])
+            self.assertFalse((directory / upgrade.LOCAL_LOCK).exists())
+            self.assertEqual(upgrade.read_block(directory / upgrade.PREVIOUS_LOCK), older)
+            self.assertTrue((binaries / 'llama-b50').is_dir())
+            with upgrade.using_lock(service, lock), patch.object(service, 'install'), redirect_stderr(io.StringIO()):
+                result = upgrade.switch(service, directory, 11436, newer)
+            self.assertEqual(result['current']['tag'], 'b200')
+            self.assertEqual(result['previous']['tag'], 'b100')
+            self.assertEqual(upgrade.read_block(directory / upgrade.LOCAL_LOCK), newer)
+            self.assertEqual(upgrade.read_block(directory / upgrade.PREVIOUS_LOCK), current)
+            self.assertEqual(sorted(path.name for path in binaries.iterdir()),
+                             ['.release-stage-keep', 'llama-b100', 'llama-b100-bin-macos-arm64.tar.gz',
+                              'llama-b200', 'llama-b200-bin-macos-arm64.tar.gz'])
+
+    def test_apply_needs_a_newer_checked_build_and_rollback_needs_a_previous_one(self):
+        lock = {**service.LOCK, 'llama_server': self.pin('b100')}
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            with upgrade.using_lock(service, lock), patch.object(service, 'install') as install:
+                with self.assertRaisesRegex(RuntimeError, 'No checked candidate'):
+                    upgrade.apply(service, directory, 11436)
+                with self.assertRaisesRegex(RuntimeError, 'No previous'):
+                    upgrade.rollback(service, directory, 11436)
+                upgrade.write_private(directory / upgrade.CANDIDATE, self.pin('b100'))
+                with self.assertRaisesRegex(RuntimeError, 'no newer'):
+                    upgrade.apply(service, directory, 11436)
+                self.assertFalse((directory / upgrade.CANDIDATE).exists())
+                install.assert_not_called()
+
+    def test_upgrade_commands_print_only_json_on_stdout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            upgrade.write_private(directory / upgrade.PREVIOUS_LOCK, self.pin('b50'))
+            result = subprocess.run([sys.executable, str(Path(__file__).with_name('cleanup-service.py')), 'status',
+                                     '--directory', str(directory)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['previous'], {'tag': 'b50', 'version': 'synthetic-b50'})
+            result = subprocess.run([sys.executable, str(Path(__file__).with_name('cleanup-service.py')), 'upgrade-apply',
+                                     '--directory', str(directory)], capture_output=True, text=True)
+            self.assertEqual((result.returncode, result.stdout), (1, ''))
+            self.assertIn('No checked candidate', result.stderr)
 
     def test_log_latest_sequence_tombstones_unicode_and_whitelist(self):
         key = lambda name: b'_file://\x00\x01' + name.encode()

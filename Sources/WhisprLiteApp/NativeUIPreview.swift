@@ -13,6 +13,9 @@ import Darwin
         try store.save(Preferences(), prompt: SettingsStore.defaultPrompt,
                        dictionary: "Parakeet\nhappy fire > HAPI FHIR\ndochler > Doccla")
         let previewStatus = AppStatus()
+        let installed = CleanupEngineReport(status: .installed, current: CleanupBuild(tag: "b11564", version: "0.6.0"),
+                                            previous: CleanupBuild(tag: "b10809", version: "0.4.0"))
+        let previewEngine = CleanupEngineModel.preview(installed: installed)
         previewStatus.update("Cleanup service unavailable",
             detail: "Start your cleanup service and check its address in Advanced. Your speech models are ready.",
             readiness: .needsAttention)
@@ -25,8 +28,9 @@ import Darwin
         }
         defer { previewDefaults.removePersistentDomain(forName: suite) }
         var heights: [String: CGFloat] = [:]
-        func settings(_ name: String, _ page: SettingsPage, _ scheme: ColorScheme, height: CGFloat? = nil) throws {
-            let view = SettingsView(store: store, status: previewStatus,
+        func settings(_ name: String, _ page: SettingsPage, _ scheme: ColorScheme, height: CGFloat? = nil,
+                      engine: CleanupEngineModel? = nil) throws {
+            let view = SettingsView(store: store, status: previewStatus, engine: engine ?? previewEngine,
                 actions: .preview, page: page,
                 enumerateMicrophones: false,
                 onHeightChange: { app.fitSettings(height: $0) }, saved: {})
@@ -47,6 +51,19 @@ import Darwin
         try store.save(store.preferences, prompt: SettingsStore.defaultPrompt,
                        dictionary: "Parakeet\nhappy fire > HAPI FHIR\ndochler > Doccla")
         try settings("advanced-parakeet", .advanced, .dark)
+        // Synthetic comparison: a newer build that cleaned one dictation differently.
+        let checked = CleanupEngineReport(status: .candidate,
+            current: CleanupBuild(tag: "b11564", version: "0.6.0", medianMilliseconds: 221.4, p90Milliseconds: 309.2),
+            candidate: CleanupBuild(tag: "b11602", version: "0.6.1", medianMilliseconds: 204.8, p90Milliseconds: 288.0),
+            fixtures: 24, differences: [CleanupDifference(fixture: "realistic-07",
+                input: "so um the the deploy went out at three and nothing broke which is nice",
+                current: "The deploy went out at three and nothing broke, which is nice.",
+                candidate: "The deploy went out at three, and nothing broke, which is nice.")])
+        try settings("advanced-cleanup-engine", .advanced, .dark,
+                     engine: .preview(installed: installed, checked: checked))
+        try snapshot(CleanupDifferencesSheet(report: checked, upgrade: {}, close: {})
+                .background(Color(nsColor: .windowBackgroundColor)).environment(\.colorScheme, .dark),
+            size: NSSize(width: 600, height: 480), to: directory.appendingPathComponent("cleanup-differences.png"))
         try settings("general-short-screen", .general, .dark, height: 560)
         try settings("cleanup-short-screen-light", .cleanup, .light, height: 560)
         var preferences = Preferences()
@@ -64,7 +81,7 @@ import Darwin
         try settings("general-right-control", .general, .dark)
         // A real titled window must fit its content to the page height with the top edge fixed.
         let window = AppDelegate.makeSettingsWindow(NSHostingView(rootView:
-            SettingsView(store: store, status: previewStatus,
+            SettingsView(store: store, status: previewStatus, engine: previewEngine,
                 actions: .preview, page: .advanced,
                 enumerateMicrophones: false,
                 onHeightChange: { app.fitSettings(height: $0) }, saved: {})
