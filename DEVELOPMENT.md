@@ -360,7 +360,9 @@ for multi-type readers); a target that never reads is restored after 1.5 s. Rest
 only if both text and change count are still owned. The restore is never on the
 visible-text path. A dispatched paste is not a measured visible update.
 
-`make install` copies only the app into `~/Applications` (`APP_INSTALL_DIR` overrides it).
+`make install` copies only the app into `/Applications`, where Finder and the Privacy &
+Security "+" pickers look first (`APP_INSTALL_DIR` overrides it, e.g. `~/Applications` for
+an account without admin rights).
 `make uninstall` removes only that app, preserving preferences/models. Neither command
 changes the model services. Cleanup service setup below is explicit and separate. A complete
 fresh-machine installer, notarization and other-machine provisioning validation remain pending.

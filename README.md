@@ -54,7 +54,8 @@ for the cleanup setup scripts.
    models. Save settings and click **Check readiness**. Once ready, focus a text field,
    hold your shortcut and speak.
 
-`make install` copies the app to `~/Applications`; model/service setup is separate.
+`make install` copies the app to `/Applications` (an admin account is needed; set
+`APP_INSTALL_DIR=~/Applications` for a per-user install); model/service setup is separate.
 The [development guide](DEVELOPMENT.md) also covers an existing local HTTP ASR backend,
 explicit demo mode and optional private import from OpenWhispr.
 

@@ -2,7 +2,9 @@
 set -eu
 cd "${0:A:h}/.."
 # Explicit install/uninstall only. Neither action touches model services, model files or settings.
-destination="${APP_INSTALL_DIR:-$HOME/Applications}/Whispr Lite.app"
+# /Applications is where Finder and the Privacy & Security "+" pickers look first; writing it
+# needs an admin account. APP_INSTALL_DIR=~/Applications installs for this user only.
+destination="${APP_INSTALL_DIR:-/Applications}/Whispr Lite.app"
 if [[ "${1:-}" == --uninstall ]]; then
   [[ "$destination" == */Whispr\ Lite.app ]] || { print -u2 "Refusing to remove unexpected path: $destination"; exit 1; }
   /bin/rm -rf "$destination"
