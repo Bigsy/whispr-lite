@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import shlex
 import socket
 import subprocess
 import sys
@@ -18,6 +19,9 @@ import urllib.request
 ROOT = Path(__file__).resolve().parent.parent
 LOCK = json.loads((ROOT / 'Resources/cleanup-stack.json').read_text())
 LABEL = 'com.hedworth.whispr-lite.cleanup'
+# System Settings > Login Items names a LaunchAgent after its first program
+# argument, so the agent starts this launcher rather than the bare interpreter.
+LAUNCHER = 'Whispr Lite Cleanup'
 DEFAULT_DIRECTORY = Path.home() / 'Library/Application Support/WhisprLite/Cleanup'
 METAL_RESIDENCY_SECONDS = '86400'
 
@@ -232,17 +236,21 @@ def install(directory, port):
     # the previous script and lock as well as the previous plist.
     source = Path(__file__).read_bytes()
     lock_data = json.dumps(LOCK, sort_keys=True).encode()
-    runtime = directory / 'Runtimes' / hashlib.sha256(source + lock_data).hexdigest()[:20]
-    for relative, content in [('scripts/cleanup-service.py', source), ('Resources/cleanup-stack.json', lock_data)]:
+    interpreter = sys.executable.encode()
+    runtime = directory / 'Runtimes' / hashlib.sha256(source + lock_data + interpreter).hexdigest()[:20]
+    script = runtime / 'scripts/cleanup-service.py'
+    launcher = (f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(script))} "$@"\n').encode()
+    for relative, content, mode in [('scripts/cleanup-service.py', source, 0o600),
+                                    ('Resources/cleanup-stack.json', lock_data, 0o600),
+                                    (LAUNCHER, launcher, 0o700)]:
         destination = runtime / relative
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if destination.exists():
             if destination.read_bytes() != content: raise RuntimeError('Immutable cleanup runner changed')
         else:
             with destination.open('xb') as file: file.write(content)
-            destination.chmod(0o600)
-    runner = [sys.executable, str(runtime / 'scripts/cleanup-service.py'), 'run',
-              '--directory', str(directory), '--port', str(port)]
+            destination.chmod(mode)
+    runner = [str(runtime / LAUNCHER), 'run', '--directory', str(directory), '--port', str(port)]
     plist = Path.home() / f'Library/LaunchAgents/{LABEL}.plist'
     domain = f'gui/{os.getuid()}'
     previous = plist.read_bytes() if plist.exists() else None

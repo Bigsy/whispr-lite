@@ -392,7 +392,8 @@ make cleanup-uninstall
 and atomically installs verified files. Model and release archives share this path;
 a complete partial is hashed once before publication. Defaults are under
 `~/Library/Application Support/WhisprLite/Cleanup`. `cleanup-install` creates only the
-owned `com.hedworth.whispr-lite.cleanup` LaunchAgent, on **127.0.0.1:11436**; it validates
+owned `com.hedworth.whispr-lite.cleanup` LaunchAgent, on **127.0.0.1:11436**, shown in
+Login Items as **Whispr Lite Cleanup** (a launcher in the immutable runtime folder); it validates
 before replacing an owned item, waits for launchctl and the old PID to settle, refuses
 foreign items/occupied ports and rolls back failed startup. Immutable runner/lock copies
 revalidate weights and binary dependencies at each launch. Uninstall preserves models,

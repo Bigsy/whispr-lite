@@ -10,6 +10,7 @@ import plistlib
 import queue
 import socket
 import struct
+import subprocess
 import tempfile
 import tarfile
 import types
@@ -433,6 +434,25 @@ class SetupTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'bootstrap'): service.install(models, 11436)
             self.assertFalse((home / f'Library/LaunchAgents/{service.LABEL}.plist').exists())
             self.assertEqual((models / 'model.gguf').read_text(), 'keep')
+
+    def test_login_item_is_named_after_a_working_launcher(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            models = home / 'Application Support' / 'Cleanup'; models.mkdir(parents=True)
+            loaded = {}
+            def command(*argv):
+                if argv[0] == 'bootstrap': loaded.update(plistlib.loads(Path(argv[2]).read_bytes()))
+                return types.SimpleNamespace(returncode=1, stdout='', stderr='')
+            with patch.object(Path, 'home', return_value=home), patch.object(service, 'arguments', return_value=['synthetic']), \
+                    patch.object(service, 'free_port'), patch.object(service, 'launchctl', side_effect=command):
+                with self.assertRaisesRegex(RuntimeError, 'bootstrap'): service.install(models, 11436)
+            launcher, *rest = loaded['ProgramArguments']
+            self.assertEqual(Path(launcher).name, service.LAUNCHER)
+            self.assertEqual(rest, ['run', '--directory', str(models), '--port', '11436'])
+            # The path contains a space, as Application Support does.
+            result = subprocess.run([launcher, '--help'], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('install', result.stdout)
 
     def test_log_latest_sequence_tombstones_unicode_and_whitelist(self):
         key = lambda name: b'_file://\x00\x01' + name.encode()
