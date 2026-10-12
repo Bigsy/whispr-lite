@@ -15,11 +15,14 @@ enum SetupReadiness: Equatable { case preparing, ready, needsAttention }
     let requestMicrophone: () -> Void
     let requestAccessibility: () -> Void
     let requestInputMonitoring: () -> Void
+    let permissions: () -> PermissionStatus
 
+    /// Synthetic previews show one permission still missing.
     static let preview = Self(checkReadiness: {}, beginShortcutRecording: {},
         endShortcutRecording: {}, showDictationHistory: {},
         deleteDictationHistory: { false }, showDiagnosticLogs: {},
-        requestMicrophone: {}, requestAccessibility: {}, requestInputMonitoring: {})
+        requestMicrophone: {}, requestAccessibility: {}, requestInputMonitoring: {},
+        permissions: { .init(microphone: true, accessibility: true, inputMonitoring: false) })
 }
 private final class SettingsSectionHeights {
     var header: CGFloat = 0
@@ -53,6 +56,7 @@ private final class SettingsSectionHeights {
     @State private var confirmingHistoryDelete = false
     @State private var historyMessage = ""
     @State private var showingDifferences = false
+    @State private var permissions: PermissionStatus
     @State private var sectionHeights = SettingsSectionHeights()
     @AppStorage("settingsPromptEditorHeight") private var promptHeight = 132.0
     @AppStorage("settingsDictionaryEditorHeight") private var dictionaryHeight = 84.0
@@ -62,6 +66,7 @@ private final class SettingsSectionHeights {
          enumerateMicrophones: Bool = true, onHeightChange: @escaping (CGFloat) -> Void,
          saved: @escaping () -> Void) {
         self.store = store; self.status = status; self.engine = engine; self.actions = actions
+        _permissions = State(initialValue: actions.permissions())
         self.onHeightChange = onHeightChange
         self.saved = saved; self.enumerateMicrophones = enumerateMicrophones
         _page = State(initialValue: page)
@@ -112,12 +117,20 @@ private final class SettingsSectionHeights {
         .onChange(of: prompt) { _, _ in promptEdited = true }
         .onChange(of: dictionary) { _, _ in dictionaryEdited = true }
         .onAppear { if enumerateMicrophones { microphones = MicrophoneDevice.available() } }
+        // Permissions change in System Settings: re-read on return and on readiness changes, never by polling.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refreshPermissions() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in refreshPermissions() }
+        .onChange(of: status.snapshot) { _, _ in refreshPermissions() }
         .sheet(isPresented: $recordingShortcut, onDismiss: actions.endShortcutRecording) {
             ShortcutRecordingSheet(recorded: { configuration in
                 preferences.hotkey = configuration
                 recordingShortcut = false
             }, cancelled: { recordingShortcut = false })
         }
+    }
+    private func refreshPermissions() {
+        let current = actions.permissions()
+        if current != permissions { permissions = current }
     }
     private func fitWindow() {
         guard sectionHeights.header > 0, sectionHeights.content > 0,
@@ -213,10 +226,11 @@ private final class SettingsSectionHeights {
                           : "Playback resumes only if this recording paused it.", isOn: $preferences.pauseMedia)
             }
             section("Permissions") {
-                row("Grant access", "Needed to record and insert text.") {
-                    Button("Microphone…", action: actions.requestMicrophone).fixedSize()
-                    Button("Accessibility…", action: actions.requestAccessibility).fixedSize()
-                    Button("Input Monitoring…", action: actions.requestInputMonitoring).fixedSize()
+                row("Grant access", permissions.microphone && permissions.accessibility && permissions.inputMonitoring
+                    ? "All granted." : "Needed to record and insert text.") {
+                    permissionButton("Microphone…", granted: permissions.microphone, action: actions.requestMicrophone)
+                    permissionButton("Accessibility…", granted: permissions.accessibility, action: actions.requestAccessibility)
+                    permissionButton("Input Monitoring…", granted: permissions.inputMonitoring, action: actions.requestInputMonitoring)
                 }
             }
         }
@@ -401,6 +415,17 @@ private final class SettingsSectionHeights {
             }.frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 8, content: controls)
         }.padding(.vertical, 8)
+    }
+    private func permissionButton(_ title: String, granted: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                if granted { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                Text(title)
+            }
+        }
+        .fixedSize()
+        .help(granted ? "Granted" : "Not granted yet")
+        .accessibilityValue(granted ? "Granted" : "Not granted")
     }
     private func toggleRow(_ title: String, _ caption: String? = nil, isOn: Binding<Bool>) -> some View {
         row(title, caption) { Toggle(title, isOn: isOn).labelsHidden().toggleStyle(.switch).controlSize(.small) }

@@ -1,7 +1,7 @@
 import AVFoundation
 import ApplicationServices
 
-struct PermissionStatus {
+struct PermissionStatus: Equatable {
     let microphone: Bool
     let accessibility: Bool
     let inputMonitoring: Bool

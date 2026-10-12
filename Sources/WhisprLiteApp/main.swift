@@ -588,7 +588,8 @@ import WhisprLiteCore
                 showDiagnosticLogs: { [weak self] in self?.showDiagnosticLogs() },
                 requestMicrophone: { [weak self] in self?.requestMicrophone() },
                 requestAccessibility: { [weak self] in self?.requestAccessibility() },
-                requestInputMonitoring: { [weak self] in self?.inputMonitoring() })
+                requestInputMonitoring: { [weak self] in self?.inputMonitoring() },
+                permissions: { PermissionStatus.current })
             let view = SettingsView(store: store, status: appStatus, engine: cleanupEngine, actions: actions,
                 onHeightChange: { [weak self] in self?.fitSettings(height: $0) },
                 saved: { [weak self] in self?.configure() })
