@@ -2,6 +2,7 @@
 """Release regression checks: synthetic inputs, no certificates, network or login items."""
 import importlib.util
 import hashlib
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -23,6 +24,20 @@ local_http = module('local_http', 'local_http.py')
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_disk_image_holds_the_app_beside_an_applications_link_and_detaches(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            app = Path(temporary) / 'Whispr Lite.app'
+            (app / 'Contents/MacOS').mkdir(parents=True)
+            (app / 'Contents/MacOS/WhisprLite').write_text('synthetic')
+            image = Path(temporary) / 'synthetic.dmg'
+            packaging.make_dmg(app, image)
+            with packaging.mounted(image) as volume:
+                self.assertEqual(sorted(path.name for path in volume.iterdir() if not path.name.startswith('.')),
+                                 ['Applications', 'Whispr Lite.app'])
+                self.assertEqual(os.readlink(volume / 'Applications'), '/Applications')
+                self.assertEqual((volume / 'Whispr Lite.app/Contents/MacOS/WhisprLite').read_text(), 'synthetic')
+            self.assertFalse(volume.exists())
+
     def test_cleanup_setup_kit_runs_without_a_checkout(self):
         root = Path(__file__).resolve().parent.parent
         with tempfile.TemporaryDirectory() as temporary:

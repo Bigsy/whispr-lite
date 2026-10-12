@@ -198,10 +198,18 @@ For a notarized local build, set the matching numeric `APP_VERSION`, a Developer
 for each invocation; existing assets are never overwritten.
 
 Packaging validates the bundle version/arm64 signature, notarizes and staples when requested,
-then extracts the actual final ZIP and repeats signing/resource smoke checks. Outputs are an
-app ZIP, allowlisted cleanup setup ZIP, version/commit/hash manifest and SHA256SUMS. The kit
-contains only the existing setup script, pinned public asset lock and installation guide;
-it still requires Python 3.9+. Models, personal settings/dictionaries/prompts and raw results
+then extracts the actual final ZIP and repeats signing/resource smoke checks. It then builds a
+compressed HFS+ disk image holding the app beside an `/Applications` link (Finder's default
+window, no custom background). On the notarized channel the image is signed with the app's
+Developer ID, notarized and stapled itself, then assessed by Gatekeeper. Every image is attached
+read-only and hidden from Finder, and the app is signature-checked and smoke-tested from the
+mounted volume before it is detached. Outputs are the DMG, an app ZIP, an allowlisted cleanup
+setup ZIP, a version/commit/hash manifest and SHA256SUMS. The kit contains the setup script,
+pinned public asset lock, installation guide and the files each cleanup runner copies
+(`RUNNER_FILES`: upgrade module, bench helpers, default prompt, realistic fixtures); it still
+requires Python 3.9+. Preview images are not notarized: users must choose Open Anyway (or
+remove quarantine), and ad-hoc signatures change every build, so macOS asks for the app's
+permissions again after each preview update. Models, personal settings/dictionaries/prompts and raw results
 are excluded. Native first-run cleanup provisioning and another-Mac installation remain open.
 Archive hashes stream from disk. Packaging failures name the validation error or failed
 tool, exit status and the last eight stderr lines, without printing command arguments.

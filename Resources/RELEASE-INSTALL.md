@@ -1,9 +1,15 @@
 # Installing Whispr Lite
 
-Requires Apple Silicon and macOS 14+. Download the app ZIP asset from the GitHub release,
-unzip it and move `Whispr Lite.app` into Applications. The GitHub-generated source archives
-are for developers. Preview assets are not notarized; use a notarized release for normal
-installation. Verify the download against the release's SHA256SUMS file if needed.
+Requires Apple Silicon and macOS 14+. Download the `.dmg` from the GitHub release, open it
+and drag **Whispr Lite** onto **Applications**. The app ZIP holds the same app for scripted
+installs; the GitHub-generated source archives are for developers. Verify a download against
+the release's SHA256SUMS file if needed.
+
+Preview assets are not notarized. macOS blocks their first launch: open the app once, then
+choose **Open Anyway** in System Settings > Privacy & Security, or run
+`xattr -dr com.apple.quarantine "/Applications/Whispr Lite.app"`. Preview builds are also
+ad-hoc signed, so macOS asks again for Microphone, Accessibility and Input Monitoring after
+each update. Notarized releases need neither step.
 
 ## Local cleanup service
 
