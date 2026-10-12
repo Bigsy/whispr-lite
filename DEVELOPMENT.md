@@ -370,15 +370,15 @@ fresh-machine installer, notarization and other-machine provisioning validation 
 ## Local cleanup setup and private migration
 
 Setup scripts require Python 3.9+. The tested server/model inventory is in
-`Resources/cleanup-stack.json`: llama.cpp 0.4.0 at revision
-`5266f24da75dc449bd56cbed7addb9c8e4a6a73e`, with SHA-256 checks for every file in
+`Resources/cleanup-stack.json`: llama.cpp b11564 (a 0.6.0 development build) at revision
+`08ffba21e5c2f1728b6b405c05ff3913f65706d4`, with SHA-256 checks for every file in
 the owned standalone release, including the binary and its non-system libraries;
 Gemma 4 E2B QAT UD-Q4_K_XL and matching root QAT MTP from pinned Hugging Face revision
 `66a399f68ddd113b06dff02fca9523e55465d11d`. Cleanup uses the official
-[b10809 macOS ARM64 release](https://github.com/ggml-org/llama.cpp/releases/tag/b10809),
-the same revision as v0.4.0. Its archive and 60 runtime files have pinned SHA-256 values.
+[b11564 macOS ARM64 release](https://github.com/ggml-org/llama.cpp/releases/tag/b11564).
+The earlier b10809 (v0.4.0) pin got no speedup from the MTP drafter; see CHECKS.md. Its archive and 60 runtime files have pinned SHA-256 values.
 `cleanup-prepare` downloads/verifies the archive, rejects unsafe tar entries, stages the
-extraction and publishes it under `Cleanup/Binaries/llama-b10809` only after verification.
+extraction and publishes it under `Cleanup/Binaries/llama-b11564` only after verification.
 The release includes its non-system libraries and LICENSE; it needs no Homebrew runtime
 or global library relinking. Version/help checks and the server share an environment
 that strips inherited llama argument and dynamic-loader overrides. Setup fails on
@@ -707,7 +707,7 @@ in plain and tagged formats. Performance uses the selected private dictionary an
 short fixtures, 30 observations per fixture/condition, interleaved blocks and an explicit
 prefix warmup before each warm block. Both modes use warm model weights: **uncached**
 disables prompt-cache reuse and verifies zero reused tokens; **warm** permits reuse.
-The pinned [llama.cpp server documentation](https://github.com/ggml-org/llama.cpp/blob/5266f24da75dc449bd56cbed7addb9c8e4a6a73e/tools/server/README.md)
+The pinned [llama.cpp server documentation](https://github.com/ggml-org/llama.cpp/blob/08ffba21e5c2f1728b6b405c05ff3913f65706d4/tools/server/README.md)
 describes this prefix reuse and the returned cache/prefill/generation counters.
 Measurements include the app's proportional output limit, exact template/token-budget
 requests with BOS, and completion, plus server prefill/generation metrics. This harness

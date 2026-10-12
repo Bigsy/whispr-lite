@@ -53,11 +53,11 @@ guard and keyboard-layout lookup. No source or arbitrary paste delays are copied
 
 ## Cleanup runtime and models
 
-The separately installed llama.cpp 0.4.0 runtime (MIT) and Gemma 4 E2B QAT/MTP weights
+The separately installed llama.cpp b11564 runtime (MIT) and Gemma 4 E2B QAT/MTP weights
 are not bundled with the app. `Resources/cleanup-stack.json` records the tested binary,
 release archive, runtime files and model hashes. Setup downloads the official
-[b10809 macOS ARM64 release](https://github.com/ggml-org/llama.cpp/releases/tag/b10809),
-commit `5266f24da75dc449bd56cbed7addb9c8e4a6a73e`, retaining its MIT LICENSE alongside
+[b11564 macOS ARM64 release](https://github.com/ggml-org/llama.cpp/releases/tag/b11564),
+commit `08ffba21e5c2f1728b6b405c05ff3913f65706d4`, retaining its MIT LICENSE alongside
 the standalone binaries under the owned cleanup directory. Model files come from the pinned revision of
 [unsloth/gemma-4-E2B-it-qat-GGUF](https://huggingface.co/unsloth/gemma-4-E2B-it-qat-GGUF);
 the upstream model terms apply to these separately downloaded assets.
