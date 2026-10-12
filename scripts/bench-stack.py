@@ -4,8 +4,12 @@ import argparse
 import json
 from pathlib import Path
 import time
-from cleanup_bench import ALIAS, SERVICE_PORT, LocalHTTP, load_fixtures, loopback_url, run_guarded, write_report
+from cleanup_bench import (ALIAS, SERVICE_PORT, LocalHTTP, load_fixtures, loopback_url, machine_label, run_guarded,
+                           summary, write_report)
 root = Path(__file__).resolve().parent.parent
+# realistic: 24 dictations of 7-60 words (median 28), the default for latency comparisons.
+# short: the original 24 inputs of 2-12 words, kept for comparison with earlier results.
+FIXTURE_SETS = {'realistic': 'cleanup-fixtures-realistic.json', 'short': 'cleanup-fixtures.json'}
 
 def main():
     parser = argparse.ArgumentParser()
@@ -15,10 +19,12 @@ def main():
     parser.add_argument('--dictionary-file', type=Path)
     parser.add_argument('--import-file', type=Path, help='Private cleanup-import.json from export-openwhispr.py')
     parser.add_argument('--endpoint', default=f'http://127.0.0.1:{SERVICE_PORT}')
+    parser.add_argument('--fixtures', choices=sorted(FIXTURE_SETS), default='realistic')
+    parser.add_argument('--output', type=Path, default=root/'bench/results/cleanup.json')
     parser.add_argument('--compare-reference-budget', action='store_true', help='Compare 512-token output cap against OpenWhispr 1.8.3\'s 4096 minimum')
     args = parser.parse_args()
     if args.repetitions < 30: parser.error('At least 30 warm observations are required')
-    fixtures = load_fixtures('cleanup-fixtures.json')
+    fixtures = load_fixtures(FIXTURE_SETS[args.fixtures])
     prompt = args.prompt_file.read_text()
     metadata = json.loads(args.import_file.read_text()) if args.import_file else {}
     dictionary = args.dictionary_file.read_text() if args.dictionary_file else ''
@@ -51,13 +57,16 @@ def main():
         time.sleep(idle)
         request(fixtures[0], f'idle-{idle}s')
     report = dict(schema=1, mode='real-cleanup-only', observations=observations,
-                  request_framing='legacy-512',
+                  request_framing='legacy-512', fixture_set=args.fixtures,
                   stack_inventory=json.loads((root/'stack.lock.json').read_text()),
                   visible_text_measured=False, memory_pressure_measured=False,
                   original_prompt_resolved=bool(metadata), reference_budget_parity=args.compare_reference_budget,
                   endpoint=args.endpoint, private_contents_recorded=False)
-    write_report(root/'bench/results/cleanup.json', report, 'real-cleanup-only', forbidden=(prompt, dictionary))
-    print(f'{len(observations)} observations saved to bench/results/cleanup.json; expected outputs remain pending unless fixtures are frozen.')
+    written = write_report(args.output, report, 'real-cleanup-only', forbidden=(prompt, dictionary))
+    warm = summary([o['milliseconds'] for o in observations if o['condition'] == 'warm'])
+    print(f"{args.fixtures} fixtures on {machine_label(written['machine'])}: warm median {warm['median']:.1f} ms, "
+          f"p90 {warm['p90']:.1f} ms, p95 {warm['p95']:.1f} ms (n={warm['n']})")
+    print(f'{len(observations)} observations saved to {args.output}; expected outputs remain pending unless fixtures are frozen.')
 
 
 if __name__ == '__main__':

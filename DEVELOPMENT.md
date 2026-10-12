@@ -683,7 +683,10 @@ queues remain bounded at 64 and 128 entries, and their different retry rules rem
   containers, padded after complete speech. Voice/rate/OS, lengths and SHA-256 values are
   recorded in generated metadata; this is not a frozen ASR accuracy corpus.
 - `python3 scripts/bench-stack.py --prompt-file PATH`: optional real cleanup benchmark with 24 synthetic
-  inputs and 30 warm repetitions each. `--idle-seconds 90 300 1500` adds separately labeled
+  inputs and 30 warm repetitions each. The default `realistic` set is 7-60 words (median 28), like real
+  dictations; `--fixtures short` runs the original 2-12 word inputs, which understate cleanup time.
+  `--output PATH` keeps runs from overwriting each other. Every Python and Swift benchmark report records
+  the machine (chip, cores, memory, macOS build) so results from different Macs aren't mixed up. `--idle-seconds 90 300 1500` adds separately labeled
   idle trials. Add `--dictionary-file PATH --import-file PATH --compare-reference-budget`
   for imported framing and the controlled output-cap comparison. Private inputs/outputs
   stay in RAM; reports contain only timing/count/parity metadata. Expected outputs remain

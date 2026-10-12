@@ -94,6 +94,12 @@ class SetupTests(unittest.TestCase):
             self.assertTrue(report['git_commit'])
             self.assertIn('created_utc', report)
             self.assertNotIn('private_contents_recorded', report)
+            machine = json.loads(destination.read_text())['machine']
+            self.assertTrue(machine['chip'].startswith('Apple M'))
+            self.assertGreater(machine['memory_gb'], 0)
+            self.assertGreater(machine['performance_cores'], 0)
+            self.assertTrue(machine['macos'] and machine['macos_build'])
+            self.assertIn(machine['chip'], bench_common.machine_label(machine))
             with self.assertRaisesRegex(ValueError, 'private content'):
                 bench_common.write_report(destination, {'note': 'synthetic private phrase'},
                                           'synthetic-test', forbidden=('synthetic private phrase',))

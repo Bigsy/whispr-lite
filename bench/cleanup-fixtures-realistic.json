@@ -1,0 +1,146 @@
+[
+  {
+    "id": "realistic-01",
+    "raw": "um yeah so I think we should just merge it",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-02",
+    "raw": "can you have a look at the PR when you get a chance",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-03",
+    "raw": "so the the build is failing again on main, uh I think it's the flaky test in the outbox namespace",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-04",
+    "raw": "okay so basically what I want to do is, um, move the cron job into the scheduler service, and then we can like delete the old lambda entirely",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-05",
+    "raw": "I've pushed a fix for the null pointer in the vitals handler. It was, uh, it was because the reading timestamp was missing. Can you re-run the pipeline?",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-06",
+    "raw": "hey just a heads up I'm going to be like ten minutes late to standup, um, stuck on a call",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-07",
+    "raw": "so the thing with the unifhir mapping is that we're, uh, we're losing the units when we convert the observation, so mmol comes through as just a number with nothing attached to it",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-08",
+    "raw": "right so for the migration plan, step one, uh, we snapshot the database, step two we run the migration on staging, step three we, um, check the row counts match, and then step four we do it on prod",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-09",
+    "raw": "I don't think we need a new namespace for this. We could just, you know, add a function to the existing one and, uh, keep it private",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-10",
+    "raw": "can we move the retro to thursday, no wait, friday afternoon, because half the team is off on thursday",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-11",
+    "raw": "the docker-in-docker setup is really slow on the CI runners. I was thinking we could, um, cache the layers or maybe just switch to kaniko. what do you reckon",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-12",
+    "raw": "um so I had a look at the logs and it looks like the, the requests are timing out after thirty seconds, which is the default in the http client, so I'm going to bump it to sixty and add a retry",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-13",
+    "raw": "note to self, update the techdocs page for the EMIS integration, period, new line, also check the mkdocs build still works",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-14",
+    "raw": "yeah that's fine by me. ship it",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-15",
+    "raw": "so, uh, I spent most of the morning on the reconciliation job. it's mostly working now but there's an edge case where two readings come in within the same second and we end up, um, double counting them. I'm going to add a dedupe step keyed on device id and timestamp. should have a PR up by end of day",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-16",
+    "raw": "could you, um, could you send me the link to the grafana dashboard for the ingestion service",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-17",
+    "raw": "the main reason I went with a multimethod rather than a protocol here is that, uh, we dispatch on the resource type which is just a keyword, and it's way easier to extend from other namespaces. happy to change it if people feel strongly though",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-18",
+    "raw": "um so quick update on the alerting work, we've got the rules in place for the, uh, the stale data alerts, but the thresholds are still a bit noisy, so I'm going to tune them over the next couple of days and then, like, turn on paging",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-19",
+    "raw": "remind me to renew the cert keys before the end of the month",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-20",
+    "raw": "I think the issue is actually in the spec, not the implementation. the spec says the field is optional but the, the downstream consumer assumes it's always there, so we either need to make it required or handle the nil case",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-21",
+    "raw": "okay so in terms of priorities for this sprint, um, first is the EMIS-X auth fix, second is the outbox polling refactor, and third if we have time is, uh, the dashboard cleanup",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-22",
+    "raw": "sorry I meant the staging environment not dev",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-23",
+    "raw": "so we had about, uh, three thousand two hundred events in the dead letter queue this morning. most of them are the same malformed payload from one integration, so I've, um, raised it with them and in the meantime I've added a filter so they don't, they don't keep piling up",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  },
+  {
+    "id": "realistic-24",
+    "raw": "just to summarise what we agreed, we're keeping the REST endpoint for now, we'll add the, uh, the HTMX views alongside it, and we'll revisit deprecating the old one in Q1",
+    "expected": null,
+    "provenance": "synthetic dictation, development topics; realistic length set from the OpenWhispr-era stack benchmark (2026-10-09)"
+  }
+]

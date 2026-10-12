@@ -7,6 +7,7 @@ from functools import lru_cache
 from importlib.util import module_from_spec, spec_from_file_location
 import json
 import math
+import platform
 from pathlib import Path
 import re
 import statistics
@@ -165,6 +166,27 @@ def summary(values):
             'p90': nearest_rank(values, .9), 'p95': nearest_rank(values, .95)}
 
 
+def machine_info():
+    """Which Mac produced a result. Same keys as Swift's MachineInfo, so reports from
+    different machines (e.g. an M4 Pro and an M1 Max) can't be mistaken for each other."""
+    def sysctl(name):
+        return subprocess.run(['/usr/sbin/sysctl', '-n', name], capture_output=True, text=True).stdout.strip()
+    def number(name):
+        value = sysctl(name)
+        return int(value) if value.isdigit() else None
+    memory = number('hw.memsize')
+    return {'chip': sysctl('machdep.cpu.brand_string'), 'model': sysctl('hw.model'),
+            'memory_gb': round(memory / 2**30) if memory else None,
+            'performance_cores': number('hw.perflevel0.physicalcpu'),
+            'efficiency_cores': number('hw.perflevel1.physicalcpu'),
+            'macos': platform.mac_ver()[0], 'macos_build': sysctl('kern.osversion')}
+
+
+def machine_label(machine):
+    return (f"{machine['chip']} ({machine['performance_cores']}P+{machine['efficiency_cores']}E), "
+            f"{machine['memory_gb']} GB, macOS {machine['macos']} ({machine['macos_build']})")
+
+
 def write_report(path, report, experiment, *, forbidden=()):
     """Write metadata only; reject known private strings without printing them."""
     report = dict(report)
@@ -180,6 +202,7 @@ def write_report(path, report, experiment, *, forbidden=()):
                   git_dirty=bool(subprocess.check_output(['git', 'status', '--porcelain'],
                       cwd=ROOT, text=True)),
                   cleanup_stack_revision=LOCK['llama_server']['revision'],
+                  machine=machine_info(),
                   private_content_recorded=False, percentile_method='nearest-rank')
     encoded = json.dumps(report, indent=2) + '\n'
     for value in forbidden:
