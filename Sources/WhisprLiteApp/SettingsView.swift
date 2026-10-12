@@ -204,7 +204,7 @@ private final class SettingsSectionHeights {
                 }
             }
             section("While recording") {
-                toggleRow("Keep the microphone ready", "Holds a short buffer in memory so your first word isn't cut. The microphone indicator stays on; turn off to save idle power.",
+                toggleRow("Keep the microphone ready", "Turn on if the start of your first word gets cut; some microphones take longer to start. Keeps the microphone running between dictations, which uses more power, keeps the microphone indicator on and stops your Mac going to sleep by itself.",
                           isOn: $preferences.warmCapture)
                 Divider()
                 toggleRow("Show audio activity", "A small wave in the listening pill follows your microphone level.", isOn: $preferences.showAudioActivity)

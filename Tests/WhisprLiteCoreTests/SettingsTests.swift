@@ -7,7 +7,7 @@ import Foundation
         let defaults = try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))
         #expect(defaults == Preferences())
         let old = try JSONDecoder().decode(Preferences.self, from: Data("{\"version\":1,\"backend\":\"http\"}".utf8))
-        #expect(!old.streamingDemo && old.warmCapture && old.pauseMedia)
+        #expect(!old.streamingDemo && !old.warmCapture && old.pauseMedia)
         #expect(old.cleanupInputFormat == .plain)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("whispr-test-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }

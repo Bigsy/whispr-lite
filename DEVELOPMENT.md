@@ -294,8 +294,12 @@ checks, `WHISPR_FEEDBACK_BENCHMARK_PATH=/absolute/output.json swift test --filte
 AudioActivityTests.optionalSyntheticWorkerBenchmark` exercises synthetic conversion;
 `--ui-preview` also writes `activity-draw-cost.json` for offscreen synthetic CPU drawing.
 
-Warm capture keeps only 150 ms of idle audio in RAM and shows the microphone indicator.
-On-demand mode starts on press. Capture uses the hardware format, a fixed input slot
+Warm capture (off by default) keeps only 150 ms of idle audio in RAM and shows the
+microphone indicator; while it runs, coreaudiod holds a prevent-idle-sleep assertion for the
+app, so the Mac cannot idle-sleep. On-demand mode (the default) prepares the engine at setup
+and starts it on press. The tap restarts its sample timeline before each such start and lets
+gaps re-sync during the first 250 ms (the HAL can skip startup cycles under load); a later
+gap still fails the recording. Capture uses the hardware format, a fixed input slot
 pool, serial conversion and bounded 16 kHz PCM. **Low-latency capture** (Advanced, on by
 default) connects the input node to an `AVAudioSinkNode`, which delivers each hardware
 I/O cycle (512 frames, 11.6 ms, at 44.1 kHz on this Mac) on the real-time thread: 128 slots

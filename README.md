@@ -82,8 +82,11 @@ Machine, keeps at most 32 MB and can be turned off or deleted at any time. Promp
 dictionaries and settings stay in your private application-support folder. Debug logging
 is off by default.
 
-**Keep the microphone ready** maintains a 150 ms rolling buffer in memory and shows the
-macOS microphone indicator. Turn it off to start capture only when you press the shortcut.
+By default the microphone starts when you press the shortcut. If the start of your first
+word gets cut (some microphones take longer to start), turn on **Keep the microphone ready**
+in General. It keeps the microphone running with a 150 ms rolling buffer in memory, which
+uses more power, keeps the macOS microphone indicator on and stops the Mac going to sleep
+by itself while the app runs.
 
 ## Current status
 

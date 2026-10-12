@@ -373,7 +373,7 @@ public struct CaptureOptions: Sendable {
     private var worker: AudioWorker?
     private var tap: AudioTap?
     private var tapInstalled = false
-    private var warm = true
+    private var warm = false
     private var streamingEnabled = false
     private var earlyChunksEnabled = false
     public var showAudioActivity = true

@@ -26,7 +26,7 @@ public struct Preferences: Codable, Sendable, Equatable {
     public var allowASRDownloads = false
     public var asrModelDirectory = ""
     public var hotkey = HotkeyConfiguration()
-    public var warmCapture = true
+    public var warmCapture = false
     public var lowLatencyCapture = true
     public var pauseMedia = true
     public var streamingDemo = false
