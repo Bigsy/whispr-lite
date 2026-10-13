@@ -137,6 +137,38 @@ import AVFoundation
         try feed(callback, packets: 40, rate: 48_000, gapAfter: 30, from: 2_000_000)
         await #expect(throws: AppError.overflow) { try await worker.end() }
     }
+    @Test func reportSeparatesSettlingGapsFromALateGap() async throws {
+        let format = try monoFormat(rate: 48_000)
+        let worker = try AudioWorker(format: format, lowLatency: true)
+        let tap = AudioTap(worker), callback = tap.sinkCallback()
+        tap.restart()
+        _ = try worker.begin(warm: false)
+        try feed(callback, packets: 4, rate: 48_000, gapAfter: 1)
+        _ = try await worker.end()
+        let settled = try #require(worker.lastReport)
+        #expect(settled.failure == nil && settled.settlingGaps == 1 && settled.gaps == 0 && settled.packets == 4)
+        tap.restart()
+        _ = try worker.begin(warm: false)
+        try feed(callback, packets: 40, rate: 48_000, gapAfter: 30, from: 2_000_000)
+        await #expect(throws: AppError.overflow) { try await worker.end() }
+        let late = try #require(worker.lastReport)
+        #expect(late.failure == .gap && late.gaps == 1 && late.settlingGaps == 0)
+        // 512 skipped frames at 48 kHz; the late packet starts 31 cycles plus the gap after the first.
+        #expect(abs(late.largestGapMS - 10.67) < 0.01)
+        #expect(abs((late.firstGapAtMS ?? 0) - 341.33) < 0.5)
+        // Timings stay off unless the worker was prepared with debug logging.
+        #expect(late.maxCallbackMS == nil && late.maxQueueDelayMS == nil)
+    }
+    @Test func measuredWorkerReportsCallbackAndQueueTimings() async throws {
+        let format = try monoFormat(rate: 48_000)
+        let worker = try AudioWorker(format: format, lowLatency: true, measured: true)
+        let callback = AudioTap(worker).sinkCallback()
+        _ = try worker.begin(warm: false)
+        try feed(callback, packets: 4, rate: 48_000)
+        _ = try await worker.end()
+        let report = try #require(worker.lastReport)
+        #expect(report.failure == nil && report.maxCallbackMS != nil && report.maxQueueDelayMS != nil)
+    }
     @Test func smallSlotsStillAbsorbAWorkerStall() async throws {
         let format = try monoFormat(rate: 44_100)
         let worker = try AudioWorker(format: format, lowLatency: true)
@@ -165,6 +197,21 @@ import AVFoundation
         _ = try worker.begin(warm: false)
         for _ in 0..<40 { worker.receive(packet); worker.queue.sync {} }
         #expect(try await worker.end().pcm.samples.count == 12_800)
+    }
+    @Test func reportNamesDroppedPacketsAndAnEndWithoutRecording() async throws {
+        let format = try monoFormat()
+        let worker = try AudioWorker(format: format)
+        let packet = try filledBuffer(format: format, frames: 320, value: 0)
+        _ = try worker.begin(warm: false)
+        let gate = DispatchSemaphore(value: 0)
+        worker.queue.async { gate.wait() }
+        for _ in 0..<17 { worker.receive(packet) }
+        gate.signal()
+        await #expect(throws: AppError.overflow) { try await worker.end() }
+        let report = try #require(worker.lastReport)
+        #expect(report.failure == .overflow && report.droppedPackets == 1 && report.packets == 16)
+        await #expect(throws: AppError.capture) { try await worker.end() }
+        #expect(worker.lastReport?.failure == .notRecording)
     }
 }
 @Suite struct AudioBoundaryTests {

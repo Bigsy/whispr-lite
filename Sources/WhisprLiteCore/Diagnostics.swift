@@ -104,6 +104,38 @@ public struct DiagnosticConfiguration: Codable, Sendable {
         audioActivity = preferences.showAudioActivity; asrTimeout = preferences.asrTimeoutSeconds; cleanupTimeout = preferences.cleanupTimeoutSeconds
     }
 }
+/// One per recording: why capture failed and how the audio path behaved. Counts and
+/// durations only. Gap and drop counts happen on failure paths; the callback and
+/// worker timings are measured only when debug logging was on when capture was prepared.
+public struct CaptureReport: Codable, Sendable, Equatable {
+    public enum Failure: String, Codable, Sendable {
+        /// gap: a skipped I/O cycle after startup settled. overflow: no free input slot.
+        /// oversize: a packet larger than a slot. full: the recording limit.
+        case gap, overflow, oversize, converter, full, notRecording, notPrepared, permission, engineStart, busy
+    }
+    public var failure: Failure?
+    /// On-demand starts only: how long the microphone was stopped, and engine.start().
+    public var idleSeconds: Double?
+    public var engineStartMS: Double?
+    /// The OSStatus engine.start() threw.
+    public var engineStatus: Int?
+    /// Engine start to the first I/O packet.
+    public var firstPacketMS: Double?
+    public var packets = 0
+    /// Gaps while the device settles re-sync; later gaps fail the recording.
+    public var settlingGaps = 0
+    public var settlingGapMS = 0.0
+    public var gaps = 0
+    /// After the first packet.
+    public var firstGapAtMS: Double?
+    public var largestGapMS = 0.0
+    public var droppedPackets = 0
+    public var oversizePackets = 0
+    /// Debug-only: the slowest real-time callback, and the worker's furthest lag behind it.
+    public var maxCallbackMS: Double?
+    public var maxQueueDelayMS: Double?
+    public init(failure: Failure? = nil) { self.failure = failure }
+}
 /// Typed fields intentionally provide no route for text, paths, URLs, titles or raw errors.
 public struct DiagnosticRecord: Codable, Sendable {
     public var schema = 1
@@ -132,13 +164,14 @@ public struct DiagnosticRecord: Codable, Sendable {
     public var preparation: BackendPreparation?
     public var hardwareModifiers: [InsertionModifier]?
     public var sessionModifiers: [InsertionModifier]?
+    public var capture: CaptureReport?
     public init(_ kind: DiagnosticKind, session: UUID? = nil, stage: TimingStage? = nil,
                 code: DiagnosticCode? = nil, state: DictationState? = nil, target: InsertionTargetKind? = nil,
                 milliseconds: Double? = nil, sampleCount: Int? = nil, enabled: Bool? = nil,
-                configuration: DiagnosticConfiguration? = nil) {
+                configuration: DiagnosticConfiguration? = nil, capture: CaptureReport? = nil) {
         self.kind = kind; self.session = session; self.stage = stage; self.code = code; self.state = state
         self.target = target; self.milliseconds = milliseconds; self.sampleCount = sampleCount
-        self.enabled = enabled; self.configuration = configuration
+        self.enabled = enabled; self.configuration = configuration; self.capture = capture
     }
 }
 

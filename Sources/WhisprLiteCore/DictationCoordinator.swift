@@ -23,10 +23,13 @@ public struct CapturedAudio: Sendable {
     func end(at boundary: Double?) async throws -> CapturedAudio
     func releaseBoundary() -> Double?
     func suspend()
+    /// Why the last begin/end failed and how its audio path behaved; diagnostics only.
+    var captureReport: CaptureReport? { get }
 }
 public extension CaptureDriver {
     func end() async throws -> CapturedAudio { try await end(at: nil) }
     func releaseBoundary() -> Double? { nil }
+    var captureReport: CaptureReport? { nil }
 }
 @MainActor public protocol InsertionDriver: AnyObject {
     func snapshot(session: UUID) -> UUID
@@ -95,7 +98,10 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         timings.mark(.press, session: id)
         let streams: CaptureStreams
         do { streams = try capture.begin() }
-        catch { fail(AppError.capture); return }
+        catch {
+            diagnostics?.record(.init(.capture, session: id, capture: capture.captureReport))
+            fail(AppError.capture); return
+        }
         // After capture starts: the snapshot is synchronous AX IPC into the target app and can be slow.
         let target = insertion.snapshot(session: id)
         message = "Recording"; state = .recording
@@ -166,6 +172,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         let captured: CapturedAudio
         do { captured = try await capture.end(at: boundary) }
         catch {
+            diagnostics?.record(.init(.capture, session: id, capture: capture.captureReport))
             _ = await earlyDelivery?.value
             draining = false; media.end(id)
             if generation == owner { fail(AppError.capture) }
@@ -178,7 +185,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         }
         diagnostics?.record(.init(.capture, session: id,
             code: captured.drainTimedOut ? .drainTimeout : nil,
-            sampleCount: captured.pcm.samples.count))
+            sampleCount: captured.pcm.samples.count, capture: capture.captureReport))
         media.end(id)
         return captured.pcm
     }

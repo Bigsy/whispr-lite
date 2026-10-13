@@ -26,6 +26,21 @@ MEDIA_REASONS = {'playerChanged', 'playerRestarted', 'itemChanged', 'itemIdentif
                  'endedBeforePause', 'closing', 'leaseBusy', 'noLease', 'sessionMismatch',
                  'pauseRejected', 'pauseUnconfirmed', 'resumeRejected', 'resumeUnconfirmed', 'queryTimeout'}
 MODIFIERS = {'command', 'control', 'option', 'shift', 'fn'}
+CAPTURE_FAILURES = {'gap', 'overflow', 'oversize', 'converter', 'full', 'notRecording', 'notPrepared',
+                    'permission', 'engineStart', 'busy'}
+CAPTURE_FIELDS = ('idleSeconds', 'engineStartMS', 'engineStatus', 'firstPacketMS', 'packets', 'settlingGaps',
+                  'settlingGapMS', 'gaps', 'firstGapAtMS', 'largestGapMS', 'droppedPackets', 'oversizePackets',
+                  'maxCallbackMS', 'maxQueueDelayMS')
+
+def number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+def capture_line(report):
+    failure = report.get('failure')
+    parts = [f'failure={failure if failure in CAPTURE_FAILURES else "none"}']
+    parts += [f'{key}={report[key]:.1f}' if isinstance(report[key], float) else f'{key}={report[key]}'
+              for key in CAPTURE_FIELDS if number(report.get(key))]
+    return ' '.join(parts)
 
 def modifier_names(value):
     if not isinstance(value, list) or len(value) > 5: return ()
@@ -38,6 +53,7 @@ def summarize(directory):
     outcomes = Counter()
     modifiers = Counter()
     modifier_waits = []
+    captures = []
     total = dropped = 0
     for name in ('debug.previous.jsonl', 'debug.jsonl'):
         path = directory / name
@@ -69,6 +85,8 @@ def summarize(directory):
                 media[(event.get('known') is True or event.get('known') == 1,
                        event.get('playing') is True, event.get('trustworthy') is True or event.get('trustworthy') == 1,
                        event.get('subscriptionHealthy') is True or event.get('subscriptionHealthy') == 1)] += 1
+            if event.get('kind') == 'capture' and isinstance(event.get('capture'), dict):
+                captures.append(event['capture'])
             if event.get('kind') == 'modifierState':
                 modifiers[(modifier_names(event.get('hardwareModifiers')), modifier_names(event.get('sessionModifiers')))] += 1
                 value = event.get('milliseconds')
@@ -82,6 +100,14 @@ def summarize(directory):
             print(f'{label}: n={len(values)} median={statistics.median(values):.2f} ms p95={p95:.2f} ms')
     for (kind, code), count in sorted(reasons.items()): print(f'{kind}/{code}: {count}')
     for code, count in sorted(outcomes.items()): print(f'media outcome/{code}: {count}')
+    if captures:
+        failed = [report for report in captures if report.get('failure') in CAPTURE_FAILURES]
+        settling = sum(1 for report in captures if number(report.get('settlingGaps')) and report['settlingGaps'] > 0)
+        print(f'capture reports: n={len(captures)} failed={len(failed)} with startup gaps={settling}')
+        for key in ('idleSeconds', 'firstPacketMS', 'maxCallbackMS', 'maxQueueDelayMS'):
+            values = sorted(report[key] for report in captures if number(report.get(key)))
+            if values: print(f'capture {key}: n={len(values)} median={statistics.median(values):.2f} max={values[-1]:.2f}')
+        for report in failed[-10:]: print(f'failed capture: {capture_line(report)}')
     if modifier_waits:
         modifier_waits.sort()
         print(f'physical modifier release wait: n={len(modifier_waits)} median={statistics.median(modifier_waits):.2f} ms p95={modifier_waits[math.ceil(len(modifier_waits) * .95) - 1]:.2f} ms')

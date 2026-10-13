@@ -58,10 +58,13 @@ struct FailingCleanup: TextCleanup { func clean(_ text: String) throws -> String
     var boundaryValue: Double?
     var endBoundary: Double?
     var onBoundary: (() -> Void)?
+    var endError: (any Error)?
+    var captureReport: CaptureReport?
     func begin() -> CaptureStreams { begins += 1; return .none }
     func end(at boundary: Double?) async throws -> CapturedAudio {
         ends += 1
         endBoundary = boundary
+        if let endError { throw endError }
         return try .init(pcm: PCM16k([0.1]))
     }
     func releaseBoundary() -> Double? { onBoundary?(); return boundaryValue }

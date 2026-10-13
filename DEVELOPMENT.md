@@ -283,6 +283,18 @@ and logs; missing metadata keeps the strict identifier check.
 python3 scripts/analyze-diagnostics.py
 ```
 
+Each recording, including a failed start or end, logs one `capture` record with a
+`CaptureReport`: the failure reason (`gap`, `overflow`, `oversize`, `converter`, `full`,
+`notRecording`, `notPrepared`, `permission`, `engineStart`, `busy`), idle time before an
+on-demand start, `engine.start()` time and OSStatus, engine start to first packet, startup
+(re-synced) and later gaps with the first late gap's offset and size, and dropped or oversize
+packets. Gap and drop counts are collected only on those failure paths. With debug logging
+on when capture is prepared, the worker also records the slowest real-time callback and its
+furthest lag behind the hardware; the callback passes the previous callback's duration with
+its packet, so this adds two clock reads per callback and no dispatch. A synthetic 48 kHz
+sink benchmark measured about 2 to 3 µs per callback and 33 µs per packet including the
+worker, with no difference between measured and unmeasured runs.
+
 The summary reports capture-drain, ASR, cleanup, insertion-dispatch and clipboard spans
 plus failure/media state and skip-reason counts. It also reports request-to-confirmation
 media pause/resume spans and Play submission separately; confirmations are helper state

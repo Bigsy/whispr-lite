@@ -1055,3 +1055,19 @@ session available in that case and configures on the next non-loginwindow app ac
 `make test` passed and the app builds without warnings. Open gate: a real lock/unlock and
 display-sleep cycle on the installed app, checking for `suspended` with code `paused`
 followed by `configuration` and `readiness: ready`.
+
+## Capture failure report: 13 October 2026
+
+A recording after about 2 h 20 min idle failed at release with `failure: capture` while
+a retry 8 s later worked. The macOS log showed hosted Voice Isolation DSP overloads at
+engine start and then "HAL client proc exceeding io cycle budget" skipped cycles up to
+about 370 ms after the first packet, past the 250 ms settle window. The app log could
+not say which capture flag failed. Each recording now logs a `CaptureReport` (see the
+development guide) and `scripts/analyze-diagnostics.py` summarises it. Added tests for the
+settling/late gap split and gap timing, dropped packets, end without recording,
+debug-only timings and the coordinator's record on a failed end. A throwaway synthetic
+benchmark (48 kHz, 512-frame sink packets, 36 interleaved runs of 100 packets, three
+repeats) measured median callback cost 2.2 to 3.2 µs and callback plus worker 32 to 37 µs
+per packet, measured and unmeasured within noise of each other. Open gate: the cause of
+cold-start gaps (idle page-in, Voice Isolation or other load) until a real failure is
+logged with the report.

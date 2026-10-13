@@ -62,7 +62,17 @@ final class AudioWorker: @unchecked Sendable {
     private var preRoll = [Float](repeating: 0, count: 2400)
     private var rollCount = 0
     private var rollHead = 0
-    private var failed = false
+    private var failure: CaptureReport.Failure?
+    /// Fixed for the engine's lifetime, so the real-time callback reads it without a race.
+    let measured: Bool
+    private var callbackTicks: UInt64 = 0 // Callback only: the previous callback's duration.
+    private var stats = CaptureReport()
+    private var firstPacketHost: Double?
+    private var startedAt: Double?
+    private let reportLock = NSLock()
+    private var finishedReport: CaptureReport?
+    /// The last recording's report, published before its end() resumes.
+    var lastReport: CaptureReport? { reportLock.withLock { finishedReport } }
     private var audioEpoch: Double?
     private var outputPosition = 0
     private var streamContinuation: AsyncThrowingStream<PCM16k, any Error>.Continuation?
@@ -76,7 +86,8 @@ final class AudioWorker: @unchecked Sendable {
     private var lastPacketSeconds = 0.0
     private var drainSerial = 0
     private var drainTimedOut = false
-    init(format: AVAudioFormat, lowLatency: Bool = false) throws {
+    init(format: AVAudioFormat, lowLatency: Bool = false, measured: Bool = false) throws {
+        self.measured = measured
         maximumInputFrames = lowLatency ? max(4096, AVAudioFrameCount((format.sampleRate * 0.05).rounded(.up)))
             : max(8192, AVAudioFrameCount((format.sampleRate * 0.4).rounded(.up)))
         guard let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Double(PCM16k.rate), channels: 1, interleaved: false),
@@ -97,10 +108,16 @@ final class AudioWorker: @unchecked Sendable {
     }
     /// Safe on the real-time I/O thread: no lock, no wait, a bounded copy and one handoff.
     func receive(_ list: UnsafePointer<AudioBufferList>, frames: AVAudioFrameCount, hostSeconds: Double? = nil) {
+        let entered = measured ? mach_absolute_time() : 0
+        // Each packet carries the previous callback's duration to the worker: no extra dispatch.
+        let previousTicks = callbackTicks
+        defer { if measured { callbackTicks = mach_absolute_time() - entered } }
         let src = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: list))
         let bytes = frames * bytesPerFrame
-        guard frames <= maximumInputFrames, src.count == bufferCount, src.allSatisfy({ $0.mDataByteSize <= bytes }),
-              freeSlots.wait(timeout: .now()) == .success else { markOverflow(); return }
+        guard frames <= maximumInputFrames, src.count == bufferCount, src.allSatisfy({ $0.mDataByteSize <= bytes }) else {
+            markOverflow(oversize: true); return
+        }
+        guard freeSlots.wait(timeout: .now()) == .success else { markOverflow(oversize: false); return }
         let index = nextSlot; nextSlot = (nextSlot + 1) % pool.count
         let buffer = pool[index]
         buffer.frameLength = frames
@@ -112,6 +129,12 @@ final class AudioWorker: @unchecked Sendable {
             if audioEpoch == nil { audioEpoch = hostSeconds }
             let packet = pool[index]
             lastPacketSeconds = Double(packet.frameLength) / packet.format.sampleRate
+            stats.packets += 1
+            if firstPacketHost == nil, let hostSeconds {
+                firstPacketHost = hostSeconds
+                if let startedAt { stats.firstPacketMS = (hostSeconds - startedAt) * 1000 }
+            }
+            if measured { measure(callbackTicks: previousTicks, packetEnd: hostSeconds.map { $0 + lastPacketSeconds }) }
             convert(packet)
             if let endBoundary, let host = hostSeconds, host + lastPacketSeconds >= endBoundary {
                 finalize()
@@ -119,9 +142,34 @@ final class AudioWorker: @unchecked Sendable {
             freeSlots.signal()
         }
     }
-    private func markOverflow() { queue.async { self.callbackOverflow = true } }
-    // Runs only on the conversion queue. Host/sample time is checked before receive in the tap owner.
-    func markDiscontinuity() { queue.async { self.failed = true } }
+    private func markOverflow(oversize: Bool) {
+        queue.async { [self] in
+            callbackOverflow = true
+            if oversize { stats.oversizePackets += 1 } else { stats.droppedPackets += 1 }
+        }
+    }
+    /// A skipped I/O cycle. While the device settles it only re-syncs; afterwards it is lost speech.
+    /// Host/sample time is checked before receive in the tap owner.
+    func markGap(frames: AVAudioFramePosition, settling: Bool, hostSeconds: Double?) {
+        queue.async { [self] in
+            let ms = Double(abs(frames)) / pool[0].format.sampleRate * 1000
+            if settling { stats.settlingGaps += 1; stats.settlingGapMS += ms; return }
+            stats.gaps += 1; stats.largestGapMS = max(stats.largestGapMS, ms)
+            if stats.firstGapAtMS == nil, let hostSeconds, let firstPacketHost {
+                stats.firstGapAtMS = (hostSeconds - firstPacketHost) * 1000
+            }
+            fail(.gap)
+        }
+    }
+    private func fail(_ reason: CaptureReport.Failure) { if failure == nil { failure = reason } }
+    private func measure(callbackTicks: UInt64, packetEnd: Double?) {
+        let callback = AVAudioTime.seconds(forHostTime: callbackTicks) * 1000
+        stats.maxCallbackMS = max(stats.maxCallbackMS ?? 0, callback)
+        guard let packetEnd else { return }
+        let delay = (AVAudioTime.seconds(forHostTime: mach_absolute_time()) - packetEnd) * 1000
+        stats.maxQueueDelayMS = max(stats.maxQueueDelayMS ?? 0, delay)
+    }
+    private func publish(_ report: CaptureReport?) { reportLock.withLock { finishedReport = report } }
     /// The first excluded sample begins at the release boundary. Only the serial worker calls this.
     private func allowedSamples(until boundary: Double?) -> Int? {
         guard let boundary, let audioEpoch, boundary.isFinite else { return nil }
@@ -148,7 +196,7 @@ final class AudioWorker: @unchecked Sendable {
                 state.pointee = supply.buffer == nil ? .endOfStream : .noDataNow
                 return nil
             }
-            if error != nil || status == .error { failed = true; return }
+            if error != nil || status == .error { fail(.converter); return }
             if let floats = output.floatChannelData?[0] {
                 let produced = Int(output.frameLength)
                 if recording, produced > 0 {
@@ -163,7 +211,7 @@ final class AudioWorker: @unchecked Sendable {
                     let allowed = allowedSamples(until: endBoundary)
                     let withinBoundary = allowed.map { max(0, min(produced, $0 - start)) } ?? produced
                     let copied = min(withinBoundary, samples.count - count)
-                    if copied < withinBoundary { failed = true }
+                    if copied < withinBoundary { fail(.full) }
                     if copied > 0 {
                         samples.withUnsafeMutableBufferPointer { destination in
                             _ = memcpy(destination.baseAddress!.advanced(by: count), floats,
@@ -184,12 +232,13 @@ final class AudioWorker: @unchecked Sendable {
         }
     }
     func begin(warm: Bool, streaming: Bool = false, earlyChunks: Bool = false,
-               activity: Bool = false, timings: Bool = false) throws -> CaptureStreams {
+               activity: Bool = false, timings: Bool = false, startedAt: Double? = nil) throws -> CaptureStreams {
         try queue.sync {
             guard !recording, completion == nil else { throw AppError.capture }
             let overflow = callbackOverflow; callbackOverflow = false
             guard !overflow else { throw AppError.overflow }
-            failed = false; drainTimedOut = false; count = 0
+            failure = nil; stats = .init(); firstPacketHost = nil; self.startedAt = startedAt; publish(nil)
+            drainTimedOut = false; count = 0
             firstAudio = nil; timingEnabled = timings; activityEnabled = activity; meter = .init(); self.activity.publish(0)
             streamingEnabled = streaming; chunk = []; chunk.reserveCapacity(PCM16k.streamingChunkSamples)
             let streams: CaptureStreams
@@ -266,7 +315,9 @@ final class AudioWorker: @unchecked Sendable {
     func end(at boundary: Double? = nil) async throws -> CapturedAudio {
         try await withCheckedThrowingContinuation { continuation in
             queue.async { [self] in
-                guard recording else { continuation.resume(throwing: AppError.capture); return }
+                guard recording else {
+                    publish(.init(failure: .notRecording)); continuation.resume(throwing: AppError.capture); return
+                }
                 completion = continuation; endBoundary = boundary
                 drainSerial &+= 1; let serial = drainSerial
                 if let allowed = allowedSamples(until: boundary) {
@@ -297,7 +348,10 @@ final class AudioWorker: @unchecked Sendable {
         activityEnabled = false; activity.publish(0)
         let overflow = callbackOverflow; callbackOverflow = false
         defer { count = 0; rollCount = 0; endBoundary = nil; audioEpoch = nil; outputPosition = 0 }
-        guard !failed, !overflow else {
+        if overflow { fail(stats.oversizePackets > 0 ? .oversize : .overflow) }
+        var report = stats; report.failure = failure
+        publish(report)
+        guard failure == nil else {
             streamContinuation?.finish(throwing: AppError.overflow); streamContinuation = nil
             earlyContinuation?.finish(throwing: AppError.overflow); earlyContinuation = nil
             continuation.resume(throwing: AppError.overflow); return
@@ -348,7 +402,9 @@ final class AudioTap: @unchecked Sendable {
             else { settling = false }
         }
         if let sampleTime {
-            if let expectedSample, sampleTime != expectedSample, !settling { worker.markDiscontinuity() }
+            if let expectedSample, sampleTime != expectedSample {
+                worker.markGap(frames: sampleTime - expectedSample, settling: settling, hostSeconds: hostSeconds)
+            }
             expectedSample = sampleTime + AVAudioFramePosition(frames)
         }
         worker.receive(list, frames: frames, hostSeconds: hostSeconds)
@@ -381,6 +437,10 @@ public struct CaptureOptions: Sendable {
     public var recordingActivity: Float { worker?.activity.read() ?? 0 }
     public var onFailure: (() -> Void)?
     private var changeObserver: NSObjectProtocol?
+    /// The last recording's capture report, for diagnostics.
+    public private(set) var captureReport: CaptureReport?
+    private var stoppedAt: ContinuousClock.Instant?
+    private var onDemandStart: (idleSeconds: Double?, engineStartMS: Double)?
     public init() {}
     /// `lowLatency` reads each hardware I/O cycle through a sink node instead of a 100 ms tap,
     /// so release waits about 6 ms rather than about 50 ms for the packet holding its boundary.
@@ -399,7 +459,7 @@ public struct CaptureOptions: Sendable {
         }
         let format = engine.inputNode.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { throw AppError.capture }
-        let worker = try AudioWorker(format: format, lowLatency: lowLatency)
+        let worker = try AudioWorker(format: format, lowLatency: lowLatency, measured: debugTimings)
         let tap = AudioTap(worker)
         if lowLatency {
             let sink = AVAudioSinkNode(receiverBlock: tap.sinkCallback())
@@ -416,21 +476,50 @@ public struct CaptureOptions: Sendable {
         if warm { try engine.start() }
     }
     public func begin() throws -> CaptureStreams {
-        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { throw AppError.capture }
-        guard let engine, let worker else { throw AppError.notReady }
+        captureReport = nil; onDemandStart = nil
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+            captureReport = .init(failure: .permission); throw AppError.capture
+        }
+        guard let engine, let worker else { captureReport = .init(failure: .notPrepared); throw AppError.notReady }
+        var startedAt: Double?
         // On-demand capture stopped the engine after the last recording.
-        if !engine.isRunning { tap?.restart(); try engine.start() }
-        return try worker.begin(warm: warm, streaming: streamingEnabled, earlyChunks: earlyChunksEnabled,
-                                activity: showAudioActivity, timings: debugTimings)
+        if !engine.isRunning {
+            tap?.restart()
+            let began = ContinuousClock.now
+            startedAt = AVAudioTime.seconds(forHostTime: mach_absolute_time())
+            do { try engine.start() } catch {
+                var report = CaptureReport(failure: .engineStart)
+                report.engineStatus = (error as NSError).code
+                captureReport = report; throw error
+            }
+            onDemandStart = (stoppedAt.map { $0.duration(to: began).milliseconds / 1000 },
+                             began.duration(to: .now).milliseconds)
+        }
+        do {
+            return try worker.begin(warm: warm, streaming: streamingEnabled, earlyChunks: earlyChunksEnabled,
+                                    activity: showAudioActivity, timings: debugTimings, startedAt: startedAt)
+        } catch {
+            captureReport = withStart(.init(failure: error as? AppError == .overflow ? .overflow : .busy))
+            throw error
+        }
+    }
+    private func withStart(_ report: CaptureReport) -> CaptureReport {
+        var report = report
+        report.idleSeconds = onDemandStart?.idleSeconds; report.engineStartMS = onDemandStart?.engineStartMS
+        return report
     }
     public func releaseBoundary() -> Double? { AVAudioTime.seconds(forHostTime: AudioGetCurrentHostTime()) }
     public func end(at boundary: Double?) async throws -> CapturedAudio {
-        guard let worker else { throw AppError.capture }
-        defer { if !warm { engine?.stop() } }
+        guard let worker else { captureReport = .init(failure: .notPrepared); throw AppError.capture }
+        defer {
+            if !warm { engine?.stop(); stoppedAt = .now }
+            captureReport = worker.lastReport.map(withStart)
+        }
         return try await worker.end(at: boundary ?? releaseBoundary())
     }
     public func suspend() {
         if let changeObserver { NotificationCenter.default.removeObserver(changeObserver); self.changeObserver = nil }
+        if engine?.isRunning == true || stoppedAt == nil { stoppedAt = .now }
         engine?.stop()
         if tapInstalled { engine?.inputNode.removeTap(onBus: 0); tapInstalled = false }
         engine = nil; worker = nil; tap = nil

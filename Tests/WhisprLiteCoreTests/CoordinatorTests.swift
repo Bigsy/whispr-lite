@@ -56,6 +56,22 @@ import AVFoundation
         #expect(insertion.insertedTargets == insertion.snapshots.map(\.target))
         #expect(media.begins == media.ends)
     }
+    @Test func failedCaptureLogsItsReport() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let logger = DiagnosticLogger(directory: directory); logger.setEnabled(true)
+        let (coordinator, capture, insertion, _) = try await fixture()
+        coordinator.diagnostics = logger
+        var report = CaptureReport(failure: .gap)
+        report.gaps = 1; report.firstGapAtMS = 341; report.idleSeconds = 8_400
+        capture.endError = AppError.overflow; capture.captureReport = report
+        coordinator.press(); coordinator.release()
+        try await poll { coordinator.state == .error }
+        await logger.flush()
+        let records = try decodeJSONLines(directory.appendingPathComponent("debug.jsonl"), as: DiagnosticRecord.self)
+        #expect(records.contains { $0.kind == .capture && $0.capture == report })
+        #expect(insertion.texts.isEmpty)
+    }
     @Test func historySavesCompletedDictationButNotCancelled() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
