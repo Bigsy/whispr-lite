@@ -39,6 +39,9 @@ import WhisprLiteCore
     private var tapReady = false
     private var pipelineReady = false
     private var sessionAvailable = true
+    /// Unlocked, but loginwindow was still frontmost; resume when another app activates.
+    private var awaitingLoginWindow = false
+    private static let loginWindowID = "com.apple.loginwindow"
     private var recordingShortcut = false
     private var shortcutPreviousStatus: (text: String, detail: String, readiness: SetupReadiness)?
     private var observers: [NSObjectProtocol] = []
@@ -365,9 +368,13 @@ import WhisprLiteCore
     private func configure() {
         guard !recordingShortcut else { return }
         guard let store else { update("Settings file is invalid. Review preferences.json before preparing.", readiness: .needsAttention); return }
-        guard sessionAvailable, NSWorkspace.shared.frontmostApplication?.bundleIdentifier != "com.apple.loginwindow" else {
-            suspendSession(); return
+        guard sessionAvailable else { suspendSession(); return }
+        // screenIsUnlocked can arrive before loginwindow gives up the front, with no later
+        // unlock event to retry; wait for the next app activation instead.
+        guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier != Self.loginWindowID else {
+            suspendSession(untilLoginWindowCloses: true); return
         }
+        awaitingLoginWindow = false
         let previousSetup = setupTask
         let previousCoordinator = coordinator
         tearDownPipeline(bumpEpoch: true, clearCoordinator: true)
@@ -492,12 +499,20 @@ import WhisprLiteCore
                 MainActor.assumeIsolated { self?.resumeSession() }
             })
         }
+        observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
+            let activated = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
+            MainActor.assumeIsolated {
+                guard let self, self.awaitingLoginWindow, self.sessionAvailable, activated != Self.loginWindowID else { return }
+                self.configure()
+            }
+        })
         DistributedNotificationCenter.default().addObserver(self, selector: #selector(locked), name: NSNotification.Name("com.apple.screenIsLocked"), object: nil)
         DistributedNotificationCenter.default().addObserver(self, selector: #selector(retry), name: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil)
     }
-    private func suspendSession() {
-        diagnostics?.record(.init(.suspended))
-        sessionAvailable = false
+    private func suspendSession(untilLoginWindowCloses: Bool = false) {
+        diagnostics?.record(.init(.suspended, code: untilLoginWindowCloses ? .paused : nil))
+        sessionAvailable = untilLoginWindowCloses
+        awaitingLoginWindow = untilLoginWindowCloses
         tearDownPipeline(bumpEpoch: true)
         update("Dictation paused", detail: "Unlock your Mac or return to this session, then check readiness.", readiness: .needsAttention)
     }

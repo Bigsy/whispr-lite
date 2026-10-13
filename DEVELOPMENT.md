@@ -325,6 +325,9 @@ A microphone route change (for example AirPods becoming the default input) rebui
 capture once its notifications have been quiet for 500 ms; more than three rebuilds in
 30 s asks for a readiness check. A press
 while dictation isn't ready shows the error pill instead of being silently swallowed.
+Lock, sleep and session switches pause dictation. The unlock notification can arrive while
+loginwindow is still frontmost; the app then resumes on the next app activation instead of
+waiting for another lock cycle (logged as `suspended` with code `paused`).
 Saving settings, wake, unlock and readiness checks reuse the prepared ASR model unless the
 backend, model, cache directory, downloads or ASR endpoint changed. The 120-second
 ceiling reserves a small margin for pre-roll/drain and offers a copy-only result. Exact

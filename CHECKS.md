@@ -1043,3 +1043,15 @@ Spotify and Safari/Chromium playback/identity/focus; memory/idle/power and daily
 fresh-machine installation and rollback acceptance. Real streaming UI and partial-text
 prefill remain later work; fixed-prefix warming during preparation is recorded above.
 OpenWhispr stays available for rollback; it was not retired or reconfigured.
+
+## Resume after unlock: 13 October 2026
+
+The user's debug log showed one `suspended` record at each display-on/unlock (for example
+display on 07:28:10Z, `suspended` 07:28:12Z, then nothing) and only one unlock that logged
+`configuration`. `screenIsUnlocked` had called `configure()` while `NSWorkspace` still
+reported loginwindow frontmost, which re-suspended with no later event to retry. The
+system held off sleep (`caffeinate`), so no `didWake` arrived either. The app now keeps the
+session available in that case and configures on the next non-loginwindow app activation.
+`make test` passed and the app builds without warnings. Open gate: a real lock/unlock and
+display-sleep cycle on the installed app, checking for `suspended` with code `paused`
+followed by `configuration` and `readiness: ready`.
