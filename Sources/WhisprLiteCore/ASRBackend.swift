@@ -39,7 +39,11 @@ public struct PCM16k: Sendable, Equatable {
 public struct ASRResult: Sendable, Equatable {
     public let text: String
     public let audioDuration: Double
-    public init(text: String, audioDuration: Double) { self.text = text; self.audioDuration = audioDuration }
+    /// Direct Parakeet only; see `TranscriptTail`.
+    public let coverage: TranscriptCoverage?
+    public init(text: String, audioDuration: Double, coverage: TranscriptCoverage? = nil) {
+        self.text = text; self.audioDuration = audioDuration; self.coverage = coverage
+    }
 }
 public struct ASRCapabilities: Sendable {
     public let streaming: Bool

@@ -33,11 +33,12 @@ public struct BatchPipeline: Sendable {
         guard let raw = try await transcribe(audio, mark: mark) else { return nil }
         return try await finish(raw, mark: mark)
     }
-    public func transcribe(_ audio: PCM16k, mark: StageMark? = nil) async throws -> String? {
+    public func transcribe(_ audio: PCM16k, mark: StageMark? = nil, report: CoverageReport? = nil) async throws -> String? {
         await mark?(.asrStart)
         let result = try await withDeadline(asrDeadline, stage: "ASR") { try await backend.transcribe(audio) }
         await mark?(.asrEnd)
         try Task.checkCancellation()
+        if let coverage = result.coverage { report?(coverage) }
         let raw = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         return raw.isEmpty ? nil : raw
     }

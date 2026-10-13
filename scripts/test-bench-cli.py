@@ -16,7 +16,10 @@ class BenchCLITests(unittest.TestCase):
                  ['--parakeet-check', '/tmp', '/tmp', '/tmp', '--repetitions', 'abc'],
                  ['--parakeet-check', '/tmp', '/tmp', '/tmp', '--repetitions', '0'],
                  ['--parakeet-check', '/tmp', '/tmp', '/tmp', '--model', 'unknown'],
-                 ['--streaming-prototype', '/tmp', '/tmp', '/tmp', '--repetitions', 'abc']]
+                 ['--streaming-prototype', '/tmp', '/tmp', '/tmp', '--repetitions', 'abc'],
+                 ['--tail-check'], ['--tail-check', '/tmp', '/tmp', '/tmp', '--model', 'unknown'],
+                 ['--tail-check', '/tmp', '/tmp', '/tmp', '--repetitions', '0'],
+                 ['--tail-check', '/tmp', '/tmp', '/tmp', '--allow-model-downloads']]
         for arguments in cases:
             with self.subTest(arguments=arguments):
                 result = subprocess.run([str(BINARY), *arguments], capture_output=True,

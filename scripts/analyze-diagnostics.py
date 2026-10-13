@@ -28,6 +28,8 @@ MEDIA_REASONS = {'playerChanged', 'playerRestarted', 'itemChanged', 'itemIdentif
 MODIFIERS = {'command', 'control', 'option', 'shift', 'fn'}
 CAPTURE_FAILURES = {'gap', 'overflow', 'oversize', 'converter', 'full', 'notRecording', 'notPrepared',
                     'permission', 'engineStart', 'busy'}
+COVERAGE_OUTCOMES = {'unavailable', 'noWords', 'covered', 'uncovered', 'recovered', 'unrecovered'}
+COVERAGE_FIELDS = ('audioSeconds', 'lastWordEndSeconds', 'speechAfterSeconds', 'recoveredWords', 'fallbackMS')
 CAPTURE_FIELDS = ('idleSeconds', 'engineStartMS', 'engineStatus', 'firstPacketMS', 'packets', 'settlingGaps',
                   'settlingGapMS', 'gaps', 'firstGapAtMS', 'largestGapMS', 'droppedPackets', 'oversizePackets',
                   'maxCallbackMS', 'maxQueueDelayMS')
@@ -54,6 +56,7 @@ def summarize(directory):
     modifiers = Counter()
     modifier_waits = []
     captures = []
+    coverage = []
     total = dropped = 0
     for name in ('debug.previous.jsonl', 'debug.jsonl'):
         path = directory / name
@@ -87,6 +90,9 @@ def summarize(directory):
                        event.get('subscriptionHealthy') is True or event.get('subscriptionHealthy') == 1)] += 1
             if event.get('kind') == 'capture' and isinstance(event.get('capture'), dict):
                 captures.append(event['capture'])
+            if event.get('kind') == 'coverage' and isinstance(event.get('coverage'), dict) \
+                    and event['coverage'].get('outcome') in COVERAGE_OUTCOMES:
+                coverage.append(event['coverage'])
             if event.get('kind') == 'modifierState':
                 modifiers[(modifier_names(event.get('hardwareModifiers')), modifier_names(event.get('sessionModifiers')))] += 1
                 value = event.get('milliseconds')
@@ -108,6 +114,13 @@ def summarize(directory):
             values = sorted(report[key] for report in captures if number(report.get(key)))
             if values: print(f'capture {key}: n={len(values)} median={statistics.median(values):.2f} max={values[-1]:.2f}')
         for report in failed[-10:]: print(f'failed capture: {capture_line(report)}')
+    if coverage:
+        print('transcript coverage: ' + ' '.join(f'{outcome}={count}' for outcome, count in
+                                                  sorted(Counter(report['outcome'] for report in coverage).items())))
+        # A stitched transcript that stops short of the speech is what the tail fallback is for.
+        for report in [r for r in coverage if r['outcome'] in ('uncovered', 'recovered', 'unrecovered')][-10:]:
+            print(f"coverage {report['outcome']}: " + ' '.join(f'{key}={report[key]:.2f}' if isinstance(report[key], float)
+                  else f'{key}={report[key]}' for key in COVERAGE_FIELDS if number(report.get(key))))
     if modifier_waits:
         modifier_waits.sort()
         print(f'physical modifier release wait: n={len(modifier_waits)} median={statistics.median(modifier_waits):.2f} ms p95={modifier_waits[math.ceil(len(modifier_waits) * .95) - 1]:.2f} ms')

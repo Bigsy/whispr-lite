@@ -1,0 +1,110 @@
+import Testing
+import Foundation
+import ParakeetCore
+@testable import WhisprLiteCore
+
+/// A 220 Hz tone stands in for speech over a quiet alternating floor; no real audio.
+private func clip(seconds: Double, speech: [ClosedRange<Double>]) throws -> PCM16k {
+    try PCM16k((0..<Int(seconds * Double(PCM16k.rate))).map { index in
+        let time = Double(index) / Double(PCM16k.rate)
+        return speech.contains { $0.contains(time) } ? Float(0.1 * sin(2 * .pi * 220 * time)) : (index.isMultiple(of: 2) ? 0.001 : -0.001)
+    })
+}
+private func word(_ text: String, _ start: Double, confidence: Float = 0.9) -> TimedWord {
+    .init(text: text, start: start, end: start + 0.3, confidence: confidence)
+}
+private actor CoverageBackend: ASRBackend {
+    nonisolated let capabilities = ASRCapabilities()
+    func prepare() {}
+    func readiness() -> BackendReadiness { .ready }
+    func transcribe(_ audio: PCM16k) -> ASRResult {
+        .init(text: "Synthetic words.", audioDuration: audio.duration, coverage: .init(.covered, audioSeconds: audio.duration))
+    }
+}
+
+@Suite struct TranscriptTailTests {
+    @Test func speechThresholdFollowsFluidAudioClamp() throws {
+        #expect(TranscriptTail.speechThreshold([Float](repeating: 0, count: PCM16k.rate)) == 0.008)
+        #expect(TranscriptTail.speechThreshold(try clip(seconds: 2, speech: [0...2]).samples) == 0.008)
+        #expect(TranscriptTail.speechThreshold(try clip(seconds: 2, speech: []).samples) == 0.0005)
+        let audio = try clip(seconds: 4, speech: [0.96...2.96]) // whole 80 ms frames
+        #expect(TranscriptTail.speechSeconds(audio.samples, from: 0, threshold: 0.008) == 2.0)
+        #expect(TranscriptTail.speechSeconds(audio.samples, from: 3 * PCM16k.rate, threshold: 0.008) == 0)
+    }
+
+    @Test func coveredShortOrUntimedTranscriptsAreNotDecodedAgain() async throws {
+        var decodes = 0
+        func decode(_ audio: PCM16k) async throws -> [TimedWord]? { decodes += 1; return [] }
+        let long = try clip(seconds: 20, speech: [1...10])
+        let untimed = try await TranscriptTail.complete(long, text: "Kept.", words: nil, redecode: decode)
+        #expect(untimed.text == "Kept." && untimed.coverage == .init(.unavailable, audioSeconds: 20))
+        #expect(try await TranscriptTail.complete(long, text: "", words: [], redecode: decode).coverage?.outcome == .noWords)
+        let covered = try await TranscriptTail.complete(long, text: "Kept.", words: [word("Kept.", 9.7)], redecode: decode)
+        #expect(covered.text == "Kept." && covered.coverage?.outcome == .covered)
+        #expect(abs((covered.coverage?.lastWordEndSeconds ?? 0) - 10) < 1e-9 && covered.coverage?.speechAfterSeconds == 0)
+        let single = try await TranscriptTail.complete(try clip(seconds: 10, speech: [0...10]), text: "Kept.",
+                                                       words: [word("Kept.", 5.7)], redecode: decode)
+        #expect(single.text == "Kept." && single.coverage?.outcome == .uncovered)
+        #expect((single.coverage?.speechAfterSeconds ?? 0) > 3.5 && single.coverage?.fallbackMS == nil)
+        #expect(decodes == 0)
+    }
+
+    @Test func missingTailIsDecodedOnceFromItsOwnWindowAndOnlyNewWordsAreAppended() async throws {
+        let audio = try clip(seconds: 30, speech: [0...28])
+        var windows: [Int] = []
+        let result = try await TranscriptTail.complete(audio, text: "Earlier words.",
+                                                       words: [word("Earlier", 18.6), word("words.", 19.4)]) { tail in
+            windows.append(tail.samples.count)
+            // The window starts 2 s before the last word ends, frame aligned at 17.68 s.
+            return [word("Earlier", 0.92), word("words.", 1.96), word("What", 2.5), word("next?", 3.0)]
+        }
+        #expect(result.text == "Earlier words. What next?")
+        #expect(windows == [audio.samples.count - 282_880])
+        let coverage = try #require(result.coverage)
+        #expect(coverage.outcome == .recovered && coverage.recoveredWords == 2 && coverage.fallbackMS != nil)
+        #expect(abs((coverage.speechAfterSeconds ?? 0) - 8.24) < 0.1)
+
+        var capped: [Int] = []
+        _ = try await TranscriptTail.complete(audio, text: "Early.", words: [word("Early.", 4.7)]) { tail in
+            capped.append(tail.samples.count); return []
+        }
+        #expect(capped == [TranscriptTail.windowSamples])
+    }
+
+    @Test func lowConfidenceOrRepeatedTailLeavesTranscriptUnchanged() async throws {
+        let audio = try clip(seconds: 30, speech: [0...28])
+        let words = [word("Earlier", 18.6), word("words.", 19.4)]
+        let doubtful = try await TranscriptTail.complete(audio, text: "Earlier words.", words: words) { _ in
+            [word("Hmm", 2.5, confidence: 0.4), word("what", 3.0, confidence: 0.6)]
+        }
+        #expect(doubtful.text == "Earlier words." && doubtful.coverage?.outcome == .unrecovered)
+        #expect(doubtful.coverage?.recoveredWords == 0)
+        let missing = TranscriptTail.missingWords(after: [word("the", 9.2), word("other", 9.6), word("one.", 10.0)],
+            in: [word("other", 10.25), word("one.", 10.3), word("What", 11.0)], offset: 0)
+        #expect(missing.map(\.text) == ["What"])
+        await #expect(throws: CancellationError.self) {
+            try await TranscriptTail.complete(audio, text: "Earlier words.", words: words) { _ in throw CancellationError() }
+        }
+    }
+
+    @Test func pipelineReportsCoverageAndDiagnosticsCarryOnlyNumbers() async throws {
+        let reports = LockedCounter()
+        let audio = try PCM16k([Float](repeating: 0.1, count: PCM16k.rate))
+        let report: CoverageReport = { _ in reports.increment() }
+        _ = try await BatchPipeline(backend: CoverageBackend(), cleanup: DemoCleanup()).transcribe(audio, report: report)
+        let fake = FakeASRBackend(); try await fake.prepare()
+        _ = try await BatchPipeline(backend: fake, cleanup: DemoCleanup()).transcribe(audio, report: report)
+        #expect(reports.value == 1)
+
+        var coverage = TranscriptCoverage(.recovered, audioSeconds: 50.8)
+        coverage.lastWordEndSeconds = 44; coverage.speechAfterSeconds = 4.2
+        coverage.recoveredWords = 9; coverage.fallbackMS = 41.5
+        let data = try JSONEncoder().encode(DiagnosticRecord(.coverage, session: UUID(), coverage: coverage))
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let fields = try #require(object["coverage"] as? [String: Any])
+        #expect(object["kind"] as? String == "coverage")
+        #expect(Set(fields.keys) == ["outcome", "audioSeconds", "lastWordEndSeconds", "speechAfterSeconds",
+                                     "recoveredWords", "fallbackMS"])
+        #expect(fields.values.allSatisfy { $0 is NSNumber || TranscriptCoverage.Outcome(rawValue: $0 as? String ?? "") != nil })
+    }
+}

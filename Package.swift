@@ -11,7 +11,7 @@ let package = Package(
                .executable(name: "whispr-bench", targets: ["WhisprLiteBench"])],
     dependencies: (candidate.map { [.package(path: $0)] } ?? [
         .package(url: "https://github.com/Bigsy/parakeet-ane-server.git",
-                 exact: "0.2.0")
+                 exact: "0.3.0")
     ]) + [
         // Bench-only VAD prototype; must match ParakeetCore's own exact FluidAudio pin.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.17.7")

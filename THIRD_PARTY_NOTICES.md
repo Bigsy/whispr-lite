@@ -64,8 +64,8 @@ the upstream model terms apply to these separately downloaded assets.
 
 ## ParakeetCore
 
-[Bigsy/parakeet-ane-server v0.2.0](https://github.com/Bigsy/parakeet-ane-server/tree/v0.2.0),
-commit `09873950b95b966ad8237caca1be1d604d235db6`, is the app's exact SwiftPM dependency.
+[Bigsy/parakeet-ane-server v0.3.0](https://github.com/Bigsy/parakeet-ane-server/tree/v0.3.0),
+commit `81e9b2f9d850b3a4dfced84b3e1325ed7075dcd7`, is the app's exact SwiftPM dependency.
 Its MIT license and notices are copied into app bundles. FluidAudio's Apache-2.0 license
 and third-party notices are also bundled. FluidAudio is pinned by that package to 0.17.7
 (`503b4bd1bbf7220882de39fe8ae6716aae4132da`). Models are separately cached assets.

@@ -41,7 +41,7 @@ import WhisprLiteCore
             try await realStreaming(cache: args.path(0, directory: true),
                                     corpus: args.path(1, directory: true), output: args.path(2))
         #endif
-        case "--parakeet-check":
+        case "--parakeet-check", "--tail-check":
             let model: ParakeetModel
             if let selected = args.string("--model") {
                 guard let parsed = ParakeetModel(rawValue: selected) else {
@@ -49,12 +49,17 @@ import WhisprLiteCore
                 }
                 model = parsed
             } else { model = .unified }
-            let repetitions = try args.int("--repetitions", default: 30)
+            let repetitions = try args.int("--repetitions", default: args.mode == "--tail-check" ? 10 : 30)
             guard repetitions > 0 else { throw BenchFailure("Invalid repetition count", exitCode: 2) }
-            try await parakeetCheck(cache: args.path(0, directory: true),
-                                    corpus: args.path(1, directory: true), output: args.path(2),
-                                    model: model, repetitions: repetitions,
-                                    allowDownloads: args.has("--allow-model-downloads"))
+            if args.mode == "--tail-check" {
+                try await tailCheck(cache: args.path(0, directory: true), corpus: args.path(1, directory: true),
+                                    output: args.path(2), model: model, repetitions: repetitions)
+            } else {
+                try await parakeetCheck(cache: args.path(0, directory: true),
+                                        corpus: args.path(1, directory: true), output: args.path(2),
+                                        model: model, repetitions: repetitions,
+                                        allowDownloads: args.has("--allow-model-downloads"))
+            }
         case "--candidate-check":
             let cache = ProcessInfo.processInfo.environment["PARAKEET_MODEL_CACHE"].map {
                 URL(fileURLWithPath: $0, isDirectory: true)
@@ -143,7 +148,11 @@ import WhisprLiteCore
                 let start = ContinuousClock.now
                 let result = try await backend.transcribe(audio)
                 raw.append(milliseconds(start.duration(to: .now)))
-                guard result == expected else { throw BenchFailure("Repeated ASR output changed") }
+                // Coverage carries a fallback timing; parity is the text and what the fallback decided.
+                guard result.text == expected.text, result.audioDuration == expected.audioDuration,
+                      result.coverage?.outcome == expected.coverage?.outcome else {
+                    throw BenchFailure("Repeated ASR output changed")
+                }
             }
             let median = ReportStatistics.median(raw)!
             observations.append(["fixture": file.lastPathComponent, "audio_seconds": audio.duration,
@@ -151,7 +160,9 @@ import WhisprLiteCore
                                  "median_ms": median,
                                  "p90_ms": ReportStatistics.nearestRank(raw, fraction: 0.9)!,
                                  "p95_ms": ReportStatistics.nearestRank(raw, fraction: 0.95)!,
-                                 "repeat_text_parity": true])
+                                 "repeat_text_parity": true,
+                                 "coverage": expected.coverage?.outcome.rawValue ?? NSNull(),
+                                 "speech_after_seconds": expected.coverage?.speechAfterSeconds.map { $0 as Any } ?? NSNull()])
             print("\(model.rawValue): \(file.lastPathComponent) median-ms=\(median)")
         }
         guard let longest, let shortest else { throw BenchFailure("No synthetic audio fixtures were found") }

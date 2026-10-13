@@ -34,6 +34,8 @@ struct BenchArguments {
             count = 3; valued = []; switches = []
         case "--parakeet-check":
             count = 3; valued = ["--model", "--repetitions"]; switches = ["--allow-model-downloads"]
+        case "--tail-check":
+            count = 3; valued = ["--model", "--repetitions"]; switches = []
         default:
             throw BenchFailure("Unknown benchmark mode; see DEVELOPMENT.md.", exitCode: 2)
         }

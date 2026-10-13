@@ -213,7 +213,9 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         // The structured child settles the early worker even when final ASR throws.
         async let prepared = early?.value
         let dictation: DictationText?
-        if let raw = try await pipeline.transcribe(audio, mark: mark) {
+        let logger = diagnostics
+        let report: CoverageReport = { coverage in logger?.record(.init(.coverage, session: id, coverage: coverage)) }
+        if let raw = try await pipeline.transcribe(audio, mark: mark, report: report) {
             dictation = try await pipeline.finish(raw, early: await prepared ?? [], mark: mark)
         } else { dictation = nil }
         return .init(text: dictation?.cleaned, dictation: dictation)

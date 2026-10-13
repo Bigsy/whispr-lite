@@ -4,7 +4,7 @@ import ParakeetCore
 
 public enum DiagnosticKind: String, Codable, Sendable {
     case loggingEnabled, loggingDisabled, configuration, preparationStarted, preparationProgress, preparationReady, preparationFailed
-    case permissions, readiness, hotkey, state, timing, capture, mediaState, mediaCommand, mediaReply
+    case permissions, readiness, hotkey, state, timing, capture, coverage, mediaState, mediaCommand, mediaReply
     case targetSnapshot, modifierState, insertionCheck, insertionMethod, clipboardRestore, cancelled, completed, failure, suspended, shutdown
 }
 public enum DiagnosticCode: String, Codable, Sendable {
@@ -165,13 +165,16 @@ public struct DiagnosticRecord: Codable, Sendable {
     public var hardwareModifiers: [InsertionModifier]?
     public var sessionModifiers: [InsertionModifier]?
     public var capture: CaptureReport?
+    public var coverage: TranscriptCoverage?
     public init(_ kind: DiagnosticKind, session: UUID? = nil, stage: TimingStage? = nil,
                 code: DiagnosticCode? = nil, state: DictationState? = nil, target: InsertionTargetKind? = nil,
                 milliseconds: Double? = nil, sampleCount: Int? = nil, enabled: Bool? = nil,
-                configuration: DiagnosticConfiguration? = nil, capture: CaptureReport? = nil) {
+                configuration: DiagnosticConfiguration? = nil, capture: CaptureReport? = nil,
+                coverage: TranscriptCoverage? = nil) {
         self.kind = kind; self.session = session; self.stage = stage; self.code = code; self.state = state
         self.target = target; self.milliseconds = milliseconds; self.sampleCount = sampleCount
         self.enabled = enabled; self.configuration = configuration; self.capture = capture
+        self.coverage = coverage
     }
 }
 

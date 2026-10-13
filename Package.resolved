@@ -1,5 +1,5 @@
 {
-  "originHash" : "a7e5699f232770c18b2c76c0520616fb07b123605c7f1c6d836c773aa21f7765",
+  "originHash" : "e992eb6b306e3211d04f698ada769cd1d43ebfeebc57765b5e428e2ad720b5a3",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Bigsy/parakeet-ane-server.git",
       "state" : {
-        "revision" : "09873950b95b966ad8237caca1be1d604d235db6",
-        "version" : "0.2.0"
+        "revision" : "81e9b2f9d850b3a4dfced84b3e1325ed7075dcd7",
+        "version" : "0.3.0"
       }
     },
     {

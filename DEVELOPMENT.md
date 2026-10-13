@@ -1,6 +1,6 @@
 # Development and validation
 
-The native app consumes the published ParakeetCore 0.2.0 Swift package. It is not a validated
+The native app consumes the published ParakeetCore 0.3.0 Swift package. It is not a validated
 replacement for OpenWhispr yet. A configured local stack and private import from installed
 OpenWhispr 1.8.3 are available on the development machine. Synthetic native integration
 passes; physical capture, other destinations, playback and daily-use acceptance remain open.
@@ -58,7 +58,7 @@ per-event array shift after saturation.
 Requires Apple Silicon, macOS 14+ and Swift 6.2. `make build` assembles
 `dist/Whispr Lite.app`; open it with `open 'dist/Whispr Lite.app'`. Build/test do not install,
 restart or reconfigure model services or login items. The app's SwiftPM dependency is
-ParakeetCore, pinned to exact 0.2.0 with `Package.resolved` retained.
+ParakeetCore, pinned to exact 0.3.0 with `Package.resolved` retained.
 The app icon is the committed `Resources/AppIcon.icns`; `swift scripts/make-icon.swift`
 regenerates it (simplified glyph at 16 and 32 px, Apple's 824-point icon grid).
 New settings default to direct local Unified ASR, with real Gemma
@@ -295,6 +295,12 @@ its packet, so this adds two clock reads per callback and no dispatch. A synthet
 sink benchmark measured about 2 to 3 µs per callback and 33 µs per packet including the
 worker, with no difference between measured and unmeasured runs.
 
+Each final direct Parakeet transcription also logs one `coverage` record with a
+`TranscriptCoverage`: the outcome (`unavailable`, `noWords`, `covered`, `uncovered`,
+`recovered`, `unrecovered`), audio length, last word end, speech after it, recovered word
+count and tail decode time. Seconds and counts only; early-chunk passes are not logged.
+`analyze-diagnostics.py` counts outcomes and lists the last ten that stopped short.
+
 The summary reports capture-drain, ASR, cleanup, insertion-dispatch and clipboard spans
 plus failure/media state and skip-reason counts. It also reports request-to-confirmation
 media pause/resume spans and Play submission separately; confirmations are helper state
@@ -523,8 +529,8 @@ differ by up to 1 s. Real player/footprint/power acceptance remains open in CHEC
 
 ## SwiftPM and real-model integration
 
-Normal builds resolve `https://github.com/Bigsy/parakeet-ane-server.git` at exact `0.2.0`,
-whose published tag points to `09873950b95b966ad8237caca1be1d604d235db6`. A sibling checkout
+Normal builds resolve `https://github.com/Bigsy/parakeet-ane-server.git` at exact `0.3.0`,
+whose published tag points to `81e9b2f9d850b3a4dfced84b3e1325ed7075dcd7`. A sibling checkout
 is unnecessary. Keep `Package.resolved` with the app to freeze transitive dependencies.
 Both batch and streaming APIs are linked, while normal dictation uses batch.
 
@@ -604,6 +610,14 @@ batch fallback and returning to streaming. It sends audio without capture pacing
 does not measure physical partial lag, visible insertion, cleanup or ground-truth WER.
 Unlike `--parakeet-check`, `--streaming-check` takes no model or repetition options;
 it checks the cached Unified model with its fixed synthetic sequence.
+`--parakeet-check` also reports each fixture's tail coverage outcome; its repeat parity
+compares text, duration and outcome, since coverage carries a timing.
+`--tail-check CACHE WAV_DIRECTORY OUTPUT_JSON` (`--model`, `--repetitions N`, default 10;
+cached models only) exercises the tail fallback against the real model. For each
+synthetic clip over 15 s it transcribes in full and requires the fallback to stay off,
+then removes the words of the final sentence, as a blank final window would, and
+requires `TranscriptTail` to recover them. It reports whether the recovered words equal
+the full decode, both synthetic transcripts and the tail decode time.
 The Parakeet streaming adapter lives only in the bench target; the signed app uses
 the batch adapter. Published builds include streaming bench modes. Local candidate
 builds enable them with `PARAKEET_STREAMING=1` when that candidate supports sessions.
@@ -643,6 +657,26 @@ written to the report. Use normal Metal session access, verified GGUFs in an ign
 directory, and the pinned llama-server. Historical cleaned text and Gemma outputs are
 comparison references, not reviewed ground truth; this is cleanup-only, not an ASR or
 release-to-visible-text measurement.
+
+### Long-dictation tail fallback
+
+ParakeetCore batch results carry word timings (`TimedWord`). After each direct Parakeet
+transcription, `TranscriptTail` measures speech-level audio after the last word with
+FluidAudio's adaptive RMS rule: 80 ms frames above 0.3 times the 75th percentile frame
+level, clamped to 0.0005...0.008. Recordings longer than one 14.96 s window are decoded
+as overlapping windows and stitched. A window can decode its new audio to nothing
+(FluidAudio #909), and neither FluidAudio's seam repair (gaps between words) nor its
+empty-window recovery (windows with no tokens) covers speech after the last word.
+When at least 0.8 s of speech follows the last word of a stitched transcript, the
+backend decodes once more from 2 s before that word's end, up to one window: a different
+cut from the final window that failed. It keeps words starting after the last word (one
+frame of jitter allowed), drops a re-heard copy of up to the last three words, and
+appends the rest only when their mean confidence is at least 0.7, FluidAudio's bar for a
+recovered decode. Otherwise the transcript is unchanged. Single-window recordings are
+measured but never decoded again. The tail decode queues behind the first on the same
+engine inside the same ASR deadline and cancellation, and history keeps the completed
+raw text. Complete synthetic transcripts measured 0 to 0.08 s after the last word, so
+the fallback stays off for them; a five-word final sentence measured 1.1 to 1.3 s.
 
 ### Retired experiment harnesses
 

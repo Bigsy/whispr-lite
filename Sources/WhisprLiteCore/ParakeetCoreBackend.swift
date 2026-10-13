@@ -43,7 +43,10 @@ public actor ParakeetCoreBackend: HoldWarmableASRBackend {
     public func transcribe(_ audio: PCM16k) async throws -> ASRResult {
         do {
             let result = try await engine.transcribe(PCM16kMono(samples: audio.samples))
-            return .init(text: result.text, audioDuration: result.actualAudioDuration)
+            // A tail decode, when needed, queues behind this one; the caller's ASR deadline covers both.
+            return try await TranscriptTail.complete(audio, text: result.text, words: result.words) { tail in
+                try await engine.transcribe(PCM16kMono(samples: tail.samples)).words
+            }
         } catch ParakeetError.cancelled { throw CancellationError() }
     }
     public func warmForRecording() async throws {
