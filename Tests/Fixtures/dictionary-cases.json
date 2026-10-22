@@ -1,0 +1,44 @@
+[
+  {
+    "id": "plain-vocabulary",
+    "dictionary": "Parakeet\nGemma",
+    "vocabulary": "Parakeet\nGemma",
+    "input": "fabricam",
+    "output": "fabricam"
+  },
+  {
+    "id": "aliases-and-literal-characters",
+    "dictionary": "foo => bar\nbar => baz\nc plus plus => C++\na.b => $value",
+    "vocabulary": "bar\nbaz\nC++\n$value\nfoo\nc plus plus\na.b",
+    "input": "foo bar, C PLUS PLUS, a.b, axb",
+    "output": "bar baz, C++, $value, axb"
+  },
+  {
+    "id": "overlap-after-invalid-boundary",
+    "dictionary": "ab c => Wrong\nc d => Right",
+    "vocabulary": "Wrong\nRight\nab c\nc d",
+    "input": "xab c d",
+    "output": "xab Right"
+  },
+  {
+    "id": "long-alias-fallback",
+    "dictionary": "abc d => Wrong\nabc => Right",
+    "vocabulary": "Wrong\nRight\nabc d\nabc",
+    "input": "abc dx",
+    "output": "Right dx"
+  },
+  {
+    "id": "unicode-boundaries",
+    "dictionary": "resume => résumé",
+    "vocabulary": "résumé\nresume",
+    "input": "éresume resumeé _resume resume_ 2resume resume2 (RESUME) 😀resume",
+    "output": "éresume resumeé _resume resume_ 2resume resume2 (résumé) 😀résumé"
+  },
+  {
+    "id": "conflicts-and-broken-lines",
+    "dictionary": "alias => First\nALIAS => Second\n => Empty\nbroken =>\na => b => c",
+    "vocabulary": "First\nSecond\n => Empty\nbroken =>\na => b => c",
+    "input": "alias ALIAS broken a",
+    "output": "alias ALIAS broken a"
+  }
+]

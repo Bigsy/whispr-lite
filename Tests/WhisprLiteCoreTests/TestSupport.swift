@@ -1,0 +1,196 @@
+import Testing
+import Foundation
+import CoreGraphics
+import AVFoundation
+import ParakeetCore
+@testable import WhisprLiteCore
+
+final class LockedCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func increment() { lock.withLock { count += 1 } }
+    var value: Int { lock.withLock { count } }
+}
+
+func monoFormat(rate: Double = 16_000) throws -> AVAudioFormat {
+    try #require(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate,
+        channels: 1, interleaved: false))
+}
+
+func filledBuffer(format: AVAudioFormat, frames: AVAudioFrameCount,
+                  value: Float) throws -> AVAudioPCMBuffer {
+    let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames))
+    buffer.frameLength = frames
+    for channel in 0..<Int(format.channelCount) {
+        for index in 0..<Int(frames) { buffer.floatChannelData![channel][index] = value }
+    }
+    return buffer
+}
+
+func decodeJSONLines<Value: Decodable>(_ file: URL, as type: Value.Type) throws -> [Value] {
+    guard FileManager.default.fileExists(atPath: file.path) else { return [] }
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return try String(contentsOf: file, encoding: .utf8)
+        .split(separator: "\n")
+        .map { try decoder.decode(type, from: Data($0.utf8)) }
+}
+
+actor CountingCleanup: TextCleanup {
+    var calls = 0
+    func clean(_ text: String) -> String { calls += 1; return text }
+}
+actor RecordingCleanup: TextCleanup {
+    var inputs: [String] = []
+    var started = false
+    private let delay: Duration?
+    init(delay: Duration? = nil) { self.delay = delay }
+    func clean(_ text: String) async throws -> String {
+        started = true
+        inputs.append(text)
+        if let delay { try await Task.sleep(for: delay) }
+        return text
+    }
+}
+struct FailingCleanup: TextCleanup { func clean(_ text: String) throws -> String { throw AppError.cleanup } }
+/// A model that answers instead of cleaning: every reply reaches the token limit.
+actor RefusingCleanup: TextCleanup {
+    var calls = 0
+    func clean(_ text: String) throws -> String { calls += 1; throw CleanupFailure.length }
+}
+
+@MainActor final class FakeCapture: CaptureDriver {
+    var begins = 0; var ends = 0; var suspended = 0
+    var boundaryValue: Double?
+    var endBoundary: Double?
+    var onBoundary: (() -> Void)?
+    var endError: (any Error)?
+    var captureReport: CaptureReport?
+    func begin() -> EarlyChunks? { begins += 1; return nil }
+    func end(at boundary: Double?) async throws -> CapturedAudio {
+        ends += 1
+        endBoundary = boundary
+        if let endError { throw endError }
+        return try .init(pcm: PCM16k([0.1]))
+    }
+    func releaseBoundary() -> Double? { onBoundary?(); return boundaryValue }
+    func suspend() { suspended += 1 }
+}
+@MainActor final class EarlyCapture: CaptureDriver {
+    var ends = 0
+    private var continuation: EarlyChunks.Continuation?
+    func begin() -> EarlyChunks? {
+        let pair = EarlyChunks.makeStream()
+        continuation = pair.continuation
+        return pair.stream
+    }
+    func publish(samples: Int = 1) throws { continuation?.yield(try PCM16k([Float](repeating: 0.1, count: samples))) }
+    func end(at boundary: Double?) throws -> CapturedAudio {
+        ends += 1; continuation?.finish(); continuation = nil
+        return try .init(pcm: PCM16k([0.1, 0.2]))
+    }
+    func suspend() {}
+}
+actor EarlyBackend: ASRBackend {
+    func prepare() async throws {}
+    func readiness() async -> BackendReadiness { .ready }
+    func transcribe(_ audio: PCM16k) async throws -> ASRResult {
+        .init(text: audio.samples.count == 1 ? "First sentence." : "First sentence. Second sentence.", audioDuration: audio.duration)
+    }
+}
+/// A 2 s early chunk whose transcript stops mid-sentence, with word timings; the next chunk with
+/// the carried audio; then the full recording.
+actor SentenceCutBackend: ASRBackend {
+    static let chunkWords = [TimedWord(text: "First", start: 0, end: 0.4, confidence: 1),
+                             TimedWord(text: "sentence.", start: 0.4, end: 0.8, confidence: 1),
+                             TimedWord(text: "Second", start: 1.2, end: 1.6, confidence: 1)]
+    var lengths: [Int] = []
+    func prepare() async throws {}
+    func readiness() async -> BackendReadiness { .ready }
+    func transcribe(_ audio: PCM16k) async throws -> ASRResult {
+        lengths.append(audio.samples.count)
+        switch audio.samples.count {
+        case 32_000: return .init(text: "First sentence. Second", audioDuration: audio.duration, words: Self.chunkWords)
+        case 24_000: return .init(text: "Second part.", audioDuration: audio.duration) // Carried 1 s plus the next chunk.
+        default: return .init(text: "First sentence. Second part.", audioDuration: audio.duration)
+        }
+    }
+}
+@MainActor final class FakeInsertion: InsertionDriver {
+    var texts: [String] = []; var shouldFail = false
+    var snapshots: [(session: UUID, target: UUID)] = []
+    var insertedTargets: [UUID] = []
+    func snapshot(session: UUID) -> UUID {
+        let target = UUID()
+        snapshots.append((session, target))
+        return target
+    }
+    func insert(_ text: String, target: UUID) throws {
+        try Task.checkCancellation()
+        guard snapshots.contains(where: { $0.target == target }) else { throw AppError.targetChanged }
+        if shouldFail { throw AppError.targetChanged }
+        insertedTargets.append(target); texts.append(text)
+    }
+}
+@MainActor final class OrderedInsertion: InsertionDriver {
+    let capture: FakeCapture; var beginsAtSnapshot: [Int] = []
+    init(_ capture: FakeCapture) { self.capture = capture }
+    func snapshot(session: UUID) -> UUID { beginsAtSnapshot.append(capture.begins); return UUID() }
+    func insert(_ text: String, target: UUID) throws {}
+}
+@MainActor final class FakeMedia: MediaDriver {
+    var begins: [UUID] = []; var ends: [UUID] = []
+    func begin(_ session: UUID) { begins.append(session) }
+    func end(_ session: UUID) { ends.append(session) }
+}
+actor AsyncGate {
+    private var entered = false
+    private var entryWaiter: CheckedContinuation<Void, Never>?
+    private var exitWaiter: CheckedContinuation<Void, Never>?
+    func waitUntilEntered() async {
+        if entered { return }
+        await withCheckedContinuation { entryWaiter = $0 }
+    }
+    func enterAndWait() async {
+        entered = true
+        entryWaiter?.resume(); entryWaiter = nil
+        await withCheckedContinuation { exitWaiter = $0 }
+    }
+    func open() { exitWaiter?.resume(); exitWaiter = nil }
+}
+actor WarmupBackend: HoldWarmableASRBackend {
+    private let warmGate: AsyncGate?
+    private(set) var warmCalls = 0
+    private(set) var finalBeforeWarmSettled = false
+    private(set) var transcribedWhileWarming = false
+    private var warmSettled = false
+    private var warming = false
+    init(warmGate: AsyncGate? = nil) { self.warmGate = warmGate }
+    func prepare() async throws {}
+    func readiness() async -> BackendReadiness { .ready }
+    func warmForRecording() async throws {
+        warmCalls += 1
+        warming = true
+        if let warmGate { await warmGate.enterAndWait() }
+        else { try await Task.sleep(for: .milliseconds(80)) }
+        warming = false
+        warmSettled = true
+    }
+    func transcribe(_ audio: PCM16k) async throws -> ASRResult {
+        if !warmSettled { finalBeforeWarmSettled = true }
+        if warming { transcribedWhileWarming = true }
+        return .init(text: "Synthetic words", audioDuration: audio.duration)
+    }
+}
+
+/// Returns as soon as the condition holds; the deadline only bounds a failure, so it is
+/// generous enough for slow, loaded CI runners.
+@MainActor func poll(timeout: Duration = .seconds(5),
+                     _ condition: @escaping @MainActor () async -> Bool) async throws {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+    while ContinuousClock.now < deadline {
+        if await condition() { return }
+        try await Task.sleep(for: .milliseconds(2))
+    }
+    #expect(await condition(), "Condition was not met before the test deadline")
+}

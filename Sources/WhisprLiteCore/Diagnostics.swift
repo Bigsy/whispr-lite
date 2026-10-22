@@ -1,0 +1,231 @@
+import Foundation
+import CoreGraphics
+import ParakeetCore
+
+public enum DiagnosticKind: String, Codable, Sendable {
+    case loggingEnabled, loggingDisabled, configuration, preparationStarted, preparationProgress, preparationReady, preparationFailed
+    case permissions, readiness, hotkey, state, timing, capture, coverage, earlyChunks, mediaState, mediaCommand, mediaReply
+    case targetSnapshot, modifierState, insertionCheck, insertionMethod, clipboardRestore, cancelled, completed, failure, suspended, shutdown
+}
+public enum DiagnosticCode: String, Codable, Sendable {
+    case press, release, cancel, ready, notReady
+    case disabled, starting, recovering, unavailable, begin, end, paused, resumed, skipped, unconfirmed, fatal, snapshot, issued, released
+    case accessibilityDenied, noTarget, appChanged, elementChanged, disabledTarget, secureTarget, unsupportedRole, readonlyTarget
+    case modifiersHeld, clipboard, capture, drainTimeout, overflow, deadline, inference, cleanup, contextLimit, unsupported, invalidAudio, audioLimit, protocolViolation, targetChanged
+    case nativeAX, commandPaste, restored, userClipboardChanged, restoreFailed
+    case missingCache, downloadFailed, preparationFailed, busy, queueFull, cancelled, copyOnly
+    public static func failure(_ error: AppError) -> Self {
+        switch error {
+        case .deadline: .deadline
+        case .invalidAudio: .invalidAudio
+        case .audioLimit: .audioLimit
+        case .notReady: .notReady
+        case .unsupported: .unsupported
+        case .inference: .inference
+        case .cleanup: .cleanup
+        case .contextLimit: .contextLimit
+        case .capture: .capture
+        case .overflow: .overflow
+        case .targetChanged: .targetChanged
+        case .modifiersHeld: .modifiersHeld
+        case .clipboard: .clipboard
+        case .protocolViolation: .protocolViolation
+        }
+    }
+    public static func failure(_ error: any Error) -> Self {
+        if let error = error as? AppError { return failure(error) }
+        if let error = error as? PipelineFailure { return failure(error.reason) }
+        if error is CleanupFailure { return .cleanup }
+        if error is CancellationError { return .cancelled }
+        if let error = error as? ParakeetError {
+            switch error {
+            case .missingCache: return .missingCache
+            case .downloadFailed: return .downloadFailed
+            case .preparationFailed: return .preparationFailed
+            case .busy: return .busy
+            case .queueFull: return .queueFull
+            case .cancelled: return .cancelled
+            case .notReady: return .notReady
+            case .queueDeadlineExceeded, .inferenceDeadlineExceeded: return .deadline
+            case .invalidAudio: return .invalidAudio
+            case .audioLimitExceeded: return .audioLimit
+            case .invalidConfiguration, .unsupportedMode: return .unsupported
+            case .invalidSampleOffset, .sessionFinished: return .protocolViolation
+            case .inferenceFailed: return .inference
+            }
+        }
+        return .inference
+    }
+}
+public enum InsertionTargetKind: String, Codable, Sendable {
+    case native, appleTerminal, iterm, ghostty, other
+    public static func classify(bundleIdentifier: String?) -> Self {
+        if let bundleIdentifier, bundleIdentifier == Bundle.main.bundleIdentifier { return .native }
+        return switch bundleIdentifier {
+        case "com.apple.Terminal": .appleTerminal
+        case "com.googlecode.iterm2": .iterm
+        case "com.mitchellh.ghostty": .ghostty
+        default: .other
+        }
+    }
+}
+/// Only these five modifier categories can enter the log; no key codes or text.
+public enum InsertionModifier: String, Codable, Sendable, CaseIterable {
+    case command, control, option, shift, fn
+    private var flag: CGEventFlags {
+        switch self {
+        case .command: .maskCommand
+        case .control: .maskControl
+        case .option: .maskAlternate
+        case .shift: .maskShift
+        case .fn: .maskSecondaryFn
+        }
+    }
+    static func held(in flags: CGEventFlags) -> [Self] { allCases.filter { flags.contains($0.flag) } }
+}
+/// Fixed protocol reasons; player identities and metadata never enter diagnostics.
+public enum MediaDiagnosticReason: String, Codable, Sendable {
+    case playerChanged, playerRestarted, itemChanged, itemIdentifierRefreshed, unidentifiedPlayer, unknownPlayer
+    case externalPlayback, subscriptionUnavailable, alreadyPaused, endedBeforePause
+    case closing, leaseBusy, noLease, sessionMismatch, pauseRejected, pauseUnconfirmed
+    case resumeRejected, resumeUnconfirmed, queryTimeout
+}
+public struct DiagnosticConfiguration: Codable, Sendable {
+    public let backend: BackendMode
+    public let asrModel: ParakeetModel?
+    public let warmCapture: Bool
+    public let lowLatencyCapture: Bool
+    public let pauseMedia: Bool
+    public let audioActivity: Bool
+    public let asrTimeout: Double
+    public let cleanupTimeout: Double
+    public init(_ preferences: Preferences) {
+        backend = preferences.backend; warmCapture = preferences.warmCapture; pauseMedia = preferences.pauseMedia
+        lowLatencyCapture = preferences.lowLatencyCapture
+        asrModel = preferences.backend == .parakeet ? preferences.asrModel : nil
+        audioActivity = preferences.showAudioActivity; asrTimeout = preferences.asrTimeoutSeconds; cleanupTimeout = preferences.cleanupTimeoutSeconds
+    }
+}
+/// One per recording: why capture failed and how the audio path behaved. Counts and
+/// durations only. Gap and drop counts happen on failure paths; the callback and
+/// worker timings are measured only when debug logging was on when capture was prepared.
+public struct CaptureReport: Codable, Sendable, Equatable {
+    public enum Failure: String, Codable, Sendable {
+        /// gap: late skipped I/O cycles over the budget. overflow: no free input slot.
+        /// oversize: a packet larger than a slot. full: the recording limit.
+        case gap, overflow, oversize, converter, full, notRecording, notPrepared, permission, engineStart, busy
+    }
+    public var failure: Failure?
+    /// On-demand starts only: how long the microphone was stopped, and engine.start().
+    public var idleSeconds: Double?
+    public var engineStartMS: Double?
+    /// The OSStatus engine.start() threw.
+    public var engineStatus: Int?
+    /// Engine start to the first I/O packet.
+    public var firstPacketMS: Double?
+    public var packets = 0
+    /// Gaps while the device settles re-sync; later gaps fail the recording over the budget.
+    public var settlingGaps = 0
+    public var settlingGapMS = 0.0
+    public var gaps = 0
+    public var gapMS = 0.0
+    /// After the first packet.
+    public var firstGapAtMS: Double?
+    public var largestGapMS = 0.0
+    public var droppedPackets = 0
+    public var oversizePackets = 0
+    /// Debug-only: the slowest real-time callback, and the worker's furthest lag behind it.
+    public var maxCallbackMS: Double?
+    public var maxQueueDelayMS: Double?
+    public init(failure: Failure? = nil) { self.failure = failure }
+}
+/// Typed fields intentionally provide no route for text, paths, URLs, titles or raw errors.
+public struct DiagnosticRecord: Codable, Sendable {
+    public var schema = 1
+    public var timestamp = Date()
+    public var uptimeMS = ProcessInfo.processInfo.systemUptime * 1000
+    public var run: UUID?
+    public let kind: DiagnosticKind
+    public var session: UUID?
+    public var stage: TimingStage?
+    public var code: DiagnosticCode?
+    public var state: DictationState?
+    public var target: InsertionTargetKind?
+    public var milliseconds: Double?
+    public var sampleCount: Int?
+    public var enabled: Bool?
+    public var configuration: DiagnosticConfiguration?
+    public var accessibility: Bool?
+    public var microphone: Bool?
+    public var inputMonitoring: Bool?
+    public var droppedBefore: Int?
+    public var known: Bool?
+    public var playing: Bool?
+    public var trustworthy: Bool?
+    public var subscriptionHealthy: Bool?
+    public var mediaReason: MediaDiagnosticReason?
+    public var preparation: BackendPreparation?
+    public var hardwareModifiers: [InsertionModifier]?
+    public var sessionModifiers: [InsertionModifier]?
+    public var capture: CaptureReport?
+    public var coverage: TranscriptCoverage?
+    public var early: EarlyChunkReport?
+    public var cleanupFailure: CleanupFailure?
+    public init(_ kind: DiagnosticKind, session: UUID? = nil, stage: TimingStage? = nil,
+                code: DiagnosticCode? = nil, state: DictationState? = nil, target: InsertionTargetKind? = nil,
+                milliseconds: Double? = nil, sampleCount: Int? = nil, enabled: Bool? = nil,
+                configuration: DiagnosticConfiguration? = nil, capture: CaptureReport? = nil,
+                coverage: TranscriptCoverage? = nil, early: EarlyChunkReport? = nil,
+                cleanupFailure: CleanupFailure? = nil) {
+        self.kind = kind; self.session = session; self.stage = stage; self.code = code; self.state = state
+        self.target = target; self.milliseconds = milliseconds; self.sampleCount = sampleCount
+        self.enabled = enabled; self.configuration = configuration; self.capture = capture
+        self.coverage = coverage; self.early = early; self.cleanupFailure = cleanupFailure
+    }
+}
+
+/// Opt-in, bounded, asynchronous JSONL writer. No disk access on the caller's thread.
+public final class DiagnosticLogger: Sendable {
+    public static let defaultMaximumBytes = 2 * 1024 * 1024
+    public static let maximumStorageBytes = 2 * defaultMaximumBytes
+    public let directory: URL
+    private let run = UUID()
+    private let sink: PrivateJSONLSink<DiagnosticRecord>
+    public init(directory: URL, maximumBytes: Int = DiagnosticLogger.defaultMaximumBytes, maximumPending: Int = 128) {
+        self.directory = directory
+        sink = .init(label: "WhisprLite.diagnostics", directory: directory, fileName: "debug.jsonl",
+                     previousFileName: "debug.previous.jsonl", maximumBytes: maximumBytes,
+                     maximumPending: maximumPending, excludeFromBackup: false, oversize: .fail)
+    }
+    public var isEnabled: Bool { sink.isEnabled }
+    public var hasFailed: Bool { sink.hasFailed }
+    public func setFailureObserver(_ observer: (@Sendable () -> Void)?) { sink.setFailureObserver(observer) }
+    var droppedEvents: Int { sink.dropped }
+    public func setEnabled(_ value: Bool) {
+        var changed = false
+        sink.enqueue { state in
+            guard state.enabled != value else { return nil }
+            changed = true
+            if value { state.failed = false }
+            state.enabled = value
+            // The disabled marker is written even though logging is now off.
+            return stamped(.init(value ? .loggingEnabled : .loggingDisabled), dropped: state.dropped)
+        }
+        if changed, !value { sink.close() }
+    }
+    public func record(_ value: @autoclosure () -> DiagnosticRecord) {
+        guard isEnabled else { return } // Disabled mode doesn't even construct a record.
+        let record = value()
+        sink.enqueue { state in
+            guard state.enabled, !state.failed else { return nil }
+            return stamped(record, dropped: state.dropped)
+        }
+    }
+    private func stamped(_ value: DiagnosticRecord, dropped: Int) -> @Sendable () -> DiagnosticRecord {
+        var value = value; value.run = run
+        if dropped > 0 { value.droppedBefore = dropped }
+        return { [value] in value }
+    }
+    /// Explicit tests/shutdown only; normal dictation never waits for disk.
+    public func flush() async { await sink.flush() }
+}

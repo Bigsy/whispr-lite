@@ -1,0 +1,44 @@
+# Keep the local implementation plan and agent instructions out of GitHub.
+/PLAN.md
+/AGENTS.md
+.build/
+.swiftpm/
+dist/
+.idea/
+.DS_Store
+config.local.json
+/private/
+bench/results/
+*.local.txt
+__pycache__/
+*.pyc
+
+# Local benchmarks, experiments, development notes and retired automation.
+/dev/
+/.github/
+/bench/
+/Sources/WhisprLiteBench/
+/DEVELOPMENT.md
+/CHECKS.md
+/stack.lock.json
+/scripts/export-openwhispr.py
+/scripts/chromium_settings.py
+/scripts/release-plan.py
+/scripts/analyze-diagnostics.py
+/scripts/build-media-upstream.sh
+/scripts/configure-local-stack.py
+/scripts/ci-signing.sh
+/scripts/cleanup_bench.py
+/scripts/generate-speech.py
+/scripts/test-setup.py
+/scripts/check-candidate.sh
+/scripts/bench-*.py
+
+# Retired in-app probes and opt-in benchmark tests.
+/Sources/WhisprLiteApp/BenchmarkTextWindow.swift
+/Sources/WhisprLiteApp/CheckSupport.swift
+/Sources/WhisprLiteApp/DevelopmentCommands.swift
+/Sources/WhisprLiteApp/DictationChecks.swift
+/Sources/WhisprLiteApp/NativeBatchCheck.swift
+/Sources/WhisprLiteApp/NativeUIPreview.swift
+/Tests/**/*Benchmark.swift
