@@ -439,7 +439,7 @@ import WhisprLiteCore
         guard let store else { return }
         var preferences = store.preferences
         preferences.allowASRDownloads = true
-        do { try store.save(preferences, prompt: nil, dictionary: nil) }
+        do { try store.save(preferences, instructions: nil, dictionary: nil) }
         catch { update("Could not save settings", detail: "Turn on model downloads in Advanced instead.", readiness: .needsAttention); return }
         configure()
     }

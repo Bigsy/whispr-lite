@@ -33,7 +33,7 @@ Click any screenshot to view it at full size.
 - Choose your hold shortcut, including Globe/Fn or Left/Right Control.
 - Choose an English or multilingual speech model.
 - Add names, technical terms and exact phrase corrections to a private dictionary.
-- Customise the cleanup prompt.
+- Add your own context to the cleanup prompt, such as your work or terminology.
 - Optionally pause media while recording and resume it afterwards.
 - Press Escape to cancel, or use **Copy last result** to recover text.
 

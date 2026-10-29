@@ -35,7 +35,7 @@ private final class SettingsSectionHeights {
 
 /// Fixed-width settings whose window follows each page's height, so ordinary settings never
 /// need scrolling. The scroll view is only a fallback for a page taller than the screen; the
-/// prompt and dictionary editors scroll inside and can be dragged taller.
+/// instructions and dictionary editors scroll inside and can be dragged taller.
 @MainActor struct SettingsView: View {
     static let width: CGFloat = 640
     let store: SettingsStore
@@ -48,11 +48,11 @@ private final class SettingsSectionHeights {
     private let enumerateMicrophones: Bool
     @State private var page: SettingsPage
     @State private var preferences: Preferences
-    @State private var prompt: String
+    @State private var instructions: String
     @State private var dictionary: String
-    @State private var promptUnreadable: Bool
+    @State private var instructionsUnreadable: Bool
     @State private var dictionaryUnreadable: Bool
-    @State private var promptEdited = false
+    @State private var instructionsEdited = false
     @State private var dictionaryEdited = false
     @State private var error: String
     @State private var recordingShortcut = false
@@ -65,7 +65,7 @@ private final class SettingsSectionHeights {
     @State private var confirmingCleanupInstall = false
     @State private var permissions: PermissionStatus
     @State private var sectionHeights = SettingsSectionHeights()
-    @AppStorage("settingsPromptEditorHeight") private var promptHeight = 132.0
+    @AppStorage("settingsInstructionsEditorHeight") private var instructionsHeight = 56.0
     @AppStorage("settingsDictionaryEditorHeight") private var dictionaryHeight = 84.0
 
     init(store: SettingsStore, status: AppStatus, engine: CleanupEngineModel, setup: CleanupSetupModel, actions: SettingsActions,
@@ -78,16 +78,16 @@ private final class SettingsSectionHeights {
         self.saved = saved; self.enumerateMicrophones = enumerateMicrophones
         _page = State(initialValue: page)
         _preferences = State(initialValue: store.preferences)
-        let loadedPrompt = Self.loadPrivateText(.prompt, fallback: SettingsStore.defaultPrompt, store: store)
+        let loadedInstructions = Self.loadPrivateText(.instructions, fallback: "", store: store)
         let loadedDictionary = Self.loadPrivateText(.dictionary, fallback: "", store: store)
-        _prompt = State(initialValue: loadedPrompt.text)
+        _instructions = State(initialValue: loadedInstructions.text)
         _dictionary = State(initialValue: loadedDictionary.text)
-        _promptUnreadable = State(initialValue: loadedPrompt.unreadable)
+        _instructionsUnreadable = State(initialValue: loadedInstructions.unreadable)
         _dictionaryUnreadable = State(initialValue: loadedDictionary.unreadable)
-        _error = State(initialValue: loadedPrompt.unreadable || loadedDictionary.unreadable ? Self.unreadableMessage : "")
+        _error = State(initialValue: loadedInstructions.unreadable || loadedDictionary.unreadable ? Self.unreadableMessage : "")
     }
     private static let unreadableMessage =
-        "A private prompt or dictionary could not be read. Its file is preserved until you edit or reset it."
+        "Private instructions or a dictionary could not be read. The file is preserved until you edit it."
     private static func loadPrivateText(_ file: PrivateFile, fallback: String, store: SettingsStore) -> (text: String, unreadable: Bool) {
         do { return (try store.privateText(file) ?? fallback, false) }
         catch { return (fallback, true) }
@@ -122,7 +122,7 @@ private final class SettingsSectionHeights {
         .frame(width: Self.width)
         .frame(maxHeight: .infinity, alignment: .top)
         .background(Color(nsColor: .windowBackgroundColor))
-        .onChange(of: prompt) { _, _ in promptEdited = true }
+        .onChange(of: instructions) { _, _ in instructionsEdited = true }
         .onChange(of: dictionary) { _, _ in dictionaryEdited = true }
         .onAppear { if enumerateMicrophones { microphones = MicrophoneDevice.available() } }
         // Permissions change in System Settings: re-read on return and on readiness changes, never by polling.
@@ -387,13 +387,10 @@ private final class SettingsSectionHeights {
 
     private var cleanup: some View {
         Group {
-            editorSection("Cleanup prompt", "The default makes minimal edits and keeps your meaning. Add a short context line for your work or terminology.",
-                          text: $prompt, height: $promptHeight) {
-                Button("Use default prompt") { prompt = SettingsStore.defaultPrompt; promptEdited = true }.controlSize(.small)
-                    .help("Replace the editor text with the default. Changes apply when saved.")
-            }
-            if promptUnreadable {
-                warning("Saved prompt could not be read. The editor shows the default; Save preserves the file until you edit or reset it.")
+            editorSection("Additional instructions", "Added to the built-in cleanup prompt. Keep it to a short line about your work or terminology.",
+                          text: $instructions, height: $instructionsHeight) { EmptyView() }
+            if instructionsUnreadable {
+                warning("Saved instructions could not be read. The editor is blank; Save preserves the file until you edit it.")
             }
             editorSection("Dictionary and phrases", "Names and terms guide the local model. For an exact conversion, write spoken phrase > Written phrase on its own line; case is ignored.",
                           text: $dictionary, height: $dictionaryHeight) { EmptyView() }
@@ -445,13 +442,6 @@ private final class SettingsSectionHeights {
                     }
                     row("Cleanup server", "Local base address without /v1. Saving does not start or replace a service.") {
                         TextField("http://127.0.0.1:11436", text: $preferences.cleanupEndpoint).textFieldStyle(.roundedBorder).frame(width: 220)
-                    }
-                    Divider()
-                    row("Cleanup input format") {
-                        Picker("Cleanup input format", selection: $preferences.cleanupInputFormat) {
-                            Text("Plain transcript").tag(CleanupInputFormat.plain)
-                            Text("OpenWhispr transcript tags").tag(CleanupInputFormat.openWhispr)
-                        }.labelsHidden().fixedSize()
                     }
                 }
                 cleanupEngine
@@ -627,11 +617,11 @@ private final class SettingsSectionHeights {
     private func save() {
         do {
             try store.save(preferences,
-                prompt: promptUnreadable && !promptEdited ? nil : prompt,
+                instructions: instructionsUnreadable && !instructionsEdited ? nil : instructions,
                 dictionary: dictionaryUnreadable && !dictionaryEdited ? nil : dictionary)
-            if promptEdited { promptUnreadable = false; promptEdited = false }
+            if instructionsEdited { instructionsUnreadable = false; instructionsEdited = false }
             if dictionaryEdited { dictionaryUnreadable = false; dictionaryEdited = false }
-            error = promptUnreadable || dictionaryUnreadable ? Self.unreadableMessage : ""
+            error = instructionsUnreadable || dictionaryUnreadable ? Self.unreadableMessage : ""
             saved()
         } catch let failure as SettingsValidationError {
             self.error = failure.message

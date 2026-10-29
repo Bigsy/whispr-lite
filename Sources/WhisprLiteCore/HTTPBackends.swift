@@ -102,24 +102,21 @@ public actor HTTPASRBackend: ASRBackend {
         return .init(text: try JSONDecoder().decode(Response.self, from: data).text, audioDuration: audio.duration)
     }
 }
-public enum CleanupInputFormat: String, Codable, CaseIterable, Sendable { case plain, openWhispr }
 public struct CleanupConfiguration: Sendable {
     public static let defaultModel = "gemma4-e2b-cleanup:latest"
     public var endpoint: LocalEndpoint
     public var model = Self.defaultModel
     public var prompt: String
     public var dictionary: String
-    public var inputFormat: CleanupInputFormat
     public var dictionaryPrefix: String
     public init(endpoint: LocalEndpoint, prompt: String, dictionary: String = "",
-                inputFormat: CleanupInputFormat = .plain, dictionaryPrefix: String = "\nCustom dictionary:\n") {
+                dictionaryPrefix: String = "\nCustom dictionary:\n") {
         self.endpoint = endpoint; self.prompt = prompt; self.dictionary = dictionary
-        self.inputFormat = inputFormat; self.dictionaryPrefix = dictionaryPrefix
+        self.dictionaryPrefix = dictionaryPrefix
     }
     public init(preferences: Preferences, prompt: String, dictionary: String) throws {
         self.init(endpoint: try LocalEndpoint(preferences.cleanupEndpoint), prompt: prompt,
-                  dictionary: dictionary, inputFormat: preferences.cleanupInputFormat,
-                  dictionaryPrefix: preferences.cleanupDictionaryPrefix)
+                  dictionary: dictionary, dictionaryPrefix: preferences.cleanupDictionaryPrefix)
     }
 }
 /// Tokens of the fixed request framing, measured once during preparation and shared by copies.
@@ -164,7 +161,8 @@ public struct HTTPCleanup: TextCleanup {
     /// and let a short input the model answers instead of cleans run on for hundreds of tokens.
     static func outputLimit(for text: String) -> Int { min(1024, max(128, text.utf8.count / 2 + 64)) }
     private func messages(_ text: String) throws -> [[String: String]] {
-        let user = configuration.inputFormat == .openWhispr ? "<transcript>\n\(text)\n</transcript>\n\nOutput only the cleaned transcript." : text
+        // Tags mark the transcript as text to clean; sent bare, dictated requests get answered.
+        let user = "<transcript>\n\(text)\n</transcript>\n\nOutput only the cleaned transcript."
         // Bound the request allocation; the exact templated token count is checked before inference.
         guard systemPrompt.utf8.count + user.utf8.count <= SettingsStore.maxPrivateTextBytes else { throw AppError.contextLimit }
         return [["role": "system", "content": systemPrompt], ["role": "user", "content": user]]

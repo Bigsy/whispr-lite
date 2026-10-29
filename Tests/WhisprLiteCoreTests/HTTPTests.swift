@@ -78,7 +78,7 @@ private final class FixtureProtocol: URLProtocol, @unchecked Sendable {
     @Test func importedFramingAndExactContextBudgetArePreserved() async throws {
         let (endpoint, http) = try fixture()
         let cleanup = HTTPCleanup(.init(endpoint: endpoint, prompt: "Synthetic prompt", dictionary: "Whispr Lite, Parakeet",
-            inputFormat: .openWhispr, dictionaryPrefix: "\n\nSynthetic dictionary: "), http: http)
+            dictionaryPrefix: "\n\nSynthetic dictionary: "), http: http)
         let body = try #require(JSONSerialization.jsonObject(with: cleanup.request("hello", maxTokens: 512).httpBody!) as? [String: Any])
         let messages = try #require(body["messages"] as? [[String: String]])
         #expect(messages[0]["content"] == "Synthetic prompt\n\nSynthetic dictionary: Whispr Lite, Parakeet")
@@ -149,7 +149,7 @@ private final class FixtureProtocol: URLProtocol, @unchecked Sendable {
     @Test func explicitDictionaryAliasesApplyToCompletedCleanup() async throws {
         let (endpoint, http) = try fixture()
         let cleanup = HTTPCleanup(.init(endpoint: endpoint, prompt: "Synthetic prompt",
-            dictionary: "fabricam => Fabrikam", inputFormat: .openWhispr), http: http)
+            dictionary: "fabricam => Fabrikam"), http: http)
         let body = try #require(JSONSerialization.jsonObject(with: cleanup.request("fabricam", maxTokens: 128).httpBody!) as? [String: Any])
         let messages = try #require(body["messages"] as? [[String: String]])
         #expect(messages[0]["content"] == "Synthetic prompt\nCustom dictionary:\nFabrikam\nfabricam")

@@ -38,12 +38,12 @@ import Testing
         var preferences = Preferences(); preferences.hotkey = .init(keyCode: 62); preferences.debugLogging = true
         for model in ParakeetModel.allCases {
             preferences.asrModel = model
-            try store.save(preferences, prompt: "synthetic prompt", dictionary: "synthetic dictionary")
+            try store.save(preferences, instructions: "synthetic instructions", dictionary: "synthetic dictionary")
             let restored = try SettingsStore(directory: root)
             #expect(restored.preferences.asrModel == model)
             #expect(restored.preferences.hotkey == preferences.hotkey && restored.preferences.debugLogging)
             #expect(!restored.preferences.allowASRDownloads)
-            #expect(try restored.privateText(.prompt) == "synthetic prompt")
+            #expect(try restored.privateText(.instructions) == "synthetic instructions")
             #expect(try restored.privateText(.dictionary) == "synthetic dictionary")
         }
         #expect(throws: DecodingError.self) {
