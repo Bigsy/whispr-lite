@@ -402,6 +402,19 @@ final class AudioWorker: @unchecked Sendable {
             }
         }
     }
+    /// The engine has stopped. End every consumer before releasing this worker, including
+    /// when suspension beats the coordinator's asynchronous call to end().
+    func suspend() {
+        queue.async { [self] in
+            let pending = completion; completion = nil
+            drainSerial &+= 1
+            earlyContinuation?.finish(throwing: CancellationError()); earlyContinuation = nil
+            converter.reset(); recording = false
+            count = 0; rollCount = 0; endBoundary = nil; audioEpoch = nil; outputPosition = 0
+            activityEnabled = false; activity.publish(0)
+            pending?.resume(throwing: CancellationError())
+        }
+    }
     private func finalize() {
         guard let continuation = completion else { return }
         completion = nil
@@ -667,6 +680,7 @@ struct CaptureInputConfiguration: Equatable {
         if engine?.isRunning == true || stoppedAt == nil { stoppedAt = .now }
         engine?.stop()
         if tapInstalled { engine?.inputNode.removeTap(onBus: 0); tapInstalled = false }
+        worker?.suspend()
         engine = nil; worker = nil; tap = nil
     }
 }

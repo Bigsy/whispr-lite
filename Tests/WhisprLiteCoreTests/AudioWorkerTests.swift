@@ -5,6 +5,38 @@ import AVFoundation
 @testable import WhisprLiteCore
 
 @Suite struct AudioTests {
+    @Test func suspensionEndsEarlyRecognitionEvenWhenCaptureEndHasNotStarted() async throws {
+        let worker = try AudioWorker(format: monoFormat())
+        let stream = try #require(try worker.begin(warm: false, earlyChunks: true))
+        // Settings reconfiguration suspends capture synchronously, before the cancelled
+        // coordinator's asynchronous end() gets a chance to run.
+        worker.suspend()
+        await #expect(throws: CancellationError.self) {
+            try await withDeadline(.seconds(1), stage: "Suspended early recognition") {
+                for try await _ in stream {}
+            }
+        }
+        await #expect(throws: AppError.capture) { try await worker.end() }
+    }
+    @Test func suspensionCancelsAPendingReleaseDrainAndEndsEarlyRecognition() async throws {
+        let worker = try AudioWorker(format: monoFormat())
+        let stream = try #require(try worker.begin(warm: false, earlyChunks: true))
+        let release = Task {
+            try await worker.end(at: 10.5)
+        }
+        // Allow end() to start waiting for the release packet. Without suspension it
+        // would time out after at least 150 ms and return partial audio.
+        try await Task.sleep(for: .milliseconds(20))
+        worker.suspend()
+        await #expect(throws: CancellationError.self) { try await release.value }
+        await #expect(throws: CancellationError.self) {
+            try await withDeadline(.seconds(1), stage: "Suspended early recognition") {
+                for try await _ in stream {}
+            }
+        }
+        // Repeated suspension cannot resume either consumer twice.
+        worker.suspend(); worker.queue.sync {}
+    }
     @Test func onDemandEngineStartKeepsPostPressPacketsOnceAndTrimsRelease() async throws {
         let format = try monoFormat()
         let worker = try AudioWorker(format: format)
