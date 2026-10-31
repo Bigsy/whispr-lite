@@ -89,15 +89,27 @@ import AVFoundation
         #expect(await counter.calls == 2)
     }
     @Test func deadlineDoesNotWaitForIgnoringWorker() async throws {
-        let start = ContinuousClock.now
+        let gate = AsyncGate(), completed = LockedCounter()
+        let worker = Task.detached {
+            await gate.enterAndWait()
+            completed.increment()
+            return "late"
+        }
+        await gate.waitUntilEntered()
+        // Bound a regression without relying on the loaded runner's scheduling speed.
+        let watchdog = Task {
+            do { try await Task.sleep(for: .seconds(10)) } catch { return }
+            await gate.open()
+        }
         await #expect(throws: AppError.deadline("ASR")) {
             try await withDeadline(.milliseconds(5), stage: "ASR") {
-                await Task.detached { try? await Task.sleep(for: .seconds(3)) }.value
-                return "late"
+                await worker.value
             }
         }
-        // Waiting for the worker would take 3 s; the margin absorbs slow CI runners.
-        #expect(start.duration(to: .now) < .milliseconds(1500))
+        #expect(completed.value == 0)
+        await gate.open()
+        _ = await worker.value
+        watchdog.cancel()
     }
     @Test func cancellingDeadlineReturnsImmediately() async throws {
         let task = Task {

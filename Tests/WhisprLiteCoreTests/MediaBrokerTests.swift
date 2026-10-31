@@ -106,9 +106,14 @@ import Testing
         coordinator.ready = true; coordinator.press(); coordinator.release()
         try await wait { coordinator.state == .idle }
         #expect(insertion.texts.count == 1)
+        // Recovery may already have run while ASR was scheduled. If a replacement is
+        // starting, wait for its counter write before checking that shutdown stops it.
+        try await wait { broker.readiness != .starting }
+        let launches = count(root)
         broker.shutdown()
+        #expect(!broker.hasScheduledRestart)
         try await wait { !broker.hasLiveHelper }
         #expect(broker.readiness == .disabled)
-        #expect(count(root) == 1)
+        #expect(count(root) == launches)
     }
 }
