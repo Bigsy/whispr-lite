@@ -5,6 +5,79 @@ import AVFoundation
 @testable import WhisprLiteCore
 
 @MainActor @Suite struct LifecycleTests {
+    @Test func drainTimeoutKeepsTextAndShowsADismissibleNotice() async throws {
+        let (coordinator, capture, insertion, _) = try await fixture()
+        capture.drainTimedOut = true
+        coordinator.press(); coordinator.release()
+        try await poll { coordinator.state == .idle && insertion.texts.count == 1 }
+        #expect(coordinator.audioUncertain && coordinator.notice != nil)
+        #expect(insertion.texts[0] == "Demo dictation. This is fabricated text.")
+        #expect(coordinator.recoveryText == insertion.texts[0])
+        coordinator.cancel()
+        #expect(coordinator.notice == nil && !coordinator.audioUncertain)
+        capture.drainTimedOut = false
+        coordinator.press(); coordinator.release()
+        try await poll { insertion.texts.count == 2 }
+        #expect(coordinator.notice == nil)
+    }
+    @Test(arguments: [TranscriptCoverage.Outcome.uncovered, .unrecovered, .partial, .noWords])
+    func possibleMissingSpeechIsVisibleEvenWithoutDiagnostics(outcome: TranscriptCoverage.Outcome) async throws {
+        let insertion = FakeInsertion()
+        let coordinator = DictationCoordinator(capture: FakeCapture(), insertion: insertion, media: FakeMedia(),
+            pipeline: .init(backend: UncertainBackend(outcome: outcome), cleanup: DemoCleanup()))
+        coordinator.ready = true
+        coordinator.press(); coordinator.release()
+        try await poll { coordinator.state == .idle }
+        #expect(coordinator.notice != nil)
+        #expect(insertion.texts == (outcome == .noWords ? [] : ["Recoverable words."]))
+    }
+    @Test func rawFallbackInsertsOnceAndKeepsHistoryMarkedAsRaw() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let backend = FakeASRBackend(); try await backend.prepare()
+        var pipeline = BatchPipeline(backend: backend, cleanup: FailingCleanup())
+        pipeline.cleanupPolicy = .whenAvailable
+        let insertion = FakeInsertion(), capture = FakeCapture()
+        let coordinator = DictationCoordinator(capture: capture, insertion: insertion, media: FakeMedia(), pipeline: pipeline)
+        let history = DictationHistory(directory: directory)
+        history.configure(enabled: true, asr: "synthetic", prompt: "synthetic")
+        coordinator.history = history; coordinator.ready = true
+        coordinator.press(); coordinator.release(); coordinator.release()
+        try await poll { coordinator.state == .idle }
+        await history.flush()
+        let entries = try decodeJSONLines(directory.appendingPathComponent("dictations.jsonl"), as: DictationHistory.Entry.self)
+        #expect(insertion.texts.count == 1 && entries.count == 1)
+        #expect(entries.first?.cleanup == .unavailable && entries.first?.raw == entries.first?.cleaned)
+        #expect(coordinator.rawTranscriptionActive && coordinator.message.contains("Raw transcription"))
+    }
+    @Test func cancellationDuringOptionalCleanupNeverInsertsRawFallback() async throws {
+        let backend = FakeASRBackend(); try await backend.prepare()
+        let cleanup = RecordingCleanup(delay: .seconds(5)), insertion = FakeInsertion()
+        var pipeline = BatchPipeline(backend: backend, cleanup: cleanup)
+        pipeline.cleanupPolicy = .whenAvailable
+        let coordinator = DictationCoordinator(capture: FakeCapture(), insertion: insertion, media: FakeMedia(), pipeline: pipeline)
+        coordinator.ready = true
+        coordinator.press(); coordinator.release()
+        try await poll { await cleanup.started }
+        coordinator.cancel()
+        try await poll { coordinator.state == .idle }
+        #expect(insertion.texts.isEmpty && coordinator.recoveryText == nil)
+    }
+    @Test func optionalModeDoesNotRetryAFailedEarlyCleanupAtRelease() async throws {
+        let capture = EarlyCapture(), insertion = FakeInsertion(), cleanup = RefusingCleanup()
+        var pipeline = BatchPipeline(backend: EarlyBackend(), cleanup: cleanup)
+        pipeline.cleanupPolicy = .whenAvailable
+        let coordinator = DictationCoordinator(capture: capture, insertion: insertion, media: FakeMedia(), pipeline: pipeline)
+        coordinator.ready = true
+        coordinator.press(); try capture.publish()
+        try await poll { await cleanup.calls == 1 }
+        // The early task settles before release; the complete authoritative ASR still runs.
+        await coordinator.settleBackendWork()
+        coordinator.release()
+        try await poll { coordinator.state == .idle }
+        #expect(await cleanup.calls == 1)
+        #expect(insertion.texts == ["First sentence. Second sentence."] && coordinator.rawTranscriptionActive)
+    }
     @Test func longRecordingReusesEarlyCleanupAndInsertsOnce() async throws {
         let capture = EarlyCapture(), insertion = FakeInsertion(), media = FakeMedia()
         let cleanup = RecordingCleanup()
@@ -312,5 +385,17 @@ import AVFoundation
         coordinator.release()
         try await poll { coordinator.state == .idle && insertion.texts.count == 1 }
         #expect(await backend.transcribedWhileWarming == false)
+    }
+}
+
+private actor UncertainBackend: ASRBackend {
+    let outcome: TranscriptCoverage.Outcome
+    init(outcome: TranscriptCoverage.Outcome) { self.outcome = outcome }
+    func prepare() {}
+    func readiness() -> BackendReadiness { .ready }
+    func transcribe(_ audio: PCM16k) -> ASRResult {
+        var coverage = TranscriptCoverage(outcome, audioSeconds: audio.duration)
+        coverage.speechAfterSeconds = 1
+        return .init(text: outcome == .noWords ? "" : "Recoverable words.", audioDuration: audio.duration, coverage: coverage)
     }
 }

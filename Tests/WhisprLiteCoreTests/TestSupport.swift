@@ -66,12 +66,13 @@ actor RefusingCleanup: TextCleanup {
     var onBoundary: (() -> Void)?
     var endError: (any Error)?
     var captureReport: CaptureReport?
+    var drainTimedOut = false
     func begin() -> EarlyChunks? { begins += 1; return nil }
     func end(at boundary: Double?) async throws -> CapturedAudio {
         ends += 1
         endBoundary = boundary
         if let endError { throw endError }
-        return try .init(pcm: PCM16k([0.1]))
+        return try .init(pcm: PCM16k([0.1]), drainTimedOut: drainTimedOut)
     }
     func releaseBoundary() -> Double? { onBoundary?(); return boundaryValue }
     func suspend() { suspended += 1 }

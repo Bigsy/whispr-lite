@@ -36,6 +36,10 @@ Click any screenshot to view it at full size.
 - Add your own context to the cleanup prompt, such as your work or terminology.
 - Optionally pause media while recording and resume it afterwards.
 - Press Escape to cancel, or use **Copy last result** to recover text.
+- Turn off **Clean up dictation** for raw transcription, or opt into raw transcription
+  during cleanup outages. Cleanup resumes on the next successful dictation.
+- Possible missing audio is flagged separately from the dictated text; the captured
+  result remains available to copy.
 
 ## Install
 
@@ -94,6 +98,8 @@ make check   # Tests, app build and bundle checks
 Builds use an Apple Development signing identity when available, or ad-hoc signing.
 Use `SIGN_IDENTITY=- make check` for an ad-hoc build. Tests use synthetic fixtures;
 model downloads and cleanup-service installation are explicit actions in Settings.
+See the [evaluation protocol](Resources/EVALUATION.md) for optional model accuracy,
+seam-latency and physical release-to-visible checks.
 
 To package a local preview after `make check`:
 

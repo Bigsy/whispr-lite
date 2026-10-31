@@ -9,6 +9,7 @@ test:
 	python3 scripts/test-cli.py
 	./scripts/test-media.py
 	python3 scripts/test-release.py
+	python3 scripts/test-latency.py
 install: build
 	./scripts/install-app.sh
 uninstall:

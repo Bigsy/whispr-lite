@@ -15,7 +15,10 @@ __pycache__/
 
 # Local benchmarks, experiments, development notes and retired automation.
 /dev/
-/.github/
+/.github/*
+!/.github/workflows/
+/.github/workflows/*
+!/.github/workflows/ci.yml
 /bench/
 /Sources/WhisprLiteBench/
 /DEVELOPMENT.md

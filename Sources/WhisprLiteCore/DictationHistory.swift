@@ -16,7 +16,11 @@ public final class DictationHistory: @unchecked Sendable {
         /// Which speech model and prompt produced the pair; the prompt itself is not stored.
         let asr: String
         let promptSHA256: String
-        enum CodingKeys: String, CodingKey { case schema, timestamp, raw, cleaned, asr, promptSHA256 = "prompt_sha256" }
+        /// Optional for compatibility with earlier entries. Raw pairs must never be
+        /// mistaken for reviewed cleanup training examples.
+        var cleanup: DictationText.Cleanup? = nil
+        var audioUncertain: Bool? = nil
+        enum CodingKeys: String, CodingKey { case schema, timestamp, raw, cleaned, asr, cleanup, audioUncertain, promptSHA256 = "prompt_sha256" }
     }
     static let fileName = "dictations.jsonl"
     static let previousFileName = "dictations.previous.jsonl"
@@ -54,7 +58,8 @@ public final class DictationHistory: @unchecked Sendable {
             return {
                 Entry(timestamp: timestamp, raw: String(dictation.raw.prefix(Self.maximumTextCharacters)),
                       cleaned: String(dictation.cleaned.prefix(Self.maximumTextCharacters)), asr: asr,
-                      promptSHA256: promptSHA256)
+                      promptSHA256: promptSHA256, cleanup: dictation.cleanup,
+                      audioUncertain: dictation.audioUncertain)
             }
         }
     }

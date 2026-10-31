@@ -3,6 +3,16 @@ import Foundation
 @testable import WhisprLiteCore
 
 @MainActor @Suite struct SettingsTests {
+    @Test func cleanupPoliciesPersistAndOldSettingsRemainRequired() throws {
+        let old = try JSONDecoder().decode(Preferences.self, from: Data("{\"version\":1}".utf8))
+        #expect(old.cleanupEnabled && !old.allowRawTranscription && old.cleanupPolicy == .required)
+        var settings = old
+        settings.allowRawTranscription = true
+        #expect(try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(settings)).cleanupPolicy == .whenAvailable)
+        settings.cleanupEnabled = false
+        #expect(try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(settings)).cleanupPolicy == .disabled)
+        #expect(!CaptureOptions(settings).earlyChunks)
+    }
     @Test func privatePreferencesVersionAndOldConfigDefaultSafely() throws {
         let defaults = try JSONDecoder().decode(Preferences.self, from: Data("{}".utf8))
         #expect(defaults == Preferences())
@@ -39,6 +49,8 @@ import Foundation
         changed.debugLogging = true
         changed.saveDebugRecordings = true
         changed.saveDictationHistory = false
+        changed.cleanupEnabled = false
+        changed.allowRawTranscription = true
         changed.microphoneUID = "synthetic-microphone"
         changed.asrEndpoint = "http://127.0.0.1:1"
         changed.cleanupEndpoint = "http://127.0.0.1:2"

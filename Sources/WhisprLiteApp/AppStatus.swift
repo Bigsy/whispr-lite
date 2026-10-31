@@ -61,7 +61,7 @@ struct SetupSteps: Equatable {
         case failed(String)
     }
     enum Cleanup: Equatable {
-        /// This pipeline has no cleanup service (demo).
+        /// This pipeline has no cleanup service (demo or cleanup disabled).
         case hidden
         case waiting
         case working(String)

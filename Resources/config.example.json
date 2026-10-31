@@ -3,5 +3,6 @@
   "allowASRDownloads": false, "asrModelDirectory": "", "hotkey": {"modifiers": 0},
   "warmCapture": false, "pauseMedia": true, "microphoneUID": "",
   "asrEndpoint": "http://127.0.0.1:11435", "cleanupEndpoint": "http://127.0.0.1:11436",
+  "cleanupEnabled": true, "allowRawTranscription": false,
   "asrTimeoutSeconds": 10, "cleanupTimeoutSeconds": 10
 }

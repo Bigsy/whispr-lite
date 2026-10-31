@@ -55,6 +55,12 @@ private actor CoverageBackend: ASRBackend {
         #expect((single.coverage?.speechAfterSeconds ?? 0) > 3.5 && single.coverage?.fallbackMS == nil)
         #expect(decodes == 0)
     }
+    @Test func emptyTranscriptsDoNotCallAQuietNoiseFloorMissingSpeech() async throws {
+        let quiet = try await TranscriptTail.complete(clip(seconds: 2, speech: []), text: "", words: []) { _ in [] }
+        let active = try await TranscriptTail.complete(clip(seconds: 2, speech: [0...2]), text: "", words: []) { _ in [] }
+        #expect(quiet.coverage?.needsReview == false)
+        #expect(active.coverage?.needsReview == true)
+    }
 
     @Test func missingTailIsDecodedOnceFromItsOwnWindowAndOnlyNewWordsAreAppended() async throws {
         let audio = try clip(seconds: 30, speech: [0...28])
@@ -68,14 +74,70 @@ private actor CoverageBackend: ASRBackend {
         #expect(result.text == "Earlier words. What next?")
         #expect(windows == [audio.samples.count - 282_880])
         let coverage = try #require(result.coverage)
-        #expect(coverage.outcome == .recovered && coverage.recoveredWords == 2 && coverage.fallbackMS != nil)
-        #expect(abs((coverage.speechAfterSeconds ?? 0) - 8.24) < 0.1)
+        // The decode saw the end, yet stopped early: recovered words do not verify
+        // the remaining speech. Keep the text and report a partial recovery.
+        #expect(coverage.outcome == .partial && coverage.needsReview && coverage.recoveredWords == 2 && coverage.fallbackMS != nil)
+        #expect((coverage.speechAfterSeconds ?? 0) > 6)
+        #expect(result.words?.count == 4)
 
         var capped: [Int] = []
         _ = try await TranscriptTail.complete(audio, text: "Early.", words: [word("Early.", 4.7)]) { tail in
             capped.append(tail.samples.count); return []
         }
         #expect(capped == [TranscriptTail.windowSamples])
+    }
+
+    @Test func tailLongerThanOneWindowIsReassessedUntilCovered() async throws {
+        let audio = try clip(seconds: 50, speech: [0...48])
+        var windows: [Double] = []
+        let result = try await TranscriptTail.complete(audio, text: "Start.", words: [word("Start.", 4.7)]) { tail in
+            windows.append(tail.duration)
+            return [word("Next.", tail.duration - 0.4)]
+        }
+        #expect(windows.count == 4 && windows.allSatisfy { $0 <= 14.96 })
+        #expect(result.coverage?.outcome == .recovered && result.coverage?.needsReview == false)
+        #expect(result.coverage?.recoveredWords == 4 && result.coverage?.fallbackAttempts == 4)
+        #expect(result.words?.count == 5 && (result.words?.last?.end ?? 0) > 49)
+        #expect(result.text == "Start. Next. Next. Next. Next.")
+    }
+
+    @Test func noProgressAndInvalidTimingStopWithoutRepeatingWindows() async throws {
+        let audio = try clip(seconds: 50, speech: [0...48])
+        for tail in [[word("Start.", 1.7)], [word("Invalid", .nan)], [word("Beyond", 20)]] {
+            var attempts = 0
+            let result = try await TranscriptTail.complete(audio, text: "Start.", words: [word("Start.", 4.7)]) { _ in
+                attempts += 1; return tail
+            }
+            #expect(attempts == 1 && result.text == "Start.")
+            #expect(result.coverage?.outcome == .unrecovered && result.coverage?.needsReview == true)
+        }
+    }
+
+    @Test func smallProgressHasARecordingLengthBoundAndStaysUncertain() async throws {
+        let audio = try clip(seconds: 50, speech: [0...48])
+        var attempts = 0
+        let result = try await TranscriptTail.complete(audio, text: "Start.", words: [word("Start.", 4.7)]) { _ in
+            attempts += 1; return [word("Advance", 2.2)]
+        }
+        #expect(attempts <= 4)
+        #expect(result.coverage?.outcome == .partial && result.coverage?.needsReview == true)
+    }
+
+    @Test func cancellationBeforeRecoveryDoesNoDecode() async throws {
+        let audio = try clip(seconds: 50, speech: [0...48])
+        let decodes = LockedCounter()
+        let gate = AsyncGate()
+        let task = Task {
+            await gate.enterAndWait()
+            return try await TranscriptTail.complete(audio, text: "Start.", words: [word("Start.", 4.7)]) { _ in
+                decodes.increment(); throw CancellationError()
+            }
+        }
+        await gate.waitUntilEntered()
+        task.cancel()
+        await gate.open()
+        await #expect(throws: CancellationError.self) { try await task.value }
+        #expect(decodes.value == 0)
     }
 
     @Test func lowConfidenceOrRepeatedTailLeavesTranscriptUnchanged() async throws {

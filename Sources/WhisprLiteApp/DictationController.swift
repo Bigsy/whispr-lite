@@ -89,9 +89,9 @@ import WhisprLiteCore
         let cleanup: any TextCleanup
         let httpCleanup: HTTPCleanup?
         do {
-            prompt = try store.prompt()
-            let dictionary = try store.dictionary()
-            if preferences.backend == .demo {
+            prompt = preferences.cleanupEnabled ? try store.prompt() : ""
+            let dictionary = preferences.cleanupEnabled ? try store.dictionary() : ""
+            if preferences.backend == .demo || !preferences.cleanupEnabled {
                 cleanup = DemoCleanup(); httpCleanup = nil
             } else {
                 let http = HTTPCleanup(try .init(preferences: preferences, prompt: prompt, dictionary: dictionary))
@@ -101,6 +101,7 @@ import WhisprLiteCore
         var pipeline = BatchPipeline(backend: backend, cleanup: cleanup)
         pipeline.asrDeadline = .seconds(preferences.asrTimeoutSeconds)
         pipeline.cleanupDeadline = .seconds(preferences.cleanupTimeoutSeconds)
+        pipeline.cleanupPolicy = preferences.cleanupPolicy
         let coordinator = DictationCoordinator(capture: audio, insertion: insertion, media: media, pipeline: pipeline)
         coordinator.diagnostics = debug ? diagnostics : nil
         history?.configure(enabled: preferences.saveDictationHistory && preferences.backend != .demo && historyAllowed,
@@ -129,7 +130,7 @@ import WhisprLiteCore
         coordinator?.ready = ready && pipelineReady
         diagnostics?.record(.init(.readiness, code: ready ? .ready : .notReady))
         if ready {
-            update("Ready to dictate", readiness: .ready)
+            update(coordinator?.rawTranscriptionActive == true ? "Ready · Raw transcription" : "Ready to dictate", readiness: .ready)
         } else {
             update("Keyboard shortcut unavailable",
                    detail: "Check Accessibility access, then check readiness. If you just enabled it, quit and reopen Whispr Lite.",
@@ -349,9 +350,17 @@ import WhisprLiteCore
                     epoch: epoch) else { return }
                 if let httpCleanup = parts.httpCleanup {
                     stage = .cleanup
-                    guard try await self.waitForCleanupService(httpCleanup,
-                        timeout: preferences.cleanupTimeoutSeconds,
-                        retryStartup: !self.cleanupInstallable(preferences), epoch: epoch) else { return }
+                    do {
+                        guard try await self.waitForCleanupService(httpCleanup,
+                            timeout: preferences.cleanupTimeoutSeconds,
+                            retryStartup: !preferences.allowRawTranscription && !self.cleanupInstallable(preferences),
+                            epoch: epoch) else { return }
+                    } catch {
+                        guard self.isCurrent(epoch) else { return }
+                        guard preferences.allowRawTranscription else { throw error }
+                        parts.coordinator.rawTranscriptionActive = true
+                        self.appStatus.setCleanup(.unavailable("Raw transcription is available. Cleanup retries with your next dictation."))
+                    }
                 }
                 guard self.isCurrent(epoch) else { return }
                 stage = .capture
@@ -458,13 +467,20 @@ import WhisprLiteCore
     }
     private func refresh() {
         guard let coordinator, let store else { return }
+        if coordinator.rawTranscriptionActive, store.preferences.cleanupEnabled {
+            appStatus.setCleanup(.unavailable("Using raw transcription. Cleanup retries with your next dictation."))
+        } else if !coordinator.rawTranscriptionActive, pipelineReady, store.preferences.cleanupEnabled,
+                  store.preferences.backend != .demo {
+            appStatus.setCleanup(.ready)
+        }
         update(coordinator.message)
         onStateChange?(coordinator.state)
         diagnostics?.record(.init(.state, state: coordinator.state))
         indicator.update(state: coordinator.state, message: coordinator.message,
             demo: store.preferences.backend == .demo, canCopy: coordinator.recoveryText != nil,
             isCancelling: coordinator.isCancelling,
-            showActivity: store.preferences.showAudioActivity)
+            showActivity: store.preferences.showAudioActivity,
+            notice: coordinator.notice, rawTranscription: coordinator.rawTranscriptionActive)
     }
 
     // MARK: Session

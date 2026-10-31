@@ -43,6 +43,22 @@ private final class FixtureProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 @Suite struct HTTPTests {
+    @Test func optionalRawModeSurvivesStartupOutageAndReconnectsThroughHTTP() async throws {
+        let (endpoint, http) = try fixture()
+        try stub(endpoint, "health", status: 503, json: [:])
+        let cleanup = HTTPCleanup(.init(endpoint: endpoint, prompt: "Synthetic prompt"), http: http)
+        await #expect(throws: AppError.notReady) { try await cleanup.checkReadiness() }
+        var pipeline = BatchPipeline(backend: FakeASRBackend(), cleanup: cleanup)
+        pipeline.cleanupPolicy = .whenAvailable
+        #expect(try await pipeline.finish("raw words").cleanup == .unavailable)
+        try stub(endpoint, "health", json: [:])
+        try stub(endpoint, "v1/models", json: ["data": [["id": CleanupConfiguration.defaultModel]]])
+        try stub(endpoint, "apply-template", json: ["prompt": "Synthetic template"])
+        try stub(endpoint, "tokenize", json: ["tokens": [1, 2, 3]])
+        try stub(endpoint, "v1/chat/completions", json: chatReply("Raw words."))
+        try await cleanup.checkReadiness()
+        #expect(try await pipeline.finish("raw words") == .init(raw: "raw words", cleaned: "Raw words."))
+    }
     func fixture() throws -> (LocalEndpoint, LocalHTTP) {
         let endpoint = try LocalEndpoint("http://127.0.0.1:11435/\(UUID().uuidString)")
         let configuration = URLSessionConfiguration.ephemeral

@@ -315,8 +315,9 @@ final class AudioWorker: @unchecked Sendable {
         }
     }
     func begin(warm: Bool, earlyChunks: Bool = false,
-               activity: Bool = false, timings: Bool = false, startedAt: Double? = nil) throws -> EarlyChunks? {
-        try queue.sync {
+               activity: Bool = false, timings: Bool = false, startedAt: Double? = nil,
+               startEngine: () throws -> Void = {}) throws -> EarlyChunks? {
+        let stream = try queue.sync {
             guard !recording, completion == nil else { throw AppError.capture }
             let overflow = callbackOverflow; callbackOverflow = false
             guard !overflow else { throw AppError.overflow }
@@ -330,9 +331,24 @@ final class AudioWorker: @unchecked Sendable {
             } else { earlyContinuation = nil }
             earlyStart = 0; chunker.reset()
             if warm { appendPreRoll() }
+            else { converter.reset(); audioEpoch = nil; outputPosition = 0 }
             rollCount = 0; recording = true
             return stream
         }
+        // Engine.start can deliver packets before it returns. Arm the serial worker first,
+        // keeping all post-press audio without changing the warm microphone's pre-roll.
+        do { try startEngine() }
+        catch {
+            queue.sync {
+                earlyContinuation?.finish(throwing: AppError.capture); earlyContinuation = nil
+                converter.reset(); recording = false; count = 0; rollCount = 0
+                callbackOverflow = false
+                audioEpoch = nil; outputPosition = 0; endBoundary = nil
+                activityEnabled = false; self.activity.publish(0)
+            }
+            throw error
+        }
+        return stream
     }
     private func appendPreRoll() {
         var index = (rollHead - rollCount + preRoll.count) % preRoll.count
@@ -461,7 +477,7 @@ public struct CaptureOptions: Sendable {
     public init(_ preferences: Preferences) {
         warm = preferences.warmCapture
         microphoneUID = preferences.microphoneUID
-        earlyChunks = preferences.backend == .parakeet
+        earlyChunks = preferences.backend == .parakeet && preferences.cleanupEnabled
         lowLatency = preferences.lowLatencyCapture
     }
 }
@@ -591,27 +607,34 @@ struct CaptureInputConfiguration: Equatable {
             captureReport = .init(failure: .permission); throw AppError.capture
         }
         guard let engine, let worker else { captureReport = .init(failure: .notPrepared); throw AppError.notReady }
-        var startedAt: Double?
+        let needsStart = !engine.isRunning
+        let began = ContinuousClock.now
+        let startedAt = needsStart ? AVAudioTime.seconds(forHostTime: mach_absolute_time()) : nil
         // On-demand capture stopped the engine after the last recording.
-        if !engine.isRunning {
-            tap?.restart()
-            let began = ContinuousClock.now
-            startedAt = AVAudioTime.seconds(forHostTime: mach_absolute_time())
-            do { try engine.start() } catch {
-                var report = CaptureReport(failure: .engineStart)
-                report.engineStatus = (error as NSError).code
-                captureReport = report; throw error
-            }
-            onDemandStart = (stoppedAt.map { $0.duration(to: began).milliseconds / 1000 },
-                             began.duration(to: .now).milliseconds)
-        }
+        if needsStart { tap?.restart() }
         do {
             let chunks = try worker.begin(warm: warm, earlyChunks: earlyChunksEnabled,
-                                          activity: showAudioActivity, timings: debugTimings, startedAt: startedAt)
+                activity: showAudioActivity, timings: debugTimings, startedAt: startedAt) {
+                if needsStart {
+                    do { try engine.start() }
+                    catch {
+                        engine.stop()
+                        var report = CaptureReport(failure: .engineStart)
+                        report.engineStatus = (error as NSError).code
+                        self.captureReport = report; throw error
+                    }
+                }
+            }
+            if needsStart {
+                onDemandStart = (stoppedAt.map { $0.duration(to: began).milliseconds / 1000 },
+                                 began.duration(to: .now).milliseconds)
+            }
             recording = true
             return chunks
         } catch {
-            captureReport = withStart(.init(failure: error as? AppError == .overflow ? .overflow : .busy))
+            if captureReport == nil {
+                captureReport = withStart(.init(failure: error as? AppError == .overflow ? .overflow : .busy))
+            }
             throw error
         }
     }

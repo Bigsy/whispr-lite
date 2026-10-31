@@ -41,7 +41,7 @@ public struct ASRResult: Sendable, Equatable {
     public let audioDuration: Double
     /// Direct Parakeet only; see `TranscriptTail`.
     public let coverage: TranscriptCoverage?
-    /// Direct Parakeet only, and only while they match `text` (not after a tail recovery).
+    /// Direct Parakeet only, including absolute word timings from credible tail recovery.
     public let words: [TimedWord]?
     public init(text: String, audioDuration: Double, coverage: TranscriptCoverage? = nil, words: [TimedWord]? = nil) {
         self.text = text; self.audioDuration = audioDuration; self.coverage = coverage; self.words = words

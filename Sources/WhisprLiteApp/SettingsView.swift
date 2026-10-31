@@ -387,6 +387,16 @@ private final class SettingsSectionHeights {
 
     private var cleanup: some View {
         Group {
+            section("Transcription") {
+                row("Clean up dictation", "Tidy punctuation and self-corrections with the local cleanup model. Turn off to insert the speech model's raw transcript.") {
+                    Toggle("Clean up dictation", isOn: $preferences.cleanupEnabled)
+                        .labelsHidden().toggleStyle(.checkbox).controlSize(.small)
+                }
+                Divider()
+                toggleRow("Use raw transcription if cleanup is unavailable", "Keep dictating during cleanup outages. Raw transcription is labelled, and cleanup retries on the next dictation. A slow service can still take up to the cleanup deadline.",
+                          isOn: $preferences.allowRawTranscription)
+                    .disabled(!preferences.cleanupEnabled)
+            }
             editorSection("Additional instructions", "Added to the built-in cleanup prompt. Keep it to a short line about your work or terminology.",
                           text: $instructions, height: $instructionsHeight) { EmptyView() }
             if instructionsUnreadable {
@@ -450,7 +460,7 @@ private final class SettingsSectionHeights {
                 toggleRow("Low-latency capture", "Reads the microphone about every 10 ms so text arrives sooner. Turn off if a microphone records silence or fails.",
                           isOn: $preferences.lowLatencyCapture)
                 Divider()
-                row("Response deadlines", "\(Int(Preferences.timeoutRange.lowerBound))–\(Int(Preferences.timeoutRange.upperBound)) seconds. A cleanup failure offers the raw transcript to copy.") {
+                row("Response deadlines", "\(Int(Preferences.timeoutRange.lowerBound))–\(Int(Preferences.timeoutRange.upperBound)) seconds. Cleanup failures keep raw text available. Transcription settings control whether it is inserted.") {
                     Text("Speech").foregroundStyle(.secondary)
                     TextField("Speech deadline", value: $preferences.asrTimeoutSeconds, format: .number)
                         .textFieldStyle(.roundedBorder).frame(width: 48)

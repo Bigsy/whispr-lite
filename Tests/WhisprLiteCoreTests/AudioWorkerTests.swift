@@ -5,6 +5,38 @@ import AVFoundation
 @testable import WhisprLiteCore
 
 @Suite struct AudioTests {
+    @Test func onDemandEngineStartKeepsPostPressPacketsOnceAndTrimsRelease() async throws {
+        let format = try monoFormat()
+        let worker = try AudioWorker(format: format)
+        // Idle audio before the press must not enter an on-demand recording.
+        worker.receive(try filledBuffer(format: format, frames: 320, value: 0.8))
+        worker.queue.sync {}
+        _ = try worker.begin(warm: false, startedAt: 10) {
+            // Simulate a synchronous callback before engine.start returns.
+            worker.receive(try filledBuffer(format: format, frames: 320, value: 0.2), hostSeconds: 10)
+            worker.queue.sync {}
+        }
+        worker.receive(try filledBuffer(format: format, frames: 320, value: 0.6), hostSeconds: 10.02)
+        let result = try await worker.end(at: 10.03)
+        #expect(result.pcm.samples.count == 480)
+        #expect(result.pcm.samples.prefix(320).allSatisfy { abs($0 - 0.2) < 0.001 })
+        #expect(result.pcm.samples.suffix(160).allSatisfy { abs($0 - 0.6) < 0.001 })
+    }
+    @Test func engineStartFailureRollsBackBufferedAudioAndAllowsAnotherBegin() async throws {
+        let format = try monoFormat()
+        let worker = try AudioWorker(format: format)
+        #expect(throws: AppError.capture) {
+            try worker.begin(warm: false, earlyChunks: true) {
+                worker.receive(try filledBuffer(format: format, frames: 320, value: 0.8), hostSeconds: 10)
+                throw AppError.capture
+            }
+        }
+        _ = try worker.begin(warm: false)
+        worker.receive(try filledBuffer(format: format, frames: 320, value: 0.3), hostSeconds: 20)
+        let result = try await worker.end(at: 20.02)
+        #expect(result.pcm.samples.count == 320 && !result.drainTimedOut)
+        #expect(result.pcm.samples.allSatisfy { abs($0 - 0.3) < 0.001 })
+    }
     @Test func longCapturePublishesCompletedChunksWithoutChangingFinalAudio() async throws {
         let format = try monoFormat()
         let worker = try AudioWorker(format: format)

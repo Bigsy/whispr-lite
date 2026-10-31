@@ -17,10 +17,12 @@ import WhisprLiteCore
     private lazy var copyAction: () -> Void = { [weak self] in self?.onCopy?() }
 
     func update(state: DictationState, message: String, demo: Bool, canCopy: Bool,
-                isCancelling: Bool, showActivity: Bool = true) {
-        guard state != .idle else { hide(); return }
+                isCancelling: Bool, showActivity: Bool = true,
+                notice: String? = nil, rawTranscription: Bool = false) {
+        guard state != .idle || notice != nil else { hide(); return }
         let next = IndicatorPresentation(state: state, message: message, demo: demo,
-            canCopy: canCopy, isCancelling: isCancelling, showActivity: showActivity)
+            canCopy: canCopy, isCancelling: isCancelling, showActivity: showActivity,
+            notice: notice, rawTranscription: rawTranscription)
         guard next != presentation else { return }
         presentation = next
         if state == .recording && showActivity {
@@ -81,7 +83,10 @@ struct IndicatorPresentation: Equatable {
     let canCopy: Bool
     var isCancelling = false
     var showActivity = true
-    var size: NSSize { state == .error ? NSSize(width: 360, height: 94) : NSSize(width: 238, height: 64) }
+    var notice: String? = nil
+    var rawTranscription = false
+    var needsAttention: Bool { state == .error || (state == .idle && notice != nil) }
+    var size: NSSize { needsAttention ? NSSize(width: 360, height: 94) : NSSize(width: 238, height: 64) }
 }
 extension DictationState {
     var symbolName: String {
@@ -128,32 +133,37 @@ struct RecordingPill: View {
         case .processing: presentation.isCancelling ? "Cancelling" : "Processing"
         case .inserting: "Inserting"
         case .error: "Needs attention"
-        case .idle: "Ready"
+        case .idle: presentation.notice == nil ? "Ready" : "Check dictation"
         }
     }
     private var pillShape: RoundedRectangle {
-        RoundedRectangle(cornerRadius: presentation.state == .error ? 18 : 24)
+        RoundedRectangle(cornerRadius: presentation.needsAttention ? 18 : 24)
     }
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: presentation.state.symbolName).font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(presentation.state == .recording ? Color.red : presentation.state == .error ? Color.orange : Color.primary)
+            Image(systemName: presentation.needsAttention ? "exclamationmark.circle.fill" : presentation.state.symbolName).font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(presentation.state == .recording ? Color.red : presentation.needsAttention ? Color.orange : Color.primary)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 4) {
                 Text(presentation.demo ? DemoLabel.tagged(title) : title).font(.system(size: 12, weight: .semibold))
-                if presentation.state == .error {
-                    Text(presentation.message).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                if presentation.needsAttention {
+                    Text(presentation.state == .error
+                         ? [presentation.message, presentation.notice].compactMap { $0 }.joined(separator: " ")
+                         : presentation.message)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(presentation.notice == nil ? 2 : 3)
+                } else if presentation.rawTranscription {
+                    Text("Raw transcription").font(.caption).foregroundStyle(.secondary)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
             if presentation.state == .recording && presentation.showActivity {
                 AudioActivityWave(activity: activity).frame(width: 48, height: 16).accessibilityHidden(true)
             }
-            if presentation.state == .error && presentation.canCopy {
+            if presentation.needsAttention && presentation.canCopy {
                 Button("Copy", action: copy).buttonStyle(.bordered).controlSize(.small)
             }
             Button(action: cancel) { Image(systemName: "xmark").font(.system(size: 10, weight: .semibold)) }
                 .buttonStyle(.plain).padding(4)
-                .accessibilityLabel(presentation.state == .error ? "Dismiss dictation status" : "Cancel dictation")
+                .accessibilityLabel(presentation.needsAttention ? "Dismiss dictation status" : "Cancel dictation")
         }.padding(.horizontal, 14).padding(.vertical, 10)
             .background(.regularMaterial, in: pillShape)
             .overlay(pillShape.stroke(.primary.opacity(0.12)))

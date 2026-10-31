@@ -99,11 +99,13 @@ public struct DiagnosticConfiguration: Codable, Sendable {
     public let audioActivity: Bool
     public let asrTimeout: Double
     public let cleanupTimeout: Double
+    public let cleanupPolicy: CleanupPolicy?
     public init(_ preferences: Preferences) {
         backend = preferences.backend; warmCapture = preferences.warmCapture; pauseMedia = preferences.pauseMedia
         lowLatencyCapture = preferences.lowLatencyCapture
         asrModel = preferences.backend == .parakeet ? preferences.asrModel : nil
         audioActivity = preferences.showAudioActivity; asrTimeout = preferences.asrTimeoutSeconds; cleanupTimeout = preferences.cleanupTimeoutSeconds
+        cleanupPolicy = preferences.cleanupPolicy
     }
 }
 /// One per recording: why capture failed and how the audio path behaved. Counts and

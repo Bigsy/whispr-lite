@@ -11,7 +11,7 @@ public struct EarlyChunkReport: Codable, Sendable, Equatable {
     public enum Stop: String, Codable, Sendable {
         case complete, released, emptyChunk, rawNoSentenceEnd, cleanedNoSentenceEnd, failed
     }
-    /// unused: no chunk was cleaned. mismatch: cleaned chunks don't prefix the final transcript.
+    /// unused: no early cleanup was used. mismatch: cleaned chunks don't safely prefix the final transcript.
     public enum Reuse: String, Codable, Sendable { case unused, reused, mismatch }
     public var chunks = 0
     /// Chunks that ended at the window limit rather than at a pause.
@@ -33,6 +33,7 @@ struct EarlyWork: Sendable {
     var completed: [DictationText] = []
     var report = EarlyChunkReport()
     var refused: PipelineFailure?
+    var cleanupUnavailable = false
 }
 
 public struct CapturedAudio: Sendable {
@@ -73,6 +74,13 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     public private(set) var state: DictationState = .idle { didSet { onChange?() } }
     public private(set) var isCancelling = false
     public private(set) var recoveryText: String?
+    public private(set) var audioUncertain = false
+    /// The active policy or most recent result uses raw ASR; cleared after successful cleanup.
+    public var rawTranscriptionActive = false
+    public var notice: String? {
+        if audioUncertain { return "Audio may be incomplete. Check the result." }
+        return nil
+    }
     public private(set) var message = "Preparing…"
     public var ready = false
     public var onChange: (() -> Void)?
@@ -106,6 +114,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                 pipeline: BatchPipeline, timings: LatencyRecorder = .init()) {
         self.capture = capture; self.insertion = insertion; self.media = media
         self.pipeline = pipeline; self.timings = timings
+        self.rawTranscriptionActive = pipeline.cleanupPolicy == .disabled
     }
     public func press() {
         guard !activationHeld else { return }
@@ -121,7 +130,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         }
         let id = UUID(); generation &+= 1
         let owner = generation
-        session = id; finalized = false; isCancelling = false; recoveryText = nil
+        session = id; finalized = false; isCancelling = false; recoveryText = nil; audioUncertain = false
         timings.mark(.press, session: id)
         let earlyChunks: EarlyChunks?
         do { earlyChunks = try capture.begin() }
@@ -131,10 +140,10 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         }
         // After capture starts: the snapshot is synchronous AX IPC into the target app and can be slow.
         let target = insertion.snapshot(session: id)
-        message = "Recording"; state = .recording
+        message = rawTranscriptionActive ? "Recording · Raw transcription" : "Recording"; state = .recording
         media.begin(id)
         startHoldWarmup()
-        if let chunks = earlyChunks {
+        if let chunks = earlyChunks, pipeline.cleanupPolicy != .disabled {
             let pipeline = self.pipeline
             earlyDelivery = Task { [weak self] in
                 var work = EarlyWork()
@@ -163,6 +172,9 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                         if !sentence.rest.isEmpty { work.report.sentenceCuts += 1 }
                         carry = sentence.rest
                         let result = try await pipeline.finish(sentence.text)
+                        guard result.cleanup == .cleaned else {
+                            work.cleanupUnavailable = true; work.report.stop = .failed; break
+                        }
                         guard result.cleaned.trimmingCharacters(in: .whitespacesAndNewlines).endsSentence else {
                             work.report.stop = .cleanedNoSentenceEnd; break
                         }
@@ -194,7 +206,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         finish(id, target: target, copyOnly: false, boundary: boundary)
     }
     private func handoffCapture(session id: UUID, owner: UInt64,
-                                boundary: Double?) async -> PCM16k? {
+                                boundary: Double?) async -> CapturedAudio? {
         // Even cancellation must wait for capture handoff before ending its media lease.
         let captured: CapturedAudio
         do { captured = try await capture.end(at: boundary) }
@@ -214,9 +226,9 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
             code: captured.drainTimedOut ? .drainTimeout : nil,
             sampleCount: captured.pcm.samples.count, capture: capture.captureReport))
         media.end(id)
-        return captured.pcm
+        return captured
     }
-    private func transcribeFinalAudio(_ audio: PCM16k, session id: UUID,
+    private func transcribeFinalAudio(_ captured: CapturedAudio, session id: UUID,
                                       owner: UInt64) async throws -> DictationText? {
         // CoreML can continue after cancellation. The final pass waits for hold warm-up.
         await holdWarmup?.value
@@ -229,7 +241,9 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         async let prepared = early?.value
         let logger = diagnostics
         let report: CoverageReport = { coverage in logger?.record(.init(.coverage, session: id, coverage: coverage)) }
-        guard let raw = try await pipeline.transcribe(audio, mark: mark, report: report) else { return nil }
+        let heard = try await pipeline.recognize(captured.pcm, mark: mark, report: report, keepEmpty: true)
+        audioUncertain = captured.drainTimedOut || heard?.coverage?.needsReview == true
+        guard let raw = heard?.text, !raw.isEmpty else { return nil }
         let measured = logger?.isEnabled == true
         let asrEnd = measured ? ProcessInfo.processInfo.systemUptime : 0
         let work = await prepared
@@ -237,11 +251,22 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
             logger?.record(.init(.earlyChunks, session: id, early: Self.earlyReport(work, final: raw,
                 waitMS: (ProcessInfo.processInfo.systemUptime - asrEnd) * 1000)))
         }
-        return try await pipeline.finish(raw, early: work?.completed ?? [], refused: work?.refused, mark: mark)
+        // One failed early cleanup is enough evidence for this recording's optional raw
+        // mode. Avoid another service timeout at release; retry on the next dictation.
+        var result: DictationText
+        if work?.cleanupUnavailable == true, pipeline.cleanupPolicy == .whenAvailable {
+            try Task.checkCancellation()
+            result = .init(raw: raw, cleaned: raw, cleanup: .unavailable)
+        } else {
+            result = try await pipeline.finish(raw, early: work?.completed ?? [], refused: work?.refused, mark: mark)
+        }
+        result.audioUncertain = audioUncertain
+        return result
     }
     private static func earlyReport(_ work: EarlyWork, final raw: String, waitMS: Double) -> EarlyChunkReport {
         var report = work.report
         report.waitMS = waitMS
+        if work.cleanupUnavailable { report.reuse = .unused; return report }
         guard !work.completed.isEmpty else { return report }
         if let reuse = BatchPipeline.reusablePrefix(in: raw, chunks: work.completed) {
             report.reuse = .reused
@@ -258,20 +283,23 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         let owner = generation
         task = Task { [weak self] in
             guard let self else { return }
-            guard let audio = await self.handoffCapture(session: id, owner: owner,
+            guard let captured = await self.handoffCapture(session: id, owner: owner,
                 boundary: boundary) else { return }
             guard self.generation == owner, !Task.isCancelled else { return }
             // Keep released audio even after ASR/cleanup failure, but never cancelled or
             // superseded sessions. Enqueue only; encoding and writes run on a utility queue.
             defer {
                 if self.generation == owner, !Task.isCancelled {
-                    self.recordings?.record(audio, session: id)
+                    self.recordings?.record(captured.pcm, session: id)
                 }
             }
             do {
-                let dictation = try await self.transcribeFinalAudio(audio, session: id, owner: owner)
+                let dictation = try await self.transcribeFinalAudio(captured, session: id, owner: owner)
                 guard self.generation == owner, !Task.isCancelled else { return }
-                if let dictation { self.history?.record(dictation) }
+                if let dictation {
+                    self.rawTranscriptionActive = dictation.cleanup != .cleaned
+                    self.history?.record(dictation)
+                }
                 self.timings.mark(.resultReady, session: id)
                 guard let text = dictation?.cleaned else { self.complete(); return }
                 self.recoveryText = String(text.prefix(DictationHistory.maximumTextCharacters))
@@ -291,9 +319,10 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     }
     public func cancel() {
         // Escape arrives from every app; with nothing to cancel or dismiss, leave state and UI alone.
-        guard session != nil || state != .idle || draining else { activationHeld = false; insertionSession = nil; return }
+        guard session != nil || state != .idle || draining || audioUncertain else { activationHeld = false; insertionSession = nil; return }
         if let session { diagnostics?.record(.init(.cancelled, session: session)) }
         generation &+= 1; activationHeld = false; insertionSession = nil
+        audioUncertain = false
         holdWarmup?.cancel()
         let owner = generation
         task?.cancel(); task = nil; ceiling?.cancel(); ceiling = nil
@@ -358,7 +387,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         session = nil; currentTarget = nil; draining = false; isCancelling = false
         switch result {
         case .completed:
-            message = ready ? "Ready" : "Not ready"
+            message = notice ?? (ready ? (rawTranscriptionActive ? "Ready · Raw transcription" : "Ready") : "Not ready")
             state = .idle
         case .failed(let error):
             message = ((error as? PipelineFailure)?.reason ?? (error as? AppError) ?? .inference).localizedDescription
