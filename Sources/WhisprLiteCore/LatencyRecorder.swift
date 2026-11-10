@@ -3,6 +3,7 @@ import Foundation
 public enum TimingStage: String, Codable, Sendable {
     case press, firstAudio, release, captureFinalized
     case asrStart, asrEnd, cleanupStart, cleanupEnd, resultReady, insertionDispatched, visibleText, clipboardRestored
+    case cleanupWarmupStart, cleanupWarmupEnd
 }
 public typealias StageMark = @Sendable (TimingStage) async -> Void
 public struct TimingEvent: Codable, Sendable {

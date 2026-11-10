@@ -110,7 +110,35 @@ import AVFoundation
         let report = try #require(records.first { $0.kind == .earlyChunks }?.early)
         #expect(report.chunks == 1 && report.cleaned == 1 && report.limitCuts == 0)
         #expect(report.stop == .complete && report.reuse == .reused)
+        #expect(report.mismatchReason == nil)
         #expect(report.reusedWords == 2 && report.tailWords == 2 && report.waitMS != nil)
+    }
+    @Test(arguments: [
+        ("First mistake. Second sentence.", EarlyChunkReport.MismatchReason.words),
+        ("First sentence? Second sentence.", .punctuation),
+        ("First sentence. Actually, change that.", .revisionCue)
+    ]) func earlyChunkReportExplainsMismatchWithoutText(final: String, reason: EarlyChunkReport.MismatchReason) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let logger = DiagnosticLogger(directory: directory); logger.setEnabled(true)
+        let capture = EarlyCapture(), insertion = FakeInsertion(), cleanup = RecordingCleanup()
+        let coordinator = DictationCoordinator(capture: capture, insertion: insertion, media: FakeMedia(),
+            pipeline: .init(backend: EarlyBackend(finalText: final), cleanup: cleanup))
+        coordinator.ready = true; coordinator.diagnostics = logger
+        coordinator.press(); try capture.publish()
+        try await poll { await cleanup.inputs.count == 1 }
+        coordinator.release()
+        try await poll { coordinator.state == .idle }
+        await logger.flush()
+        let file = directory.appendingPathComponent("debug.jsonl")
+        let records = try decodeJSONLines(file, as: DiagnosticRecord.self)
+        let report = try #require(records.first { $0.kind == .earlyChunks }?.early)
+        #expect(report.reuse == .mismatch && report.mismatchReason == reason)
+        #expect(report.reusedWords == nil && report.tailWords == nil)
+        #expect(await cleanup.inputs == ["First sentence.", final])
+        #expect(insertion.texts == [final])
+        let log = try String(contentsOf: file, encoding: .utf8)
+        #expect(!log.contains("First sentence.") && !log.contains(final))
     }
     @Test func finalCleanupSkipsAChunkTheModelRefusedAndLogsWhy() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

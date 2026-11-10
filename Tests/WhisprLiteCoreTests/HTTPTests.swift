@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import os
 @testable import WhisprLiteCore
 
 private final class Responses: @unchecked Sendable {
@@ -43,6 +44,54 @@ private final class FixtureProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 @Suite struct HTTPTests {
+    @Test func releaseWarmupRequiresPreparedPrefixAndDiscardsItsEightTokenReply() async throws {
+        let (endpoint, http) = try fixture()
+        let cleanup = HTTPCleanup(.init(endpoint: endpoint, prompt: "Synthetic prompt"), http: http)
+        let chat = endpoint.url.appendingPathComponent("v1/chat/completions")
+        try await cleanup.warmForRelease()
+        #expect(FixtureProtocol.responses.bodies(chat).isEmpty)
+        try stub(endpoint, "apply-template", json: ["prompt": "Synthetic template"])
+        try stub(endpoint, "tokenize", json: ["tokens": [1, 2, 3]])
+        try stub(endpoint, "completion", json: ["tokens_predicted": 1, "truncated": false])
+        try stub(endpoint, "v1/chat/completions", json: chatReply("Discard this reply", finish: "length"))
+        try await cleanup.preparePrefix()
+        try await cleanup.warmForRelease()
+        let request = try #require(FixtureProtocol.responses.bodies(chat).last)
+        let body = try #require(JSONSerialization.jsonObject(with: request) as? [String: Any])
+        #expect(body["max_tokens"] as? Int == 8)
+        #expect(body["temperature"] as? Int == 0 && body["stream"] as? Bool == false)
+        let messages = try #require(body["messages"] as? [[String: String]])
+        #expect(messages[1]["content"] == "<transcript>\nAlpha\n</transcript>\n\nOutput only the cleaned transcript.")
+        try stub(endpoint, "v1/chat/completions", json: chatReply("Actual result."))
+        #expect(try await cleanup.clean("actual words") == "Actual result.")
+        #expect(FixtureProtocol.responses.bodies(endpoint.url.appendingPathComponent("tokenize")).count == 2)
+    }
+    @Test func optionalMetricsContainOnlyCountsAndNeverAffectCleanup() async throws {
+        let (endpoint, http) = try fixture()
+        let observed = OSAllocatedUnfairLock(initialState: [CleanupResponseMetrics]())
+        let cleanup = HTTPCleanup(.init(endpoint: endpoint, prompt: "Synthetic prompt"), http: http)
+            .observingMetrics { metrics in observed.withLock { $0.append(metrics) } }
+        try stub(endpoint, "apply-template", json: ["prompt": "Synthetic template"])
+        try stub(endpoint, "tokenize", json: ["tokens": [1, 2, 3]])
+        var reply = chatReply("Private synthetic result.")
+        reply["usage"] = ["prompt_tokens": 100, "completion_tokens": 4,
+                          "prompt_tokens_details": ["cached_tokens": 90]]
+        reply["timings"] = ["prompt_n": 10, "predicted_n": 4, "draft_n": 6, "draft_n_accepted": 3,
+                            "prompt_ms": 5.5, "predicted_ms": 20.0]
+        try stub(endpoint, "v1/chat/completions", json: reply)
+        #expect(try await cleanup.clean("synthetic words") == "Private synthetic result.")
+        let metrics = try #require(observed.withLock { $0.first })
+        #expect(metrics.usage?.prompt_tokens == 100 && metrics.usage?.prompt_tokens_details?.cached_tokens == 90)
+        #expect(metrics.timings?.draft_n_accepted == 3 && metrics.timings?.prompt_ms == 5.5)
+        #expect(!String(describing: metrics).contains("Private"))
+        // A user's own server can omit these fields or give a different metrics shape.
+        try stub(endpoint, "v1/chat/completions", json: chatReply("Still works."))
+        #expect(try await cleanup.clean("synthetic words") == "Still works.")
+        reply["usage"] = "unsupported metadata"
+        try stub(endpoint, "v1/chat/completions", json: reply)
+        #expect(try await cleanup.clean("synthetic words") == "Private synthetic result.")
+        #expect(observed.withLock { $0.count } == 2)
+    }
     @Test func optionalRawModeSurvivesStartupOutageAndReconnectsThroughHTTP() async throws {
         let (endpoint, http) = try fixture()
         try stub(endpoint, "health", status: 503, json: [:])

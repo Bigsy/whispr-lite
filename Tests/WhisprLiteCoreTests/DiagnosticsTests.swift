@@ -4,6 +4,14 @@ import ParakeetCore
 @testable import WhisprLiteCore
 
 @Suite struct DiagnosticsTests {
+    @Test func oldEarlyChunkReportsKeepTheirUnknownMismatchReason() throws {
+        let data = Data(#"{"chunks":1,"limitCuts":0,"sentenceCuts":0,"cleaned":1,"stop":"complete","reuse":"mismatch"}"#.utf8)
+        let old = try JSONDecoder().decode(EarlyChunkReport.self, from: data)
+        #expect(old.reuse == .mismatch && old.mismatchReason == nil)
+        var current = old
+        current.mismatchReason = .punctuation
+        #expect(try JSONDecoder().decode(EarlyChunkReport.self, from: JSONEncoder().encode(current)) == current)
+    }
     @Test func preparationHasStableDiagnosticCodeAndSeparateDisplayName() throws {
         let stage = BackendPreparation.checkingCache
         #expect(String(decoding: try JSONEncoder().encode(stage), as: UTF8.self) == "\"checkingCache\"")

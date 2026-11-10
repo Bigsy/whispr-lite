@@ -7,6 +7,41 @@ import ParakeetCore
 
 @Suite struct EarlyCleanupTests {
     @Test(arguments: [
+        ("First mistake. Second sentence.", ["First sentence."], EarlyChunkReport.MismatchReason.words),
+        ("First.", ["First sentence."], .words),
+        ("First sentence. Second mistake.", ["First sentence.", "Second sentence."], .words),
+        ("First sentence, second sentence.", ["First sentence."], .punctuation),
+        ("First sentence? Second sentence.", ["First sentence."], .punctuation),
+        ("First, sentence. Second sentence.", ["First sentence."], .punctuation),
+        ("First sentence, second sentence.", ["First sentence. Second sentence."], .punctuation),
+        ("First sentence. Actually, replace that.", ["First sentence."], .revisionCue),
+        ("First sentence. Second sentence. Scratch that.", ["First sentence.", "Second sentence."], .revisionCue),
+        ("Treffen am Dienstag. Nein, am Mittwoch.", ["Treffen am Dienstag."], .revisionCue)
+    ]) func reuseReportsTheFirstVeto(raw: String, chunks: [String], reason: EarlyChunkReport.MismatchReason) async throws {
+        let early = chunks.map { DictationText(raw: $0, cleaned: $0) }
+        #expect(BatchPipeline.prefixReuse(in: raw, chunks: early) == .mismatch(reason))
+        let cleanup = RecordingCleanup()
+        _ = try await BatchPipeline(backend: FakeASRBackend(), cleanup: cleanup).finish(raw, early: early)
+        #expect(await cleanup.inputs == [raw])
+    }
+    @Test(arguments: [
+        DictationText(raw: "First sentence", cleaned: "First sentence."),
+        DictationText(raw: "First sentence.", cleaned: "First sentence"),
+        DictationText(raw: ".", cleaned: ".")
+    ]) func invalidChunksAreSeparateFromTranscriptMismatches(chunk: DictationText) {
+        #expect(BatchPipeline.prefixReuse(in: "First sentence.", chunks: [chunk]) == .mismatch(.invalidChunk))
+    }
+    @Test func reuseHandlesEmptyAndNormalizedTranscripts() {
+        #expect(BatchPipeline.prefixReuse(in: "First sentence.", chunks: []) == .unused)
+        #expect(BatchPipeline.prefixReuse(in: "", chunks: [.init(raw: "First sentence.", cleaned: "First sentence.")])
+                == .mismatch(.words))
+        let chunk = DictationText(raw: "IT’S fine.", cleaned: "It's fine.")
+        #expect(BatchPipeline.prefixReuse(in: "it's fine. £5 is fine.", chunks: [chunk])
+                == .reused(cleaned: "It's fine.", tail: "£5 is fine."))
+        #expect(BatchPipeline.prefixReuse(in: "it's fine.", chunks: [chunk])
+                == .reused(cleaned: "It's fine.", tail: ""))
+    }
+    @Test(arguments: [
         ("Meet on Tuesday. No wait, Wednesday.", ["Meet on Tuesday."]),
         ("Meet on Tuesday. No wait, Wednesday. Bring notes.", ["Meet on Tuesday.", "No wait, Wednesday."]),
         ("Meet on Tuesday, bring notes.", ["Meet on Tuesday."]),

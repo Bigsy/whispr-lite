@@ -93,10 +93,12 @@ actor RefusingCleanup: TextCleanup {
     func suspend() {}
 }
 actor EarlyBackend: ASRBackend {
+    let finalText: String
+    init(finalText: String = "First sentence. Second sentence.") { self.finalText = finalText }
     func prepare() async throws {}
     func readiness() async -> BackendReadiness { .ready }
     func transcribe(_ audio: PCM16k) async throws -> ASRResult {
-        .init(text: audio.samples.count == 1 ? "First sentence." : "First sentence. Second sentence.", audioDuration: audio.duration)
+        .init(text: audio.samples.count == 1 ? "First sentence." : finalText, audioDuration: audio.duration)
     }
 }
 /// A 2 s early chunk whose transcript stops mid-sentence, with word timings; the next chunk with

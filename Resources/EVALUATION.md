@@ -113,7 +113,12 @@ settle cleanup server work even after cancellation, reuse only completed cleanup
 an exact final ASR/settings match, and insert once after release. Compare interleaved
 baseline/prototype trials, including release during each speculative stage. Require
 accuracy parity and improvements in typical and tail latency after accounting for reuse,
-wasted work and energy. The current change adds no speculative ASR/cleanup workload.
+wasted work and energy.
+
+Short Parakeet recordings use one discarded cleanup warm-up request alongside final ASR
+after release. It reuses the prepared prompt, generates at most eight tokens, and is
+cancelled and drained with its session. It never supplies dictation text or inserts a
+result. This does not enable a pause snapshot or cleanup while the shortcut is held.
 
 ## 31 October 2026 measurements
 

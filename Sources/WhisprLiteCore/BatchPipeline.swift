@@ -4,6 +4,11 @@ import ParakeetCore
 public protocol TextCleanup: Sendable {
     func clean(_ text: String) async throws -> String
 }
+/// Optional, bounded, cancellation-aware work whose reply is always discarded.
+/// Internal: only the HTTP adapter implements this in normal operation.
+protocol ReleaseWarmableCleanup: TextCleanup {
+    func warmForRelease() async throws
+}
 public struct DemoCleanup: TextCleanup {
     public init() {}
     public func clean(_ text: String) async throws -> String { try Task.checkCancellation(); return text }
@@ -127,8 +132,18 @@ public struct BatchPipeline: Sendable {
             throw PipelineFailure(reason: error as? AppError ?? .cleanup, rawText: raw)
         }
     }
+    enum PrefixReuseDecision: Equatable, Sendable {
+        case unused
+        case reused(cleaned: String, tail: String)
+        case mismatch(EarlyChunkReport.MismatchReason)
+    }
     static func reusablePrefix(in full: String, chunks: [DictationText]) -> (cleaned: String, tail: String)? {
-        guard !chunks.isEmpty else { return nil }
+        guard case .reused(let cleaned, let tail) = prefixReuse(in: full, chunks: chunks) else { return nil }
+        return (cleaned, tail)
+    }
+    /// The pipeline and counts-only diagnostics share the same checks, in the same order.
+    static func prefixReuse(in full: String, chunks: [DictationText]) -> PrefixReuseDecision {
+        guard !chunks.isEmpty else { return .unused }
         let fullMatches = WordTokens.pattern.matches(in: full, range: NSRange(full.startIndex..<full.endIndex, in: full))
         let fullWords = fullMatches.compactMap { match in
             Range(match.range, in: full).map { WordTokens.normalize(String(full[$0])) }
@@ -138,28 +153,30 @@ public struct BatchPipeline: Sendable {
         for chunk in chunks {
             let raw = chunk.raw.trimmingCharacters(in: .whitespacesAndNewlines)
             let clean = chunk.cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard raw.endsSentence, clean.endsSentence else { return nil }
+            guard raw.endsSentence, clean.endsSentence else { return .mismatch(.invalidChunk) }
             let chunkWords = WordTokens.words(raw)
-            guard !chunkWords.isEmpty else { return nil }
+            guard !chunkWords.isEmpty else { return .mismatch(.invalidChunk) }
             prefix.append(contentsOf: chunkWords)
             guard fullWords.starts(with: prefix),
-                  let wordEnd = Range(fullMatches[prefix.count - 1].range, in: full)?.upperBound else { return nil }
+                  let wordEnd = Range(fullMatches[prefix.count - 1].range, in: full)?.upperBound else { return .mismatch(.words) }
             // Words alone discard sentence punctuation. Check every seam against the
             // authoritative ASR, including punctuation changes between two early chunks.
             let punctuation = full[wordEnd...].prefix { !$0.isWhitespace && !$0.isLetter && !$0.isNumber }
             let expected = raw.reversed().prefix { !$0.isLetter && !$0.isNumber }.reversed()
-            guard String(punctuation) == String(expected), punctuation.last.map({ ".!?".contains($0) }) == true else { return nil }
+            guard String(punctuation) == String(expected), punctuation.last.map({ ".!?".contains($0) }) == true else {
+                return .mismatch(.punctuation)
+            }
             while chunkStart < wordEnd, full[chunkStart].isWhitespace { chunkStart = full.index(after: chunkStart) }
             let chunkEnd = full.index(wordEnd, offsetBy: punctuation.count)
             // Also reject punctuation changes inside a multi-sentence early chunk.
             let key: (String) -> String = { WordTokens.normalize($0).filter { !$0.isWhitespace } }
-            guard key(String(full[chunkStart..<chunkEnd])) == key(raw) else { return nil }
+            guard key(String(full[chunkStart..<chunkEnd])) == key(raw) else { return .mismatch(.punctuation) }
             chunkStart = chunkEnd
             // A later correction can replace any earlier sentence, even across several
             // chunks. Always inspect all following context, not just the final tail.
-            if mayReviseEarlierText(String(full[wordEnd...])) { return nil }
+            if mayReviseEarlierText(String(full[wordEnd...])) { return .mismatch(.revisionCue) }
         }
-        guard fullWords.starts(with: prefix) else { return nil }
+        guard fullWords.starts(with: prefix) else { return .mismatch(.words) }
         let tail: String
         if prefix.count == fullMatches.count { tail = "" }
         else {
@@ -169,7 +186,7 @@ public struct BatchPipeline: Sendable {
             }
             tail = String(full[start...])
         }
-        return (chunks.map { $0.cleaned.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: " "), tail)
+        return .reused(cleaned: chunks.map { $0.cleaned.trimmingCharacters(in: .whitespacesAndNewlines) }.joined(separator: " "), tail: tail)
     }
     /// A conservative veto, not a proof of semantic independence. Cue-free or unfamiliar
     /// languages can still refer backwards; reviewed speech evaluation remains necessary.

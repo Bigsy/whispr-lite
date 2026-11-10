@@ -13,6 +13,9 @@ public struct EarlyChunkReport: Codable, Sendable, Equatable {
     }
     /// unused: no early cleanup was used. mismatch: cleaned chunks don't safely prefix the final transcript.
     public enum Reuse: String, Codable, Sendable { case unused, reused, mismatch }
+    public enum MismatchReason: String, Codable, Sendable {
+        case words, punctuation, revisionCue, invalidChunk
+    }
     public var chunks = 0
     /// Chunks that ended at the window limit rather than at a pause.
     public var limitCuts = 0
@@ -21,6 +24,9 @@ public struct EarlyChunkReport: Codable, Sendable, Equatable {
     public var cleaned = 0
     public var stop = Stop.complete
     public var reuse = Reuse.unused
+    /// The first check that vetoed reuse. Nil for older records and non-mismatch outcomes.
+    /// invalidChunk means empty words or a raw/cleaned chunk without a sentence ending.
+    public var mismatchReason: MismatchReason?
     public var reusedWords: Int?
     public var tailWords: Int?
     /// From the end of final ASR until early work settled.
@@ -88,6 +94,9 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     /// nothing to do while the key is held. One small inference this often keeps them up until
     /// release (147 to 89 ms median on a synthetic 4 s hold); nil disables. Idle is unaffected.
     public var holdWarmupInterval: Duration? = .milliseconds(500)
+    /// One discarded chat request overlaps final ASR on short recordings.
+    /// Internal override keeps synthetic baseline comparisons on the same pipeline.
+    var releaseWarmupEnabled = true
     private var earlyDelivery: Task<EarlyWork, Never>?
     public var safetyDuration: Duration = .seconds(PCM16k.maximumDuration)
     public let timings: LatencyRecorder
@@ -105,6 +114,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
     private var generation: UInt64 = 0
     private var task: Task<Void, Never>?
     private var holdWarmup: Task<Void, Never>?
+    private var releaseWarmup: Task<Void, Never>?
     private var ceiling: Task<Void, Never>?
     private var finalized = false
     private var activationHeld = false
@@ -233,6 +243,35 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         // CoreML can continue after cancellation. The final pass waits for hold warm-up.
         await holdWarmup?.value
         guard generation == owner, !Task.isCancelled else { throw CancellationError() }
+        let warming: Task<Void, Never>?
+        if releaseWarmupEnabled, captured.pcm.duration < 6, pipeline.cleanupPolicy != .disabled,
+           pipeline.backend is any HoldWarmableASRBackend,
+           let cleanup = pipeline.cleanup as? any ReleaseWarmableCleanup {
+            let recorder = timings
+            warming = Task {
+                recorder.mark(.cleanupWarmupStart, session: id)
+                // Warming is optional. Its failure never changes the cleanup policy.
+                try? await cleanup.warmForRelease()
+                recorder.mark(.cleanupWarmupEnd, session: id)
+            }
+        } else { warming = nil }
+        releaseWarmup = warming
+        return try await withTaskCancellationHandler {
+            do {
+                let result = try await recognizeFinalAudio(captured, session: id)
+                warming?.cancel()
+                await warming?.value
+                if generation == owner { releaseWarmup = nil }
+                return result
+            } catch {
+                warming?.cancel()
+                await warming?.value
+                if generation == owner { releaseWarmup = nil }
+                throw error
+            }
+        } onCancel: { warming?.cancel() }
+    }
+    private func recognizeFinalAudio(_ captured: CapturedAudio, session id: UUID) async throws -> DictationText? {
         let recorder = timings
         var mark: StageMark?
         if recorder.isEnabled { mark = { stage in await recorder.mark(stage, session: id) } }
@@ -268,11 +307,16 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         report.waitMS = waitMS
         if work.cleanupUnavailable { report.reuse = .unused; return report }
         guard !work.completed.isEmpty else { return report }
-        if let reuse = BatchPipeline.reusablePrefix(in: raw, chunks: work.completed) {
+        switch BatchPipeline.prefixReuse(in: raw, chunks: work.completed) {
+        case .reused(_, let tail):
             report.reuse = .reused
             report.reusedWords = work.completed.reduce(0) { $0 + WordTokens.words($1.raw).count }
-            report.tailWords = WordTokens.words(reuse.tail).count
-        } else { report.reuse = .mismatch }
+            report.tailWords = WordTokens.words(tail).count
+        case .mismatch(let reason):
+            report.reuse = .mismatch
+            report.mismatchReason = reason
+        case .unused: break
+        }
         return report
     }
     private func finish(_ id: UUID, target: UUID, copyOnly: Bool, boundary: Double?) {
@@ -324,6 +368,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         generation &+= 1; activationHeld = false; insertionSession = nil
         audioUncertain = false
         holdWarmup?.cancel()
+        releaseWarmup?.cancel()
         let owner = generation
         task?.cancel(); task = nil; ceiling?.cancel(); ceiling = nil
         if let id = session, !finalized {
@@ -338,13 +383,15 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                 self.media.end(id); self.draining = false
                 if self.generation == owner { self.complete() }
             }
-        } else if let earlyDelivery {
+        } else if earlyDelivery != nil || releaseWarmup != nil {
             // A cancelled cleanup request can return before CoreML finishes. Keep
             // the coordinator busy until the early worker has actually settled.
             isCancelling = true
             draining = true; message = "Cancelling"; state = .processing
+            let early = earlyDelivery, warming = releaseWarmup
             task = Task { [weak self] in
-                _ = await earlyDelivery.value
+                _ = await early?.value
+                await warming?.value
                 guard let self, self.generation == owner else { return }
                 self.draining = false; self.complete()
             }
@@ -360,7 +407,9 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
         cancel()
         capture.suspend()
     }
-    public func settleBackendWork() async { await holdWarmup?.value; _ = await earlyDelivery?.value }
+    public func settleBackendWork() async {
+        await holdWarmup?.value; _ = await earlyDelivery?.value; await releaseWarmup?.value
+    }
     private func startHoldWarmup() {
         guard holdWarmup == nil, let interval = holdWarmupInterval,
               let backend = pipeline.backend as? any HoldWarmableASRBackend else { return }
@@ -384,6 +433,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
             }
         }
         earlyDelivery = nil
+        releaseWarmup = nil
         session = nil; currentTarget = nil; draining = false; isCancelling = false
         switch result {
         case .completed:

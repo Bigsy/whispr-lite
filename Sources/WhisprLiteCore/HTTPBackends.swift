@@ -126,7 +126,26 @@ private final class PromptBudget: @unchecked Sendable {
     var fixedTokens: Int? { lock.withLock { tokens } }
     func store(_ value: Int) { lock.withLock { tokens = value } }
 }
-public struct HTTPCleanup: TextCleanup {
+/// Opt-in benchmark evidence only. No prompt, transcript, reply text or server errors.
+struct CleanupResponseMetrics: Decodable, Sendable, Equatable {
+    struct Usage: Decodable, Sendable, Equatable {
+        struct Details: Decodable, Sendable, Equatable { let cached_tokens: Int? }
+        let prompt_tokens: Int?
+        let completion_tokens: Int?
+        let prompt_tokens_details: Details?
+    }
+    struct Timings: Decodable, Sendable, Equatable {
+        let prompt_n: Int?
+        let predicted_n: Int?
+        let draft_n: Int?
+        let draft_n_accepted: Int?
+        let prompt_ms: Double?
+        let predicted_ms: Double?
+    }
+    let usage: Usage?
+    let timings: Timings?
+}
+public struct HTTPCleanup: TextCleanup, ReleaseWarmableCleanup {
     public typealias Configuration = CleanupConfiguration
     static let contextTokens = 4096
     public let configuration: CleanupConfiguration
@@ -134,6 +153,14 @@ public struct HTTPCleanup: TextCleanup {
     private let dictionary: DictionaryCorrections
     private let systemPrompt: String
     private let budget = PromptBudget()
+    private var metricsObserver: (@Sendable (CleanupResponseMetrics) -> Void)?
+    /// Internal so developer benchmarks can verify cache reuse on the production path.
+    /// Normal dictation never decodes these optional fields or invokes an observer.
+    func observingMetrics(_ observer: @escaping @Sendable (CleanupResponseMetrics) -> Void) -> Self {
+        var copy = self
+        copy.metricsObserver = observer
+        return copy
+    }
     private func send(_ request: URLRequest, limit: Int = 256 * 1024) async throws -> Data {
         do { return try await http.send(request, limit: limit) }
         catch is HTTPFailure { throw CleanupFailure.status }
@@ -183,6 +210,16 @@ public struct HTTPCleanup: TextCleanup {
     }
     func request(_ text: String, maxTokens: Int) throws -> URLRequest {
         try request(messages: messages(text), maxTokens: maxTokens)
+    }
+    /// Exercise the same cached chat/template/MTP path while final ASR is running.
+    /// Never prepare a missing prefix here, and never turn this reply into output.
+    func warmForRelease() async throws {
+        guard budget.fixedTokens != nil else { return }
+        try Task.checkCancellation()
+        var request = try request("Alpha", maxTokens: 8)
+        request.timeoutInterval = 0.5
+        _ = try await send(request, limit: 16 * 1024)
+        try Task.checkCancellation()
     }
     /// Runs only during app preparation, before the hotkey is enabled. The fixed
     /// prefix is useful on a cache miss; repeating it for warm dictations is not.
@@ -246,6 +283,9 @@ public struct HTTPCleanup: TextCleanup {
         }
         let result: Response
         do { result = try JSONDecoder().decode(Response.self, from: data) } catch { throw CleanupFailure.invalidResponse }
+        if let metricsObserver, let metrics = try? JSONDecoder().decode(CleanupResponseMetrics.self, from: data) {
+            metricsObserver(metrics)
+        }
         guard let choice = result.choices.first, choice.finish_reason == "stop" else {
             throw result.choices.first?.finish_reason == "length" ? CleanupFailure.length : .unfinished
         }
