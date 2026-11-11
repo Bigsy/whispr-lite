@@ -1,8 +1,10 @@
 import Foundation
 
 /// The cleanup service's llama.cpp build commands, run for Settings > Advanced. The commands
-/// go to the launcher the cleanup LaunchAgent starts, with the same directory and port, so a
-/// check or switch acts on exactly the runner and models the service uses.
+/// use the cleanup LaunchAgent's directory and port, so a check or switch acts on the models
+/// and builds the service uses. With the app's bundled kit they run its helper, so applying or
+/// switching a build re-stages the service with this app's helper; without one they run the
+/// launcher the LaunchAgent starts.
 public enum CleanupEngineCommand: String, Sendable, CaseIterable {
     case status
     case check = "upgrade-check"
@@ -92,9 +94,12 @@ public struct CleanupEngineLauncher: Equatable, Sendable {
     public let executable: URL
     /// The agent's arguments after its run command: the service directory and port.
     public let options: [String]
+    /// The app's bundled cleanup kit. When set, commands run its helper instead of the staged
+    /// runner, which otherwise copies itself, old code included, on every switch.
+    public let kit: URL?
 
     /// Reads the cleanup LaunchAgent and accepts only one that Whispr Lite installed.
-    public init(agent: URL = Self.agent) throws {
+    public init(agent: URL = Self.agent, kit: URL? = nil) throws {
         guard let data = try? Data(contentsOf: agent) else {
             throw CleanupEngineFailure("The cleanup service is not installed. \(Self.reinstall)")
         }
@@ -105,15 +110,17 @@ public struct CleanupEngineLauncher: Equatable, Sendable {
               program[0].hasPrefix("/"), FileManager.default.isExecutableFile(atPath: program[0]) else {
             throw CleanupEngineFailure("The cleanup login item was not recognised. \(Self.reinstall)")
         }
-        executable = URL(fileURLWithPath: program[0])
+        executable = kit.map(CleanupSetup.helper(in:)) ?? URL(fileURLWithPath: program[0])
         options = Array(program.dropFirst(2))
+        self.kit = kit
     }
 
     /// Runs one command to completion. Progress lines arrive on a background thread as they are
     /// printed; cancelling the task stops the command, which stops any candidate server.
     public func run(_ command: CleanupEngineCommand,
                     progress: @escaping @Sendable (String) -> Void) async throws -> CleanupEngineReport {
-        let output = try await LauncherRun(executable: executable, arguments: [command.rawValue] + options,
+        let arguments = [command.rawValue] + (kit.map { ["--kit", $0.path] } ?? []) + options
+        let output = try await LauncherRun(executable: executable, arguments: arguments,
                                           progress: progress).run()
         let line = output.split(separator: UInt8(ascii: "\n")).last.map { Data($0) } ?? Data()
         guard let report = try? JSONDecoder().decode(CleanupEngineReport.self, from: line) else {

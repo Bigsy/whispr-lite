@@ -15,7 +15,7 @@ public struct CleanupSetup: Equatable, Sendable {
         executable = Self.helper(in: kit)
     }
 
-    private static func helper(in kit: URL) -> URL {
+    static func helper(in kit: URL) -> URL {
         let standalone = kit.appendingPathComponent(CleanupService.runnerName)
         if FileManager.default.isExecutableFile(atPath: standalone.path) { return standalone }
         return kit.deletingLastPathComponent().deletingLastPathComponent()

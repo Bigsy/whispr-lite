@@ -37,6 +37,28 @@ import Testing
         }
     }
 
+    @Test func bundledKitRunsItsOwnHelperWithTheServiceDirectoryAndPort() async throws {
+        // The staged runner fails if it is used instead of the kit's helper.
+        let (_, directory) = try launcher("exit 1")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let kit = directory.appendingPathComponent("CleanupSetup")
+        try FileManager.default.createDirectory(at: kit, withIntermediateDirectories: true)
+        let helper = kit.appendingPathComponent(CleanupService.runnerName)
+        try """
+            #!/bin/sh
+            printf '%s\\n' "$@" > "$(dirname "$0")/arguments"
+            echo '{"schema": 1, "status": "up-to-date", "current": {"tag": "b2", "version": "0.7.0"}}'
+            """.write(to: helper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: helper.path)
+        let engine = try CleanupEngineLauncher(agent: directory.appendingPathComponent("agent.plist"), kit: kit)
+        #expect(engine.executable == helper)
+        let report = try await engine.run(.check) { _ in }
+        #expect(report.status == .upToDate)
+        let arguments = try String(contentsOf: kit.appendingPathComponent("arguments"), encoding: .utf8)
+        #expect(arguments.split(separator: "\n").map(String.init)
+            == ["upgrade-check", "--kit", kit.path, "--directory", "/synthetic dir", "--port", "11436"])
+    }
+
     @Test func streamsProgressAndDecodesTheResult() async throws {
         let (engine, directory) = try launcher("""
             echo "progress: Downloading b11602…" >&2

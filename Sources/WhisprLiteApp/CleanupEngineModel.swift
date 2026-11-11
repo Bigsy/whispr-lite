@@ -20,7 +20,9 @@ import WhisprLiteCore
     private let launcher: (() throws -> CleanupEngineLauncher)?
     private let switched: () -> Void
 
-    init(launcher: (() throws -> CleanupEngineLauncher)? = { try CleanupEngineLauncher() },
+    init(launcher: (() throws -> CleanupEngineLauncher)? = {
+             try CleanupEngineLauncher(kit: CleanupSetup.kit(resources: Bundle.main.resourceURL))
+         },
          switched: @escaping () -> Void = {}) {
         self.launcher = launcher; self.switched = switched
     }
