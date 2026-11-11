@@ -65,12 +65,19 @@ private final class CleanupCandidate: @unchecked Sendable {
         process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
         try process.run()
     }
+    /// Bounded. Never calls `waitUntilExit()`: Foundation can clear `isRunning` once the child
+    /// exits yet never finish its termination step, and `waitUntilExit()` then waits forever
+    /// while this helper keeps the setup lock.
     func stop() {
         if process.isRunning { process.terminate() }
-        let deadline = Date().addingTimeInterval(2)
+        guard !exited(within: 2) else { return }
+        kill(process.processIdentifier, SIGKILL)
+        _ = exited(within: 2)
+    }
+    private func exited(within seconds: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
         while process.isRunning, Date() < deadline { Thread.sleep(forTimeInterval: 0.02) }
-        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-        process.waitUntilExit()
+        return !process.isRunning
     }
 }
 
