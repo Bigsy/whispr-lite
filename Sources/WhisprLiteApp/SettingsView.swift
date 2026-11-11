@@ -626,9 +626,12 @@ private final class SettingsSectionHeights {
     }
     private func save() {
         do {
+            let sortedDictionary = dictionaryUnreadable && !dictionaryEdited ? nil : DictionaryCorrections.sorted(dictionary)
             try store.save(preferences,
                 instructions: instructionsUnreadable && !instructionsEdited ? nil : instructions,
-                dictionary: dictionaryUnreadable && !dictionaryEdited ? nil : dictionary)
+                dictionary: sortedDictionary)
+            // Show what was saved. The edit this reports is harmless: the file is readable now.
+            if let sortedDictionary { dictionary = sortedDictionary }
             if instructionsEdited { instructionsUnreadable = false; instructionsEdited = false }
             if dictionaryEdited { dictionaryUnreadable = false; dictionaryEdited = false }
             error = instructionsUnreadable || dictionaryUnreadable ? Self.unreadableMessage : ""

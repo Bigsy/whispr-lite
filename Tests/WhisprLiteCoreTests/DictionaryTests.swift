@@ -59,4 +59,16 @@ import Testing
         let dictionary = DictionaryCorrections("alias => First\nALIAS => Second\n => Empty\nbroken =>\na => b => c")
         #expect(dictionary.apply(to: "alias ALIAS broken a") == "alias ALIAS broken a")
     }
+
+    @Test func savedDictionarySortsEntriesIgnoringCaseWithoutChangingCorrections() {
+        let typed = "Parakeet\n\n  gemma \r\nnum pie > NumPy\nFabrikam\nfabricam => Fabrikam\n   \n"
+        let sorted = DictionaryCorrections.sorted(typed)
+        #expect(sorted == "fabricam => Fabrikam\nFabrikam\ngemma\nnum pie > NumPy\nParakeet")
+        #expect(DictionaryCorrections.sorted(sorted) == sorted)
+        #expect(DictionaryCorrections.sorted("") == "")
+        #expect(DictionaryCorrections.sorted(" \n\n") == "")
+        let input = "Num Pie and FABRICAM use parakeet."
+        #expect(DictionaryCorrections(sorted).apply(to: input) == DictionaryCorrections(typed).apply(to: input))
+        #expect(DictionaryCorrections(sorted).apply(to: input) == "NumPy and Fabrikam use parakeet.")
+    }
 }
