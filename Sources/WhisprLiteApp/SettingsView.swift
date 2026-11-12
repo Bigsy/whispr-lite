@@ -35,7 +35,7 @@ private final class SettingsSectionHeights {
 
 /// Fixed-width settings whose window follows each page's height, so ordinary settings never
 /// need scrolling. The scroll view is only a fallback for a page taller than the screen; the
-/// instructions and dictionary editors scroll inside and can be dragged taller.
+/// instructions editor and dictionary list scroll inside.
 @MainActor struct SettingsView: View {
     static let width: CGFloat = 640
     let store: SettingsStore
@@ -49,7 +49,7 @@ private final class SettingsSectionHeights {
     @State private var page: SettingsPage
     @State private var preferences: Preferences
     @State private var instructions: String
-    @State private var dictionary: String
+    @State private var dictionary: DictionaryEntries
     @State private var instructionsUnreadable: Bool
     @State private var dictionaryUnreadable: Bool
     @State private var instructionsEdited = false
@@ -66,7 +66,6 @@ private final class SettingsSectionHeights {
     @State private var permissions: PermissionStatus
     @State private var sectionHeights = SettingsSectionHeights()
     @AppStorage("settingsInstructionsEditorHeight") private var instructionsHeight = 56.0
-    @AppStorage("settingsDictionaryEditorHeight") private var dictionaryHeight = 84.0
 
     init(store: SettingsStore, status: AppStatus, engine: CleanupEngineModel, setup: CleanupSetupModel, actions: SettingsActions,
          page: SettingsPage = .general,
@@ -81,7 +80,7 @@ private final class SettingsSectionHeights {
         let loadedInstructions = Self.loadPrivateText(.instructions, fallback: "", store: store)
         let loadedDictionary = Self.loadPrivateText(.dictionary, fallback: "", store: store)
         _instructions = State(initialValue: loadedInstructions.text)
-        _dictionary = State(initialValue: loadedDictionary.text)
+        _dictionary = State(initialValue: DictionaryEntries(loadedDictionary.text))
         _instructionsUnreadable = State(initialValue: loadedInstructions.unreadable)
         _dictionaryUnreadable = State(initialValue: loadedDictionary.unreadable)
         _error = State(initialValue: loadedInstructions.unreadable || loadedDictionary.unreadable ? Self.unreadableMessage : "")
@@ -313,7 +312,7 @@ private final class SettingsSectionHeights {
             if error.isEmpty { Text("Changes apply when saved.").font(.caption).foregroundStyle(.secondary) }
             else { Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true) }
             Spacer(minLength: 12)
-            Button("Save settings", action: save).keyboardShortcut(.defaultAction)
+            Button("Save settings", action: save).keyboardShortcut("s", modifiers: .command)
         }.padding(.horizontal, 20).padding(.vertical, 12)
     }
 
@@ -402,10 +401,9 @@ private final class SettingsSectionHeights {
             if instructionsUnreadable {
                 warning("Saved instructions could not be read. The editor is blank; Save preserves the file until you edit it.")
             }
-            editorSection("Dictionary and phrases", "Names and terms guide the local model. For an exact conversion, write spoken phrase > Written phrase on its own line; case is ignored.",
-                          text: $dictionary, height: $dictionaryHeight) { EmptyView() }
+            DictionaryListEditor(dictionary: $dictionary)
             if dictionaryUnreadable {
-                warning("Saved dictionary could not be read. The editor is blank; Save preserves the file until you edit it.")
+                warning("Saved dictionary could not be read. The list is empty; Save preserves the file until you add an entry.")
             }
             section("Dictation history") {
                 toggleRow("Keep dictation history on this Mac", "Saves each transcript and its cleaned text in a private file on this Mac, so a better local cleanup model can be trained on your own dictation. Never uploaded or shared. History excludes audio and cancelled dictations.",
@@ -626,12 +624,10 @@ private final class SettingsSectionHeights {
     }
     private func save() {
         do {
-            let sortedDictionary = dictionaryUnreadable && !dictionaryEdited ? nil : DictionaryCorrections.sorted(dictionary)
+            let savedDictionary = dictionaryUnreadable && !dictionaryEdited ? nil : dictionary.text
             try store.save(preferences,
                 instructions: instructionsUnreadable && !instructionsEdited ? nil : instructions,
-                dictionary: sortedDictionary)
-            // Show what was saved. The edit this reports is harmless: the file is readable now.
-            if let sortedDictionary { dictionary = sortedDictionary }
+                dictionary: savedDictionary)
             if instructionsEdited { instructionsUnreadable = false; instructionsEdited = false }
             if dictionaryEdited { dictionaryUnreadable = false; dictionaryEdited = false }
             error = instructionsUnreadable || dictionaryUnreadable ? Self.unreadableMessage : ""

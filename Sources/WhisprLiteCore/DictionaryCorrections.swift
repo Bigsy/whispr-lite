@@ -58,18 +58,9 @@ public struct DictionaryCorrections: Sendable {
         return result as String
     }
 
-    /// The dictionary as settings save it: one trimmed entry per line, blank lines dropped,
-    /// in alphabetical order ignoring case. An alias line sorts by its spoken phrase.
-    /// Corrections do not depend on line order, so sorting never changes a conversion.
+    /// Normalizes legacy comma-separated vocabulary and sorts entries for settings.
     public static func sorted(_ dictionary: String) -> String {
-        dictionary.components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .sorted {
-                let order = $0.localizedStandardCompare($1)
-                return order == .orderedSame ? $0 < $1 : order == .orderedAscending
-            }
-            .joined(separator: "\n")
+        DictionaryEntries(dictionary).text
     }
 
     private static func key(_ value: String) -> String {
