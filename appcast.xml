@@ -1,13 +1,20 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
+<?xml version="1.0" standalone="yes"?><!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
 --><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
-  <channel>
-    <title>Whispr Lite updates</title>
-    <link>https://github.com/Bigsy/whispr-lite/releases</link>
-    <description>Signed app updates for Whispr Lite.</description>
-    <language>en</language>
-  </channel>
+    <channel>
+        <title>Whispr Lite</title>
+        <item>
+            <title>0.1.0</title>
+            <pubDate>Thu, 12 Nov 2026 21:19:11 +0000</pubDate>
+            <link>https://github.com/Bigsy/whispr-lite/releases/tag/v0.1.0-beta.5</link>
+            <sparkle:version>6</sparkle:version>
+            <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/Bigsy/whispr-lite/releases/download/v0.1.0-beta.5/WhisprLite-0.1.0-beta.5-arm64.dmg" length="24688764" type="application/octet-stream" sparkle:edSignature="B3TWE39ZbIJ+BZorFYs1BaJeN+SKHfImNj5qNfpZ2C0i6ObX6YsqlLTUiM2JsKQ4OBYG2WCKw0i0XBlZbRBRAA=="></enclosure>
+        </item>
+    </channel>
 </rss><!-- sparkle-signatures:
-edSignature: AlshjEXJlh63AGX+ccnPdhYHdR8Z8NP5CmjLBnGqyGkRy7rWJhvICdhPHIKsPIBpXpE7b3h1Z3rPrznaFMJJBg==
-length: 607
+edSignature: IeJ6yHCRkSUluyuulF3OCW8ehHspE5IlSLmzy17PKFicE1PSd9pAJKp02imci2lARd9s2vreBN5TaWQgYMl2Bg==
+length: 1235
 -->
