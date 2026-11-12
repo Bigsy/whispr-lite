@@ -94,8 +94,9 @@ import WhisprLiteCore
     }
     @objc private func checkForUpdates() { appUpdater.checkForUpdates() }
     private func setMenuAppearance(_ state: DictationState) {
-        item?.button?.image = NSImage(systemSymbolName: state.symbolName,
-            accessibilityDescription: "Whispr Lite")
+        item?.button?.image = state == .idle ? MenuBarIcon.image
+            : NSImage(systemSymbolName: state == .recording ? "waveform" : state.symbolName,
+                accessibilityDescription: "Whispr Lite")
         item?.button?.title = controller.store?.preferences.backend == .demo ? " \(DemoLabel.name)" : ""
     }
     private func observeLifecycle() {
