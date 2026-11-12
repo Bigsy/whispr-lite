@@ -9,6 +9,9 @@ import tempfile
 import shutil
 import types
 import unittest
+import base64
+import plistlib
+import sparkle_updates
 from unittest.mock import patch
 
 
@@ -104,6 +107,82 @@ class ReleaseTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'Developer ID'):
                     packaging.package('0.1.0', 'notarized', root / 'output')
             self.assertEqual(list((root / 'output').iterdir()), [])
+
+
+class AppUpdateTests(unittest.TestCase):
+    def info(self):
+        return dict(SUPublicEDKey=base64.b64encode(bytes(range(32))).decode(),
+                    SUFeedURL='https://example.com/appcast.xml', CFBundleVersion='5')
+
+    def test_unconfigured_build_is_manual_but_partial_configuration_is_rejected(self):
+        self.assertFalse(sparkle_updates.validate_configuration({}))
+        for missing in ['SUPublicEDKey', 'SUFeedURL']:
+            info = self.info()
+            del info[missing]
+            with self.assertRaisesRegex(ValueError, 'both'):
+                sparkle_updates.validate_configuration(info)
+
+    def test_update_configuration_rejects_invalid_keys_urls_and_build_numbers(self):
+        for field, values in {
+            'SUPublicEDKey': ['not base64', base64.b64encode(b'too short').decode()],
+            'SUFeedURL': ['http://example.com/appcast.xml', 'https://user:pass@example.com/appcast.xml',
+                          'https://example.com/appcast.xml?token=private', 'https://example.com/releases'],
+            'CFBundleVersion': ['0', '-1', '1.2', 'five'],
+        }.items():
+            for value in values:
+                with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                    sparkle_updates.validate_configuration({**self.info(), field: value})
+        self.assertTrue(sparkle_updates.validate_configuration(self.info()))
+
+    def test_configuration_preserves_bundle_metadata_and_rejects_before_writing(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'Info.plist'
+            path.write_bytes(plistlib.dumps(dict(CFBundleVersion='5', CFBundleIdentifier='test.app')))
+            original = path.read_bytes()
+            with self.assertRaises(ValueError):
+                sparkle_updates.configure(path, dict(SPARKLE_FEED_URL='https://example.com/appcast.xml'))
+            self.assertEqual(path.read_bytes(), original)
+            sparkle_updates.configure(path, dict(SPARKLE_FEED_URL=self.info()['SUFeedURL'],
+                                                SPARKLE_PUBLIC_ED_KEY=self.info()['SUPublicEDKey']))
+            configured = plistlib.loads(path.read_bytes())
+            self.assertEqual(configured['CFBundleIdentifier'], 'test.app')
+            self.assertTrue(sparkle_updates.validate_configuration(configured))
+
+    def test_wrong_signing_key_is_rejected(self):
+        with patch.object(sparkle_updates, 'run', return_value=base64.b64encode(b'x' * 32).decode()):
+            with self.assertRaisesRegex(ValueError, 'does not match'):
+                sparkle_updates.verify_signing_key(self.info(), 'test-account')
+
+    def test_appcast_uses_only_the_dmg_and_verifies_feed_signature(self):
+        for alteration in [None, 'unsigned', 'wrong-version', 'wrong-download', 'wrong-length']:
+            with self.subTest(alteration=alteration), tempfile.TemporaryDirectory() as temporary:
+                output = Path(temporary)
+                dmg = output / 'WhisprLite-0.1.0-beta.5-preview-arm64.dmg'
+                dmg.write_bytes(b'synthetic disk image')
+                (output / 'Cleanup-Setup.zip').write_bytes(b'never an app update')
+                appcast = output / 'appcast.xml'
+                def run(*arguments):
+                    if Path(arguments[0]).name == 'generate_appcast':
+                        archives = Path(arguments[-1])
+                        self.assertEqual([p.name for p in archives.iterdir()], [dmg.name])
+                        prefix = arguments[arguments.index('--download-url-prefix') + 1]
+                        self.assertEqual(prefix, 'https://github.com/Bigsy/whispr-lite/releases/download/v0.1.0-beta.5/')
+                        signature = '' if alteration == 'unsigned' else 'sparkle:edSignature="synthetic"'
+                        version = '4' if alteration == 'wrong-version' else '5'
+                        url = 'https://elsewhere.test/other.dmg' if alteration == 'wrong-download' else prefix + dmg.name
+                        length = 1 if alteration == 'wrong-length' else dmg.stat().st_size
+                        appcast.write_text(f'<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
+                            f'<channel><item><sparkle:version>{version}</sparkle:version>'
+                            f'<enclosure url="{url}" length="{length}" {signature}/></item></channel></rss>')
+                    return ''
+                with patch.object(sparkle_updates, 'run', side_effect=run) as command:
+                    if alteration:
+                        with self.assertRaisesRegex(ValueError, 'does not match'):
+                            sparkle_updates.generate_appcast(dmg, appcast, self.info(), '0.1.0-beta.5', 'test-account')
+                    else:
+                        sparkle_updates.generate_appcast(dmg, appcast, self.info(), '0.1.0-beta.5', 'test-account')
+                        self.assertEqual(command.call_args.args,
+                            (sparkle_updates.TOOLS / 'sign_update', '--account', 'test-account', '--verify', appcast))
 
 
 if __name__ == '__main__': unittest.main()

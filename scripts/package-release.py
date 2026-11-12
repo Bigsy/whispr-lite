@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import time
 import zipfile
+import sparkle_updates
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -105,12 +106,15 @@ def notarize(submission, auth, staple):
     command('xcrun', 'stapler', 'validate', str(staple))
 
 
-def package(release_version, channel, output, notary_profile=None):
+def package(release_version, channel, output, notary_profile=None, sparkle_account=sparkle_updates.DEFAULT_ACCOUNT):
     numeric = version(release_version)
     source = ROOT / 'dist/Whispr Lite.app'
     info = plistlib.loads((source / 'Contents/Info.plist').read_bytes())
     if info['CFBundleShortVersionString'] != numeric:
         raise ValueError('Build with APP_VERSION matching the release before packaging')
+    updates_enabled = sparkle_updates.validate_configuration(info)
+    if updates_enabled:
+        sparkle_updates.verify_signing_key(info, sparkle_account)
     command('/usr/bin/codesign', '--verify', '--deep', '--strict', str(source))
     if command('/usr/bin/lipo', '-archs', str(source / 'Contents/MacOS/WhisprLite')).strip() != 'arm64':
         raise ValueError('Release must contain an arm64 app')
@@ -121,7 +125,8 @@ def package(release_version, channel, output, notary_profile=None):
     manifest_path = output / f'WhisprLite-{release_version}{suffix}-manifest.json'
     checksums = output / f'WhisprLite-{release_version}{suffix}-SHA256SUMS.txt'
     app_dmg = output / f'WhisprLite-{release_version}{suffix}-arm64.dmg'
-    if any(p.exists() for p in [app_zip, app_dmg, setup_zip, manifest_path, checksums]):
+    appcast = output / 'appcast.xml'
+    if any(p.exists() for p in [app_zip, app_dmg, setup_zip, manifest_path, checksums, appcast]):
         raise ValueError('Release files already exist; choose an empty output directory')
     with tempfile.TemporaryDirectory(prefix='whispr-package-') as temporary:
         staging = Path(temporary)
@@ -168,6 +173,8 @@ def package(release_version, channel, output, notary_profile=None):
             command(str(volume / source.name / 'Contents/MacOS/WhisprLite'), '--smoke-test')
             verify_cleanup_helper(volume / source.name)
         shutil.move(image, app_dmg)
+    if updates_enabled:
+        sparkle_updates.generate_appcast(app_dmg, appcast.resolve(), info, release_version, sparkle_account)
     # The same signed native helper, usable without Python or a source checkout.
     with zipfile.ZipFile(setup_zip, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
         archive.write(source / 'Contents/Helpers/Whispr Lite Cleanup', 'WhisprLite-Cleanup-Setup/Whispr Lite Cleanup')
@@ -178,11 +185,12 @@ def package(release_version, channel, output, notary_profile=None):
                 archive.write(file, 'WhisprLite-Cleanup-Setup/Licenses/' + file.relative_to(source / 'Contents/Resources/Licenses').as_posix())
     commit = command('git', '-C', str(ROOT), 'rev-parse', 'HEAD').strip()
     artifacts = [{ 'file': p.name, 'bytes': p.stat().st_size, 'sha256': digest(p) }
-                 for p in [app_dmg, app_zip, setup_zip]]
+                 for p in [app_dmg, app_zip, setup_zip, *([appcast] if updates_enabled else [])]]
     manifest_path.write_text(json.dumps(dict(schema=1, version=release_version, channel=channel,
         commit=commit, source_dirty=bool(command('git', '-C', str(ROOT), 'status', '--porcelain').strip()),
         architecture='arm64', minimum_macos=info['LSMinimumSystemVersion'],
         notarized=channel == 'notarized', cleanup_setup_requires_python=False,
+        app_updates_enabled=updates_enabled, build_number=info.get('CFBundleVersion'),
         model_weights_included=False, artifacts=artifacts), indent=2) + '\n')
     artifacts.append(dict(file=manifest_path.name, sha256=digest(manifest_path)))
     checksums.write_text(''.join(f"{a['sha256']}  {a['file']}\n" for a in artifacts))
@@ -195,8 +203,10 @@ if __name__ == '__main__':
     parser.add_argument('--channel', choices=['preview', 'notarized'], default='preview')
     parser.add_argument('--output-directory', type=Path, default=ROOT / 'dist/releases')
     parser.add_argument('--notary-profile')
+    parser.add_argument('--sparkle-account', default=sparkle_updates.DEFAULT_ACCOUNT,
+                        help='Keychain account holding the Sparkle signing key')
     args = parser.parse_args()
     try:
-        package(args.version, args.channel, args.output_directory, args.notary_profile)
+        package(args.version, args.channel, args.output_directory, args.notary_profile, args.sparkle_account)
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
         parser.exit(1, f'Release packaging failed: {failure_message(error)}\n')

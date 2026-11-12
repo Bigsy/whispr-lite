@@ -7,6 +7,7 @@ import WhisprLiteCore
 
 @MainActor final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     let appStatus = AppStatus()
+    let appUpdater = AppUpdater()
     private lazy var controller = DictationController(status: appStatus)
     /// Kept with the app so a llama.cpp check continues while settings are closed.
     private lazy var cleanupEngine = CleanupEngineModel(switched: { [weak self] in self?.retry() })
@@ -20,6 +21,7 @@ import WhisprLiteCore
     private var observers: [NSObjectProtocol] = []
     private static let shutdownGrace: Duration = .milliseconds(700)
     private var shutdownStarted = false
+    private var updateTerminationWaiting = false
     private var terminationReply: Task<Void, Never>?
     func applicationDidFinishLaunching(_ notification: Notification) {
         let command: LaunchCommand
@@ -37,7 +39,14 @@ import WhisprLiteCore
             exit(0)
         case .run: break
         }
-        controller.onStateChange = { [weak self] in self?.setMenuAppearance($0) }
+        appUpdater.start()
+        controller.onStateChange = { [weak self] in
+            self?.setMenuAppearance($0)
+            self?.appUpdater.dictationStateChanged($0)
+            if let self, self.updateTerminationWaiting, !self.appUpdater.isBusy {
+                self.finishTermination(NSApp)
+            }
+        }
         do { controller.attach(try SettingsStore()) }
         catch {
             controller.update("Settings could not be loaded", readiness: .needsAttention)
@@ -66,7 +75,8 @@ import WhisprLiteCore
         copyEntry.target = self
         copyMenuItem = copyEntry
         menu.addItem(copyEntry)
-        for (title, action) in [("Settings…", #selector(showSettings)), ("Check readiness", #selector(retry)),
+        for (title, action) in [("Settings…", #selector(showSettings)), ("Check for Updates…", #selector(checkForUpdates)),
+                                ("Check readiness", #selector(retry)),
                                 ("Microphone permission", #selector(requestMicrophone)),
                                 ("Accessibility permission", #selector(requestAccessibility)),
                                 ("Quit", #selector(quit))] {
@@ -77,8 +87,12 @@ import WhisprLiteCore
     }
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem === copyMenuItem { return controller.canCopyResult }
+        if menuItem.action == #selector(checkForUpdates) {
+            return appUpdater.isConfigured && appUpdater.canCheckForUpdates && !appUpdater.isBusy
+        }
         return true
     }
+    @objc private func checkForUpdates() { appUpdater.checkForUpdates() }
     private func setMenuAppearance(_ state: DictationState) {
         item?.button?.image = NSImage(systemSymbolName: state.symbolName,
             accessibilityDescription: "Whispr Lite")
@@ -158,6 +172,7 @@ import WhisprLiteCore
                 downloadSpeechModel: { [weak self] in self?.controller.downloadSpeechModel() },
                 permissions: { PermissionStatus.current })
             let view = SettingsView(store: store, status: appStatus, engine: cleanupEngine, setup: cleanupSetup, actions: actions,
+                updater: appUpdater,
                 onHeightChange: { [weak self] in self?.fitSettings(height: $0) },
                 saved: { [weak self] in self?.controller.configure() })
             let host = NSHostingView(rootView: view)
@@ -202,12 +217,22 @@ import WhisprLiteCore
     @objc private func quit() { NSApp.terminate(nil) }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !shutdownStarted else { return .terminateLater }
+        // A new dictation may start while Sparkle's installer is connecting, after
+        // its postponement callback. Recheck at the actual termination request.
+        if appUpdater.isInstallingUpdate && appUpdater.isBusy {
+            updateTerminationWaiting = true
+            return .terminateLater
+        }
+        finishTermination(sender)
+        return .terminateLater
+    }
+    private func finishTermination(_ sender: NSApplication) {
+        updateTerminationWaiting = false
         beginShutdown()
         terminationReply = Task {
             try? await Task.sleep(for: Self.shutdownGrace)
             sender.reply(toApplicationShouldTerminate: true)
         }
-        return .terminateLater
     }
     private func beginShutdown() {
         guard !shutdownStarted else { return }

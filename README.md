@@ -63,7 +63,8 @@ dictionary.** Speech recognition and text cleanup run entirely on your Mac, and
 dictation works offline once the models are installed.
 
 Internet access is used to download models and runtime files, and to check for runtime
-updates. These requests do not include your dictation. Text you paste into another app
+and app updates. Automatic app checks are opt-in in **Settings → General → App updates**;
+manual checks are also available from the menu bar. These requests do not include your dictation. Text you paste into another app
 is then subject to that app's own privacy and sync settings.
 
 Settings, prompts and dictionaries stay under `~/Library/Application Support/WhisprLite/`.
@@ -111,6 +112,49 @@ For a notarized build, set `SIGN_IDENTITY` to your Developer ID Application iden
 `DISTRIBUTION_SIGNING=1` when building, then package with `--channel notarized
 --notary-profile YOUR_KEYCHAIN_PROFILE`. Use a fresh output directory via
 `--output-directory` for each release.
+
+### App updates from GitHub Releases
+
+The app uses [Sparkle](https://sparkle-project.org/documentation/) to download a release
+DMG, verify its signature, replace the installed app and relaunch. Users choose when to
+install; relaunch waits for active dictation to finish. Models, settings and history live
+outside the app bundle and are retained. Existing versions need one manual update to a
+build containing Sparkle. Unconfigured source builds continue to use manual downloads.
+
+To enable updates for a release, first generate a signing key once (after `make build`):
+
+```sh
+.build/artifacts/sparkle/Sparkle/bin/generate_keys --account com.hedworth.whispr-lite
+```
+
+The private key stays in your login Keychain. Back it up securely; keep the same key
+across releases. Build with its **public** key and a permanent HTTPS feed URL:
+
+```sh
+export SPARKLE_PUBLIC_ED_KEY="$(.build/artifacts/sparkle/Sparkle/bin/generate_keys --account com.hedworth.whispr-lite -p)"
+export SPARKLE_FEED_URL=https://raw.githubusercontent.com/Bigsy/whispr-lite/main/appcast.xml
+APP_VERSION=0.1.0 APP_BUILD_NUMBER=5 make build
+python3 scripts/package-release.py --version 0.1.0-beta.5 --channel preview \
+  --output-directory dist/releases/0.1.0-beta.5
+```
+
+Use a strictly increasing `APP_BUILD_NUMBER` for **every** release, including betas;
+Sparkle compares this number, not the GitHub tag. For public distribution, use the
+Developer ID/notarized build steps above. Preview signatures may require granting
+macOS permissions again after an update.
+
+Packaging verifies the Keychain key matches the app, then generates a signed
+`appcast.xml` pointing at the exact DMG in GitHub release `v<VERSION>`. Upload the
+release assets first, then publish the generated XML unchanged at `SPARKLE_FEED_URL`
+(in the example, commit `appcast.xml` to the repository root on `main`). Publishing is
+a separate step; packaging never pushes or creates a release. Both the feed and the
+DMG are signed, and the app verifies the download before extraction.
+
+The feed is curated: only releases whose generated feed you publish are offered,
+including GitHub prereleases. For a stable-only stream, publish only stable versions
+to that feed. Each generated feed contains one release; retain separate feeds if you
+later need parallel beta channels or older macOS support. Do not use GitHub's
+`releases/latest` feed URL for a beta stream, since it excludes prereleases.
 
 ## License
 

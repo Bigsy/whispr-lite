@@ -26,6 +26,7 @@ if [[ -n "${APP_BUILD_NUMBER:-}" ]]; then
   [[ "$APP_BUILD_NUMBER" =~ '^[0-9]+$' ]] || { print -u2 'Invalid APP_BUILD_NUMBER'; exit 1; }
   /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $APP_BUILD_NUMBER" "$app/Contents/Info.plist"
 fi
+python3 scripts/sparkle_updates.py "$app/Contents/Info.plist"
 cp Vendor/mediaremote-adapter/patches/broker.pl "$app/Contents/Resources/"
 cp Vendor/mediaremote-adapter/LICENSE "$app/Contents/Resources/MediaRemoteAdapter-LICENSE"
 cp THIRD_PARTY_NOTICES.md "$app/Contents/Resources/"
@@ -49,6 +50,9 @@ cp -R "$fluid_source/ThirdPartyLicenses" "$app/Contents/Resources/Licenses/Fluid
 cp LICENSE "$app/Contents/Resources/Licenses/WhisprLite-MIT.txt"
 cp -R "$app/Contents/Resources/Licenses" "$setup_kit/"
 cp -R .build/media/MediaRemoteAdapter.framework "$app/Contents/Frameworks/"
+sparkle="$PWD/$task_scratch_path/artifacts/sparkle/Sparkle"
+ditto "$sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework" "$app/Contents/Frameworks/Sparkle.framework"
+cp "$sparkle/LICENSE" "$app/Contents/Resources/Licenses/Sparkle.txt"
 # SwiftPM resources must accompany a candidate that packages CoreML/resource bundles.
 for resource in "$binary_dir"/*.bundle(N); do cp -R "$resource" "$app/Contents/Resources/"; done
 identity="${SIGN_IDENTITY:-}"
@@ -62,6 +66,12 @@ if [[ "${DISTRIBUTION_SIGNING:-0}" == 1 ]]; then
   sign_options+=(--options runtime --timestamp)
 fi
 if [[ -n "${SIGN_KEYCHAIN:-}" ]]; then sign_options+=(--keychain "$SIGN_KEYCHAIN"); fi
+# Sign nested Sparkle helpers inside-out for both local builds and notarization.
+sparkle_framework="$app/Contents/Frameworks/Sparkle.framework"
+for component in XPCServices/Installer.xpc XPCServices/Downloader.xpc Autoupdate Updater.app; do
+  codesign --force --sign "$identity" "${sign_options[@]}" --preserve-metadata=entitlements "$sparkle_framework/Versions/B/$component"
+done
+codesign --force --sign "$identity" "${sign_options[@]}" "$sparkle_framework"
 codesign --force --sign "$identity" "${sign_options[@]}" "$app/Contents/Helpers/Whispr Lite Cleanup"
 codesign --force --sign "$identity" "${sign_options[@]}" "$app/Contents/Frameworks/MediaRemoteAdapter.framework"
 codesign --force --sign "$identity" "${sign_options[@]}" --entitlements Resources/App.entitlements "$app"

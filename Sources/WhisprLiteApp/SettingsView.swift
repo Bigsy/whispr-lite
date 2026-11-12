@@ -43,6 +43,7 @@ private final class SettingsSectionHeights {
     @ObservedObject var engine: CleanupEngineModel
     @ObservedObject var setup: CleanupSetupModel
     let actions: SettingsActions
+    let updater: AppUpdater?
     let onHeightChange: (CGFloat) -> Void
     let saved: () -> Void
     private let enumerateMicrophones: Bool
@@ -68,10 +69,12 @@ private final class SettingsSectionHeights {
     @AppStorage("settingsInstructionsEditorHeight") private var instructionsHeight = 56.0
 
     init(store: SettingsStore, status: AppStatus, engine: CleanupEngineModel, setup: CleanupSetupModel, actions: SettingsActions,
+         updater: AppUpdater? = nil,
          page: SettingsPage = .general,
          enumerateMicrophones: Bool = true, onHeightChange: @escaping (CGFloat) -> Void,
          saved: @escaping () -> Void) {
         self.store = store; self.status = status; self.engine = engine; self.setup = setup; self.actions = actions
+        self.updater = updater
         _permissions = State(initialValue: actions.permissions())
         self.onHeightChange = onHeightChange
         self.saved = saved; self.enumerateMicrophones = enumerateMicrophones
@@ -380,6 +383,9 @@ private final class SettingsSectionHeights {
                     permissionButton("Microphone…", granted: permissions.microphone, action: actions.requestMicrophone)
                     permissionButton("Accessibility…", granted: permissions.accessibility, action: actions.requestAccessibility)
                 }
+            }
+            if let updater {
+                section("App updates") { AppUpdateSettings(updater: updater) }
             }
         }
     }

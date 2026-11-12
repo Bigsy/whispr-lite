@@ -1,5 +1,11 @@
 # Third-party notices
 
+## Sparkle
+
+[Sparkle 2.10.1](https://github.com/sparkle-project/Sparkle/releases/tag/2.10.1)
+provides app update verification, installation and relaunch. Its licence and included
+third-party notices are bundled in `Contents/Resources/Licenses/Sparkle.txt`.
+
 ## MediaRemote Adapter
 
 Vendored from [ungive/mediaremote-adapter v0.7.6](https://github.com/ungive/mediaremote-adapter/tree/v0.7.6),

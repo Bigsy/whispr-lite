@@ -8,14 +8,18 @@ let package = Package(
         .executable(name: "WhisprLiteCleanup", targets: ["WhisprLiteCleanup"])
     ],
     dependencies: [
-        .package(url: "https://github.com/Bigsy/parakeet-ane-server.git", exact: "0.3.0")
+        .package(url: "https://github.com/Bigsy/parakeet-ane-server.git", exact: "0.3.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.1")
     ],
     targets: [
         .target(name: "WhisprLiteCore", dependencies:
             [.product(name: "ParakeetCore", package: "parakeet-ane-server")]),
-        .executableTarget(name: "WhisprLiteApp", dependencies: ["WhisprLiteCore"]),
+        .executableTarget(name: "WhisprLiteApp", dependencies: [
+            "WhisprLiteCore", .product(name: "Sparkle", package: "Sparkle")
+        ], linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]),
         .executableTarget(name: "WhisprLiteCleanup", dependencies: ["WhisprLiteCore"]),
         .testTarget(name: "WhisprLiteCoreTests", dependencies:
-            ["WhisprLiteCore", .product(name: "ParakeetCore", package: "parakeet-ane-server")])
+            ["WhisprLiteCore", .product(name: "ParakeetCore", package: "parakeet-ane-server")]),
+        .testTarget(name: "WhisprLiteAppTests", dependencies: ["WhisprLiteApp"])
     ]
 )
