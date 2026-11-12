@@ -119,23 +119,28 @@ The app uses [Sparkle](https://sparkle-project.org/documentation/) to download a
 DMG, verify its signature, replace the installed app and relaunch. Users choose when to
 install; relaunch waits for active dictation to finish. Models, settings and history live
 outside the app bundle and are retained. Existing versions need one manual update to a
-build containing Sparkle. Unconfigured source builds continue to use manual downloads.
+build containing Sparkle. Normal builds include the official public signing key and
+feed URL; no environment variables are required to enable the update controls.
+The initial signed feed has no update entries until the next release is published.
 
-To enable updates for a release, first generate a signing key once (after `make build`):
-
-```sh
-.build/artifacts/sparkle/Sparkle/bin/generate_keys --account com.hedworth.whispr-lite
-```
-
-The private key stays in your login Keychain. Back it up securely; keep the same key
-across releases. Build with its **public** key and a permanent HTTPS feed URL:
+The release signing key is stored in the release Mac's login Keychain under the
+`com.hedworth.whispr-lite` account. Only the public key is committed to the repository.
+Back up the private key securely and keep the same key across releases. To publish:
 
 ```sh
-export SPARKLE_PUBLIC_ED_KEY="$(.build/artifacts/sparkle/Sparkle/bin/generate_keys --account com.hedworth.whispr-lite -p)"
-export SPARKLE_FEED_URL=https://raw.githubusercontent.com/Bigsy/whispr-lite/main/appcast.xml
 APP_VERSION=0.1.0 APP_BUILD_NUMBER=5 make build
 python3 scripts/package-release.py --version 0.1.0-beta.5 --channel preview \
   --output-directory dist/releases/0.1.0-beta.5
+```
+
+Forks should generate their own signing key once and override **both** the public key
+and feed URL when building, rather than using the official update stream:
+
+```sh
+.build/artifacts/sparkle/Sparkle/bin/generate_keys --account YOUR_ACCOUNT
+export SPARKLE_PUBLIC_ED_KEY="$(.build/artifacts/sparkle/Sparkle/bin/generate_keys --account YOUR_ACCOUNT -p)"
+export SPARKLE_FEED_URL=https://YOUR_HOST/appcast.xml
+APP_VERSION=0.1.0 APP_BUILD_NUMBER=5 make build
 ```
 
 Use a strictly increasing `APP_BUILD_NUMBER` for **every** release, including betas;
@@ -146,7 +151,7 @@ macOS permissions again after an update.
 Packaging verifies the Keychain key matches the app, then generates a signed
 `appcast.xml` pointing at the exact DMG in GitHub release `v<VERSION>`. Upload the
 release assets first, then publish the generated XML unchanged at `SPARKLE_FEED_URL`
-(in the example, commit `appcast.xml` to the repository root on `main`). Publishing is
+(for official builds, replace `appcast.xml` in the repository root on `main`). Publishing is
 a separate step; packaging never pushes or creates a release. Both the feed and the
 DMG are signed, and the app verifies the download before extraction.
 
