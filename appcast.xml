@@ -4,17 +4,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Whispr Lite</title>
         <item>
-            <title>0.1.0</title>
-            <pubDate>Thu, 12 Nov 2026 21:19:11 +0000</pubDate>
-            <link>https://github.com/Bigsy/whispr-lite/releases/tag/v0.1.0-beta.5</link>
-            <sparkle:version>6</sparkle:version>
-            <sparkle:shortVersionString>0.1.0</sparkle:shortVersionString>
+            <title>0.1.1</title>
+            <pubDate>Thu, 12 Nov 2026 21:32:55 +0000</pubDate>
+            <link>https://github.com/Bigsy/whispr-lite/releases/tag/v0.1.1</link>
+            <sparkle:version>7</sparkle:version>
+            <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/Bigsy/whispr-lite/releases/download/v0.1.0-beta.5/WhisprLite-0.1.0-beta.5-arm64.dmg" length="24688764" type="application/octet-stream" sparkle:edSignature="B3TWE39ZbIJ+BZorFYs1BaJeN+SKHfImNj5qNfpZ2C0i6ObX6YsqlLTUiM2JsKQ4OBYG2WCKw0i0XBlZbRBRAA=="></enclosure>
+            <enclosure url="https://github.com/Bigsy/whispr-lite/releases/download/v0.1.1/WhisprLite-0.1.1-arm64.dmg" length="24688769" type="application/octet-stream" sparkle:edSignature="oWpaCG6poHPhuWpTwZY+VeH31JQZ5J6shVnwDQVnFWgHiaACZ7B4MCgUcYdiI0nm/+dhTRfpbGnmCsBQXWlkCg=="></enclosure>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: IeJ6yHCRkSUluyuulF3OCW8ehHspE5IlSLmzy17PKFicE1PSd9pAJKp02imci2lARd9s2vreBN5TaWQgYMl2Bg==
-length: 1235
+edSignature: Crs3qx5WbMPMYo73cj9FESQlZCizW6Bg4fcMgVxGO7DRw6fQhMrbhqOqaA7+BPcgARuD9BJMQKxNxPR/Qc1GDw==
+length: 1214
 -->
