@@ -99,19 +99,31 @@ struct AppUpdateSettings: View {
     @ObservedObject var updater: AppUpdater
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 16) {
                 Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—")")
                 Spacer()
-                Button("Check for Updates…") { updater.checkForUpdates() }
-                    .disabled(!updater.isConfigured || !updater.canCheckForUpdates || updater.isBusy)
-                Link("GitHub Releases", destination: URL(string: "https://github.com/Bigsy/whispr-lite/releases")!)
+                HStack(spacing: 8) {
+                    Button("Check for Updates…") { updater.checkForUpdates() }
+                        .disabled(!updater.isConfigured || !updater.canCheckForUpdates || updater.isBusy)
+                    Link("GitHub Releases", destination: URL(string: "https://github.com/Bigsy/whispr-lite/releases")!)
+                }.fixedSize()
             }
-            Toggle("Automatically check for updates", isOn: Binding(
-                get: { updater.automaticallyChecksForUpdates }, set: updater.setAutomaticChecks))
-                .toggleStyle(.checkbox).disabled(!updater.isConfigured)
-            Text(updater.unavailableReason ?? "When enabled, checks GitHub daily. You choose when to download and install. This preference takes effect immediately.")
-                .font(.caption).foregroundStyle(.secondary)
+            .padding(.vertical, 8)
+            Divider()
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Automatically check for updates")
+                    Text(updater.unavailableReason ?? "Checks daily. You choose when to install. Changes apply immediately.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                Toggle("Automatically check for updates", isOn: Binding(
+                    get: { updater.automaticallyChecksForUpdates }, set: updater.setAutomaticChecks))
+                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                    .disabled(!updater.isConfigured)
+            }
+            .padding(.vertical, 8)
         }
     }
 }
