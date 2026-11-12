@@ -121,14 +121,14 @@ install; relaunch waits for active dictation to finish. Models, settings and his
 outside the app bundle and are retained. Existing versions need one manual update to a
 build containing Sparkle. Normal builds include the official public signing key and
 feed URL; no environment variables are required to enable the update controls.
-The initial signed feed has no update entries until the next release is published.
+Published updates are listed in the signed feed at the configured URL.
 
 The release signing key is stored in the release Mac's login Keychain under the
 `com.hedworth.whispr-lite` account. Only the public key is committed to the repository.
 Back up the private key securely and keep the same key across releases. To publish:
 
 ```sh
-APP_VERSION=0.1.0 APP_BUILD_NUMBER=5 make build
+APP_VERSION=0.1.0 APP_BUILD_NUMBER=6 make build
 python3 scripts/package-release.py --version 0.1.0-beta.5 --channel preview \
   --output-directory dist/releases/0.1.0-beta.5
 ```
@@ -140,7 +140,7 @@ and feed URL when building, rather than using the official update stream:
 .build/artifacts/sparkle/Sparkle/bin/generate_keys --account YOUR_ACCOUNT
 export SPARKLE_PUBLIC_ED_KEY="$(.build/artifacts/sparkle/Sparkle/bin/generate_keys --account YOUR_ACCOUNT -p)"
 export SPARKLE_FEED_URL=https://YOUR_HOST/appcast.xml
-APP_VERSION=0.1.0 APP_BUILD_NUMBER=5 make build
+APP_VERSION=0.1.0 APP_BUILD_NUMBER=6 make build
 ```
 
 Use a strictly increasing `APP_BUILD_NUMBER` for **every** release, including betas;
