@@ -91,6 +91,27 @@ class ReleaseTests(unittest.TestCase):
                     packaging.package('0.2.0', 'preview', root / 'output')
                 command.assert_not_called()
 
+    def test_releases_need_new_public_versions_and_increasing_build_numbers(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            feed = Path(temporary) / 'appcast.xml'
+            feed.write_text('<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
+                '<channel><item><sparkle:version>6</sparkle:version>'
+                '<sparkle:shortVersionString>0.1.0</sparkle:shortVersionString></item></channel></rss>')
+            def validate(display, build, tag=None):
+                packaging.validate_release_versions(dict(CFBundleShortVersionString=display,
+                    CFBundleVersion=build), tag or display, feed)
+            with self.assertRaisesRegex(ValueError, 'APP_VERSION.*newer'):
+                validate('0.1.0', '7', '0.1.0-beta.6')
+            with self.assertRaisesRegex(ValueError, 'APP_VERSION.*newer'):
+                validate('0.0.9', '7')
+            for build in ['5', '6']:
+                with self.assertRaisesRegex(ValueError, 'APP_BUILD_NUMBER.*newer'):
+                    validate('0.1.1', build)
+            validate('0.1.1', '7')
+            validate('0.1.10', '8')
+            with self.assertRaisesRegex(ValueError, 'APP_VERSION matching'):
+                validate('0.1.1', '7', '0.1.2')
+
     def test_notarized_channel_rejects_development_signature_without_submitting(self):
         import plistlib
         with tempfile.TemporaryDirectory() as temporary:

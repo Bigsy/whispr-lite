@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import time
 import zipfile
+import xml.etree.ElementTree as ET
 import sparkle_updates
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -39,6 +40,24 @@ def version(value):
     if not re.fullmatch(r'\d+\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?', value):
         raise ValueError('Use a version such as 0.1.0 or 0.1.0-beta.1')
     return value.split('-')[0]
+
+
+def validate_release_versions(info, release_version, published_feed):
+    numeric = version(release_version)
+    if info.get('CFBundleShortVersionString') != numeric:
+        raise ValueError('Build with APP_VERSION matching the release before packaging')
+    if not published_feed.exists():
+        return
+    items = ET.parse(published_feed).getroot().findall('./channel/item')
+    for item in items:
+        previous_build = item.findtext(sparkle_updates.SPARKLE_NS + 'version')
+        previous_display = item.findtext(sparkle_updates.SPARKLE_NS + 'shortVersionString')
+        if previous_build and int(info['CFBundleVersion']) <= int(previous_build):
+            raise ValueError('APP_BUILD_NUMBER must be newer than every published update')
+        if previous_display:
+            previous_numeric = version(previous_display)
+            if tuple(map(int, numeric.split('.'))) <= tuple(map(int, previous_numeric.split('.'))):
+                raise ValueError('APP_VERSION must be newer than every published display version; bump the patch version')
 
 
 def command(*args):
@@ -107,11 +126,9 @@ def notarize(submission, auth, staple):
 
 
 def package(release_version, channel, output, notary_profile=None, sparkle_account=sparkle_updates.DEFAULT_ACCOUNT):
-    numeric = version(release_version)
     source = ROOT / 'dist/Whispr Lite.app'
     info = plistlib.loads((source / 'Contents/Info.plist').read_bytes())
-    if info['CFBundleShortVersionString'] != numeric:
-        raise ValueError('Build with APP_VERSION matching the release before packaging')
+    validate_release_versions(info, release_version, ROOT / 'appcast.xml')
     updates_enabled = sparkle_updates.validate_configuration(info)
     if updates_enabled:
         sparkle_updates.verify_signing_key(info, sparkle_account)
