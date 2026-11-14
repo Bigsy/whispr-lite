@@ -5,6 +5,26 @@ use the production Swift adapters and contact only a local cleanup service. Run 
 while dictation and other model work are idle. Reports identify the machine; compare
 results on the same machine, runtime, model, prompt and capture mode.
 
+## Bundled llama.cpp 1.0.0 — 14 November 2026
+
+The cleanup default pins official build `b12359`, the binary build linked from the
+[v1.0.0 release](https://github.com/ggml-org/llama.cpp/releases/tag/v1.0.0), at commit
+`b1b770d90d94cad9e9ea5b993bdbc383a522fb28`. Its executable reports `1.0.0-dev`;
+the release tag and exact commit identify this pin. The archive size and GitHub SHA-256,
+all 61 runtime file hashes, and the macOS 13.3 minimum across 42 Mach-O files were verified.
+
+On an M1 Max / 64 GB / macOS 27.0.1, isolated old-default `b11819` and candidate servers
+used the existing Gemma/MTP weights, production server flags, bundled default prompt,
+public synthetic dictionary and transcript framing. All 37 public cases produced identical,
+nonempty, untruncated outputs across both builds and a warmup plus three measured rounds
+(111 measured requests per build). This establishes parity on this small synthetic corpus,
+not general accuracy or physical dictation latency. The locally accepted newer `b12377`
+service was preserved. The native helper also prepared the official archive in an isolated
+setup folder and verified the model/runtime hashes, executable version and required flags.
+All 17 setup tests passed, along with the release app build, signature verification,
+bundle smoke test and the packaged helper's verification of the isolated setup.
+Local report: `.build/llama-v1/comparison.json`.
+
 ## Reviewed synthetic text
 
 `cleanup-fixtures.json` has 24 agent-reviewed reference outputs. `accuracy-corpus-v1.json`
