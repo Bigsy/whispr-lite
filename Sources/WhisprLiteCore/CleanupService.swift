@@ -20,17 +20,21 @@ public struct CleanupService: Sendable {
     // pressure can exceed 90 seconds even while the server is making progress.
     var startupTimeout: Duration = .seconds(300)
 
+    /// `model` picks a cleanup model from the kit by id. Without one, the service's accepted
+    /// model is used, as its accepted llama.cpp build is; a login `run` uses only its own pin.
     public init(kit: URL, executable: URL, directory: URL = Self.defaultDirectory,
-                agent: URL = CleanupEngineLauncher.agent, port: Int? = nil, useAcceptedBuild: Bool = true,
+                agent: URL = CleanupEngineLauncher.agent, port: Int? = nil, model: String? = nil,
+                useAcceptedBuild: Bool = true,
                 progress: @escaping @Sendable (CleanupSetupProgress) -> Void = { _ in }) throws {
-        try self.init(kit: kit, executable: executable, directory: directory, agent: agent, port: port,
+        try self.init(kit: kit, executable: executable, directory: directory, agent: agent, port: port, model: model,
                       useAcceptedBuild: useAcceptedBuild, system: .init(), progress: progress)
     }
-    init(kit: URL, executable: URL, directory: URL, agent: URL, port: Int? = nil,
+    init(kit: URL, executable: URL, directory: URL, agent: URL, port: Int? = nil, model: String? = nil,
          useAcceptedBuild: Bool = true, system: CleanupSystem,
          progress: @escaping @Sendable (CleanupSetupProgress) -> Void = { _ in }) throws {
         let base = try CleanupStack.load(kit.appendingPathComponent("Resources/cleanup-stack.json"))
-        stack = try useAcceptedBuild ? base.effective(in: directory) : base
+        let selected = try base.selecting(try model ?? (useAcceptedBuild ? CleanupStack.acceptedModel(in: directory) : nil))
+        stack = try useAcceptedBuild ? selected.effective(in: directory) : selected
         let selectedPort = port ?? base.port
         guard (1024...65535).contains(selectedPort) else { throw CleanupEngineFailure("Port must be between 1024 and 65535") }
         self.kit = kit; self.executable = executable; self.directory = directory
@@ -43,8 +47,7 @@ public struct CleanupService: Sendable {
         try PrivateFiles.ensureDirectory(at: directory)
         let total = stack.artifacts.values.reduce(stack.llama_server.release.bytes) { $0 + $1.bytes }
         var completed: Int64 = 0
-        for name in ["model", "drafter"] {
-            let artifact = stack.artifacts[name]!
+        for artifact in stack.files {
             let source = "https://huggingface.co/\(stack.repository)/resolve/\(stack.revision)/\(artifact.file)"
             try await fetch(artifact, from: source, to: directory.appendingPathComponent(artifact.file),
                             completed: completed, total: total)
@@ -153,7 +156,7 @@ public struct CleanupService: Sendable {
         }
         let help = try await system.checked(binary.path, ["--help"], environment: environment).text
         let flags = stack.serverArguments(directory: directory, port: port)
-        let required = flags.filter { $0.hasPrefix("--") } + ["draft-mtp", "mmap+mlock"]
+        let required = flags.filter { $0.hasPrefix("--") } + (stack.artifacts["drafter"] == nil ? [] : ["draft-mtp"]) + ["mmap+mlock"]
         guard required.allSatisfy({ help.contains($0) }) else { throw CleanupEngineFailure("llama.cpp does not support the required cleanup flags") }
         return [binary.path] + flags
     }
@@ -161,7 +164,9 @@ public struct CleanupService: Sendable {
     /// Writes a self-contained, signed native launcher and its accepted pin outside the app.
     func stageRunner() throws -> URL {
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
-        let lock = try encoder.encode(stack)
+        // The runner's pin is its one model; the other choices stay in the app's kit.
+        var pinned = stack; pinned.models = nil
+        let lock = try encoder.encode(pinned)
         let helper = try CleanupFiles.read(executable, limit: 100 * 1024 * 1024)
         var identity = Data(CleanupFiles.digest(helper).utf8); identity.append(lock)
         var files: [(String, Data)] = [("Resources/cleanup-stack.json", lock)]
@@ -259,6 +264,8 @@ public struct CleanupService: Sendable {
             }.value
             throw error
         }
+        // Recorded only once the new service answers, so later commands use the model it runs.
+        try stack.acceptModel(in: directory)
         report("Cleanup is ready")
     }
     func waitReady(port: Int, timeout: Duration? = nil, process: Process? = nil) async throws {

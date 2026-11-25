@@ -94,5 +94,21 @@
     }
   },
   "port": 11436,
-  "alias": "gemma4-e2b-cleanup:latest"
+  "alias": "gemma4-e2b-cleanup:latest",
+  "models": {
+    "s1-mini": {
+      "name": "S1-mini by Superwhisper",
+      "repository": "ayushpatnaik/S1-mini-FreeFlow-cleanup-GGUF",
+      "revision": "6665acc599d42d7adc2d55c577119e56ee22810d",
+      "artifacts": {
+        "model": {
+          "file": "s1-mini-freeflow-cleanup-q4_0.gguf",
+          "bytes": 381565696,
+          "sha256": "ff7dfbc19d7220ac7e1f7cd88bc95da3db7e7e7893a35ea552895727605abddc"
+        }
+      },
+      "alias": "s1-mini-cleanup:latest",
+      "format": "s1-mini"
+    }
+  }
 }

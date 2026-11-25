@@ -34,6 +34,10 @@ Click any screenshot to view it at full size.
 - Choose an English or multilingual speech model.
 - Add names, technical terms and exact phrase corrections to a private dictionary.
 - Add your own context to the cleanup prompt, such as your work or terminology.
+- Optionally switch cleanup to S1-mini by Superwhisper in **Settings → Cleanup**: a 382 MB
+  model that is quicker, uses about 2.3 GB less memory and is trained not to answer
+  dictated questions. It uses your dictionary but not your added context, and is
+  English-first.
 - Optionally pause media while recording and resume it afterwards.
 - Press Escape to cancel, or use **Copy last result** to recover text.
 - Turn off **Clean up dictation** for raw transcription, or opt into raw transcription

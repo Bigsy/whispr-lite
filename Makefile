@@ -22,11 +22,13 @@ check: test build doctor
 	"dist/Whispr Lite.app/Contents/MacOS/WhisprLite" --smoke-test
 cleanup-helper:
 	$(SWIFT_ENV) swift build $(SWIFT_FLAGS) --product WhisprLiteCleanup
+# MODEL=s1-mini prepares or installs another cleanup model from Resources/cleanup-stack.json.
+CLEANUP_MODEL = $(if $(MODEL),--model $(MODEL))
 cleanup-prepare: cleanup-helper
-	.build/debug/WhisprLiteCleanup prepare --kit "$(CURDIR)"
+	.build/debug/WhisprLiteCleanup prepare --kit "$(CURDIR)" $(CLEANUP_MODEL)
 cleanup-verify: cleanup-helper
-	.build/debug/WhisprLiteCleanup verify --kit "$(CURDIR)"
+	.build/debug/WhisprLiteCleanup verify --kit "$(CURDIR)" $(CLEANUP_MODEL)
 cleanup-install: cleanup-helper
-	.build/debug/WhisprLiteCleanup install --kit "$(CURDIR)"
+	.build/debug/WhisprLiteCleanup install --kit "$(CURDIR)" $(CLEANUP_MODEL)
 cleanup-uninstall: cleanup-helper
 	.build/debug/WhisprLiteCleanup uninstall --kit "$(CURDIR)"

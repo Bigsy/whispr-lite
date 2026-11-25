@@ -69,6 +69,14 @@ the standalone binaries under the owned cleanup directory. Model files come from
 [unsloth/gemma-4-E2B-it-qat-GGUF](https://huggingface.co/unsloth/gemma-4-E2B-it-qat-GGUF);
 the upstream model terms apply to these separately downloaded assets.
 
+The optional cleanup model is S1-mini by Superwhisper, in its FreeFlow cleanup fine-tune.
+It is not bundled either: choosing it in Settings downloads the pinned revision of
+[ayushpatnaik/S1-mini-FreeFlow-cleanup-GGUF](https://huggingface.co/ayushpatnaik/S1-mini-FreeFlow-cleanup-GGUF).
+Its licence is Apache-2.0 with a clause that any use, distribution or integration must
+continue to identify the model as "S1-mini" by "Superwhisper"; Settings names it so. The
+request framing follows [FreeFlow](https://github.com/zachlatta/freeflow) (MIT), whose
+prompt text the model card reproduces; no FreeFlow source is copied.
+
 ## ParakeetCore
 
 [Bigsy/parakeet-ane-server v0.3.0](https://github.com/Bigsy/parakeet-ane-server/tree/v0.3.0),

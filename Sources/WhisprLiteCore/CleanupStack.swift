@@ -46,6 +46,19 @@ struct CleanupStack: Codable, Sendable {
             else { throw CleanupEngineFailure("Invalid llama.cpp runtime pin") }
         }
     }
+    /// A cleanup model the user can install in place of the default one. It shares the
+    /// llama.cpp runtime and port, and has its own files, alias and prompt format.
+    struct Alternative: Codable, Sendable {
+        var name: String
+        var repository: String
+        var revision: String
+        var artifacts: [String: Artifact]
+        var alias: String
+        var format: String
+    }
+    /// The id of the model described by the top-level fields of the bundled stack.
+    static let defaultModel = "gemma-4-e2b"
+    static let defaultName = "Gemma 4 E2B"
     var schema: Int
     var repository: String
     var revision: String
@@ -53,21 +66,73 @@ struct CleanupStack: Codable, Sendable {
     var llama_server: Server
     var port: Int
     var alias: String
+    /// Display name, prompt format and id of the selected model; absent for the default one.
+    var name: String? = nil
+    var format: String? = nil
+    var model: String? = nil
+    /// The alternatives by id. A staged runner's pin holds only its selected model.
+    var models: [String: Alternative]? = nil
+
+    var promptFormat: CleanupPromptFormat { format.flatMap(CleanupPromptFormat.init(rawValue:)) ?? .chat }
+    /// Files in download order: the model, then its optional speculative drafter.
+    var files: [Artifact] { ["model", "drafter"].compactMap { artifacts[$0] } }
 
     static func load(_ file: URL) throws -> Self {
         let value = try JSONDecoder().decode(Self.self, from: CleanupFiles.read(file, limit: 1 << 20))
         try value.validate()
         return value
     }
+    private static func validModel(repository: String, revision: String, artifacts: [String: Artifact],
+                                   alias: String, format: String?) -> Bool {
+        !alias.isEmpty && alias.utf8.count <= 128
+            && CleanupFiles.matches(repository, #"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"#)
+            && CleanupFiles.matches(revision, #"^[0-9a-f]{40}$"#)
+            && (Set(artifacts.keys) == ["model", "drafter"] || Set(artifacts.keys) == ["model"])
+            && artifacts.values.allSatisfy({ CleanupFiles.safeName($0.file) && $0.bytes > 0
+                && $0.bytes <= 20_000_000_000 && CleanupFiles.validDigest($0.sha256) })
+            && Set(artifacts.values.map(\.file)).count == artifacts.count
+            && (format.map { CleanupPromptFormat(rawValue: $0) != nil } ?? true)
+    }
     func validate() throws {
-        guard schema == 1, (1024...65535).contains(port), !alias.isEmpty, alias.utf8.count <= 128,
-              CleanupFiles.matches(repository, #"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"#),
-              CleanupFiles.matches(revision, #"^[0-9a-f]{40}$"#), Set(artifacts.keys) == ["model", "drafter"],
-              artifacts.values.allSatisfy({ CleanupFiles.safeName($0.file) && $0.bytes > 0
-                  && $0.bytes <= 20_000_000_000 && CleanupFiles.validDigest($0.sha256) }),
-              Set(artifacts.values.map(\.file)).count == artifacts.count
+        guard schema == 1, (1024...65535).contains(port),
+              Self.validModel(repository: repository, revision: revision, artifacts: artifacts, alias: alias, format: format),
+              (name ?? "x").utf8.count <= 128, !(name ?? "x").isEmpty, model.map(CleanupFiles.safeName) ?? true,
+              (models ?? [:]).count <= 16, (models ?? [:]).allSatisfy({ id, value in
+                  CleanupFiles.safeName(id) && id != Self.defaultModel && !value.name.isEmpty && value.name.utf8.count <= 128
+                      && Self.validModel(repository: value.repository, revision: value.revision,
+                                         artifacts: value.artifacts, alias: value.alias, format: value.format)
+              })
         else { throw CleanupEngineFailure("Invalid cleanup model pin") }
+        // Models share the folder, so a file name may belong to only one of them.
+        let names = files.map(\.file) + (models ?? [:]).values.flatMap { $0.artifacts.values.map(\.file) }
+        guard Set(names).count == names.count else { throw CleanupEngineFailure("Invalid cleanup model pin") }
         try llama_server.validate()
+    }
+    /// This stack with one model selected: the default one, or an alternative by id.
+    /// A runner's pin already holds its selection and accepts only that id.
+    func selecting(_ id: String?) throws -> Self {
+        guard let id, id != (model ?? Self.defaultModel) else { return self }
+        guard model == nil, let choice = models?[id] else {
+            throw CleanupEngineFailure("This version of Whispr Lite does not know the cleanup model \"\(id)\". Use Install… in Settings.")
+        }
+        var result = self
+        result.repository = choice.repository; result.revision = choice.revision
+        result.artifacts = choice.artifacts; result.alias = choice.alias
+        result.name = choice.name; result.format = choice.format; result.model = id; result.models = nil
+        try result.validate()
+        return result
+    }
+    /// The model the installed service was last switched to, recorded beside its accepted build.
+    static func acceptedModel(in directory: URL) throws -> String? {
+        let file = directory.appendingPathComponent("cleanup-model.json")
+        guard try PrivateFiles.regularFileExists(at: file) else { return nil }
+        struct Accepted: Decodable { let model: String }
+        guard let accepted = try? JSONDecoder().decode(Accepted.self, from: CleanupFiles.read(file, limit: 4096)),
+              CleanupFiles.safeName(accepted.model) else { throw CleanupEngineFailure("Invalid cleanup model record") }
+        return accepted.model
+    }
+    func acceptModel(in directory: URL) throws {
+        try CleanupFiles.write(["model": model ?? Self.defaultModel], to: directory.appendingPathComponent("cleanup-model.json"))
     }
     func effective(in directory: URL) throws -> Self {
         let file = directory.appendingPathComponent("cleanup-stack.local.json")
@@ -83,13 +148,17 @@ struct CleanupStack: Codable, Sendable {
         return block
     }
     func serverArguments(directory: URL, port: Int) -> [String] {
-        ["-m", directory.appendingPathComponent(artifacts["model"]!.file).path,
-         "--spec-type", "draft-mtp", "-md", directory.appendingPathComponent(artifacts["drafter"]!.file).path,
-         "--spec-draft-n-max", "6", "--swa-full", "-c", "4096", "-np", "1", "-fa", "on",
-         "--load-mode", "mmap+mlock", "--reasoning", "off", "--temp", "0",
-         "--alias", alias, "--host", "127.0.0.1", "--port", String(port),
-         "--no-webui", "--no-slots", "--no-context-shift",
-         "--cors-origins", "http://127.0.0.1:\(port)", "--log-disable"]
+        // Multi-token prediction needs the model's own drafter; a model without one runs plain.
+        let speculation = artifacts["drafter"].map {
+            ["--spec-type", "draft-mtp", "-md", directory.appendingPathComponent($0.file).path,
+             "--spec-draft-n-max", "6", "--swa-full"]
+        } ?? []
+        return ["-m", directory.appendingPathComponent(artifacts["model"]!.file).path] + speculation
+            + ["-c", "4096", "-np", "1", "-fa", "on",
+               "--load-mode", "mmap+mlock", "--reasoning", "off", "--temp", "0",
+               "--alias", alias, "--host", "127.0.0.1", "--port", String(port),
+               "--no-webui", "--no-slots", "--no-context-shift",
+               "--cors-origins", "http://127.0.0.1:\(port)", "--log-disable"]
     }
     static func runtimeEnvironment(_ supplied: [String: String] = ProcessInfo.processInfo.environment) -> [String: String] {
         var result = supplied.filter { !$0.key.hasPrefix("LLAMA_ARG_") && !$0.key.hasPrefix("DYLD_") }

@@ -89,9 +89,18 @@ import Darwin
             block.sha256 = try CleanupFiles.digest(binary); block.files_sha256["llama-server"] = block.sha256
             return block
         }
-        func service() throws -> CleanupService {
+        func service(model: String? = nil) throws -> CleanupService {
             let system = CleanupSystem(command: state.run, ready: { _, _ in })
-            return try CleanupService(kit: kit, executable: helper, directory: directory, agent: agent, system: system)
+            return try CleanupService(kit: kit, executable: helper, directory: directory, agent: agent, model: model, system: system)
+        }
+        /// Adds a second, drafter-less model to the kit, with its file already downloaded.
+        mutating func addAlternative(_ id: String = "small") throws {
+            let model = Data("synthetic small model".utf8)
+            stack.models = [id: .init(name: "Synthetic Small", repository: "synthetic/small", revision: String(repeating: "b", count: 40),
+                artifacts: ["model": .init(file: "small.gguf", bytes: Int64(model.count), sha256: CleanupFiles.digest(model))],
+                alias: "synthetic-small", format: "s1-mini")]
+            try CleanupFiles.write(stack, to: kit.appendingPathComponent("Resources/cleanup-stack.json"))
+            try model.write(to: directory.appendingPathComponent("small.gguf"))
         }
         func existingAgent(owner: String = CleanupEngineLauncher.label) throws -> Data {
             try PrivateFiles.ensureDirectory(at: agent.deletingLastPathComponent())
@@ -195,6 +204,65 @@ import Darwin
         try Data("changed runner".utf8).write(to: launcher.executable)
         #expect(throws: CleanupEngineFailure.self) { try service.stageRunner() }
         #expect(try String(contentsOf: launcher.executable, encoding: .utf8) == "changed runner")
+    }
+
+    @Test func anotherModelInstallsItsOwnPinWithoutADrafterAndLaterCommandsUseIt() async throws {
+        var fixture = try Fixture(); defer { fixture.remove() }
+        try fixture.addAlternative()
+        #expect(throws: CleanupEngineFailure.self) { try fixture.service(model: "unknown") }
+        #expect(try fixture.service().stack.model == nil)
+        let service = try fixture.service(model: "small")
+        #expect(service.stack.alias == "synthetic-small" && service.stack.promptFormat == .s1Mini && service.stack.models == nil)
+        let arguments = try await service.verify()
+        #expect(arguments[1...2] == ["-m", fixture.directory.appendingPathComponent("small.gguf").path])
+        #expect(!arguments.contains("--spec-type") && !arguments.contains("-md") && !arguments.contains("--swa-full"))
+        #expect(arguments.contains("mmap+mlock") && arguments.contains("synthetic-small"))
+        try await service.prepare() // No curl: the model and runtime are already cached.
+        // Nothing is recorded until an install succeeds.
+        #expect(try CleanupStack.acceptedModel(in: fixture.directory) == nil)
+        try await service.install()
+        #expect(try CleanupStack.acceptedModel(in: fixture.directory) == "small")
+        // The runner's pin is that one model, so a login launch needs no other record.
+        let runner = try CleanupEngineLauncher(agent: fixture.agent).executable.deletingLastPathComponent()
+        let pinned = try CleanupStack.load(runner.appendingPathComponent("Resources/cleanup-stack.json"))
+        #expect(pinned.model == "small" && pinned.models == nil && Set(pinned.artifacts.keys) == ["model"])
+        let login = try CleanupService(kit: runner, executable: fixture.helper, directory: fixture.directory, agent: fixture.agent,
+                                       useAcceptedBuild: false, system: .init(command: fixture.state.run, ready: { _, _ in }))
+        #expect(login.stack.alias == "synthetic-small")
+        // Status, update checks and reinstalls now act on the installed model.
+        #expect(try fixture.service().stack.alias == "synthetic-small")
+        // Switching back to the default records it and restores the drafter.
+        let original = try fixture.service(model: CleanupStack.defaultModel)
+        #expect(original.stack.alias == "synthetic-cleanup")
+        try await original.install()
+        #expect(try CleanupStack.acceptedModel(in: fixture.directory) == CleanupStack.defaultModel)
+        #expect(try await fixture.service().verify().contains("draft-mtp"))
+    }
+    @Test func failedSwitchKeepsThePreviousModelRecorded() async throws {
+        var fixture = try Fixture(); defer { fixture.remove() }
+        try fixture.addAlternative()
+        try await fixture.service().install()
+        let before = try Data(contentsOf: fixture.agent)
+        fixture.state.rejectNative = true
+        await #expect(throws: CleanupEngineFailure.self) { try await fixture.service(model: "small").install() }
+        #expect(try CleanupStack.acceptedModel(in: fixture.directory) == CleanupStack.defaultModel)
+        #expect(try Data(contentsOf: fixture.agent) == before)
+    }
+    @Test func modelPinsRejectSharedFilesUnknownFormatsAndTheDefaultId() throws {
+        var fixture = try Fixture(); defer { fixture.remove() }
+        try fixture.addAlternative()
+        try fixture.stack.validate()
+        var shared = fixture.stack; shared.models?["small"]?.artifacts["model"]?.file = "model.gguf"
+        #expect(throws: CleanupEngineFailure.self) { try shared.validate() }
+        var format = fixture.stack; format.models?["small"]?.format = "unknown"
+        #expect(throws: CleanupEngineFailure.self) { try format.validate() }
+        var reserved = fixture.stack; reserved.models = [CleanupStack.defaultModel: fixture.stack.models!["small"]!]
+        #expect(throws: CleanupEngineFailure.self) { try reserved.validate() }
+        var extra = fixture.stack; let copied = fixture.stack.models!["small"]!.artifacts["model"]!
+        extra.models?["small"]?.artifacts["other"] = copied
+        #expect(throws: CleanupEngineFailure.self) { try extra.validate() }
+        try Data(#"{"model": "../escape"}"#.utf8).write(to: fixture.directory.appendingPathComponent("cleanup-model.json"))
+        #expect(throws: CleanupEngineFailure.self) { try CleanupStack.acceptedModel(in: fixture.directory) }
     }
 
     @Test func foreignAgentsArePreservedAndNeverStopped() async throws {

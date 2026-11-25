@@ -44,6 +44,45 @@ import Foundation
         #expect(CleanupSetup.downloadBytes(kit: kit) == 2_345)
     }
 
+    @Test func modelsComeFromTheKitAndTheInstalledOneFromTheServiceRecord() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let kit = try kit(in: directory)
+        #expect(CleanupSetup.models(kit: kit).isEmpty) // The size-only lock above is not a full pin.
+        let digest = String(repeating: "a", count: 64)
+        var stack = CleanupStack(schema: 1, repository: "synthetic/model", revision: String(repeating: "a", count: 40),
+            artifacts: ["model": .init(file: "model.gguf", bytes: 2000, sha256: digest), "drafter": .init(file: "draft.gguf", bytes: 300, sha256: digest)],
+            llama_server: NativeCleanupTests.Fixture.block(11564), port: 11436, alias: "synthetic-cleanup")
+        stack.models = ["small": .init(name: "Synthetic Small", repository: "synthetic/small", revision: String(repeating: "b", count: 40),
+            artifacts: ["model": .init(file: "small.gguf", bytes: 400, sha256: digest)], alias: "synthetic-small", format: "s1-mini")]
+        try CleanupFiles.write(stack, to: kit.appendingPathComponent("Resources/cleanup-stack.json"))
+        let models = CleanupSetup.models(kit: kit)
+        #expect(models == [.init(id: CleanupStack.defaultModel, name: "Gemma 4 E2B", alias: "synthetic-cleanup", format: .chat, modelBytes: 2300, downloadBytes: 2400),
+                           .init(id: "small", name: "Synthetic Small", alias: "synthetic-small", format: .s1Mini, modelBytes: 400, downloadBytes: 500)])
+        #expect(models[0].followsInstructions && !models[1].followsInstructions)
+
+        let agent = directory.appendingPathComponent("agent.plist"), service = directory.appendingPathComponent("Cleanup")
+        try FileManager.default.createDirectory(at: service, withIntermediateDirectories: true)
+        #expect(CleanupSetup.installedModel(kit: kit, agent: agent) == nil)
+        let plist: [String: Any] = ["Label": CleanupEngineLauncher.label, "WhisprLiteOwner": CleanupEngineLauncher.label,
+            "WhisprLiteNativeRunner": true,
+            "ProgramArguments": ["/synthetic/native-helper", "run", "--directory", service.path, "--port", "12345"]]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0).write(to: agent)
+        // A service installed before there was a choice runs the default model.
+        #expect(CleanupSetup.installedModel(kit: kit, agent: agent)?.id == CleanupStack.defaultModel)
+        try Data(#"{"model": "small"}"#.utf8).write(to: service.appendingPathComponent("cleanup-model.json"))
+        #expect(CleanupSetup.installedModel(kit: kit, agent: agent) == models[1])
+        try Data(#"{"model": "newer"}"#.utf8).write(to: service.appendingPathComponent("cleanup-model.json"))
+        #expect(CleanupSetup.installedModel(kit: kit, agent: agent) == nil)
+
+        // A chosen model reaches the helper after the service's own folder and port.
+        try executable(kit.appendingPathComponent("Whispr Lite Cleanup"), """
+            [ "$5 $6 $7 $8 $9 ${10}" = "--directory \(service.path) --port 12345 --model small" ] || exit 9
+            """)
+        try await CleanupSetup(kit: kit, agent: agent).run(.prepare, model: "small") { _ in }
+        await #expect(throws: CleanupEngineFailure.self) { try await CleanupSetup(kit: kit, agent: agent).run(.prepare) { _ in } }
+    }
+
     @Test func stepsRunTheNativeHelperWithProgressAndSurfaceItsError() async throws {
         let directory = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

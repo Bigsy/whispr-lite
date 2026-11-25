@@ -200,7 +200,7 @@ extension CleanupService {
         let clients = try [port, candidatePort].map { port -> HTTPCleanup in
             var preferences = saved.0; preferences.cleanupEndpoint = "http://127.0.0.1:\(port)"
             var configuration = try CleanupConfiguration(preferences: preferences, prompt: saved.1, dictionary: saved.2)
-            configuration.model = stack.alias
+            configuration.model = stack.alias; configuration.format = stack.promptFormat
             return HTTPCleanup(configuration)
         }
         for client in clients { try await client.preparePrefix() }

@@ -64,6 +64,8 @@ private final class SettingsSectionHeights {
     @State private var recordingsMessage = ""
     @State private var showingDifferences = false
     @State private var confirmingCleanupInstall = false
+    /// The cleanup model chosen in the picker; it takes effect once installed.
+    @State private var cleanupModel: String
     @State private var permissions: PermissionStatus
     @State private var sectionHeights = SettingsSectionHeights()
     @AppStorage("settingsInstructionsEditorHeight") private var instructionsHeight = 56.0
@@ -79,6 +81,7 @@ private final class SettingsSectionHeights {
         self.onHeightChange = onHeightChange
         self.saved = saved; self.enumerateMicrophones = enumerateMicrophones
         _page = State(initialValue: page)
+        _cleanupModel = State(initialValue: setup.installedModel?.id ?? setup.models.first?.id ?? "")
         _preferences = State(initialValue: store.preferences)
         let loadedInstructions = Self.loadPrivateText(.instructions, fallback: "", store: store)
         let loadedDictionary = Self.loadPrivateText(.dictionary, fallback: "", store: store)
@@ -175,11 +178,15 @@ private final class SettingsSectionHeights {
             .padding(.horizontal, 12).padding(.vertical, 10)
             .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
         }.padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 14)
-        .alert("Install the cleanup service?", isPresented: $confirmingCleanupInstall) {
-            Button("Install") { setup.install() }
+        .alert(switchingCleanupModel ? "Switch the cleanup model?" : "Install the cleanup service?", isPresented: $confirmingCleanupInstall) {
+            Button(switchingCleanupModel ? "Switch" : "Install") { setup.install(model: selectedCleanupModel?.id) }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Downloads any missing cleanup files (up to \(cleanupDownloadSize ?? "the model and llama.cpp")) from Hugging Face and GitHub and checks every file against a pinned checksum. Existing models are reused. It then adds “Whispr Lite Cleanup” to your login items so cleanup is ready whenever you log in. Your dictation stays on this Mac.")
+            if switchingCleanupModel, let model = selectedCleanupModel {
+                Text("Downloads any missing files for \(model.name) (up to \(Self.size(model.downloadBytes))) from Hugging Face and GitHub and checks every file against a pinned checksum. Cleanup then restarts with it. The other model's files are kept, so switching back needs no download. Your dictation stays on this Mac.")
+            } else {
+                Text("Downloads any missing cleanup files (up to \(cleanupDownloadSize ?? "the model and llama.cpp")) from Hugging Face and GitHub and checks every file against a pinned checksum. Existing models are reused. It then adds “Whispr Lite Cleanup” to your login items so cleanup is ready whenever you log in. Your dictation stays on this Mac.")
+            }
         }
     }
 
@@ -205,7 +212,22 @@ private final class SettingsSectionHeights {
             .filter { !$0.0 }.map(\.1)
     }
     private var cleanupDownloadSize: String? {
-        setup.downloadBytes.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+        (selectedCleanupModel?.downloadBytes ?? setup.downloadBytes).map(Self.size)
+    }
+    private static func size(_ bytes: Int64) -> String { ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) }
+    private var selectedCleanupModel: CleanupModelOption? { setup.models.first { $0.id == cleanupModel } }
+    /// A service of ours is installed and the picker names another model.
+    private var switchingCleanupModel: Bool {
+        setup.installedModel != nil && selectedCleanupModel != nil && selectedCleanupModel != setup.installedModel
+    }
+    private var cleanupModelCaption: String {
+        guard let model = selectedCleanupModel else { return "" }
+        // The setup steps above carry the progress bar and Cancel.
+        if setup.busy { return "Setting up \(model.name). Progress is shown above." }
+        let memory = "Keeps \(Self.size(model.modelBytes)) in memory."
+        let limits = model.followsInstructions ? "" : " It uses your dictionary but not your additional instructions."
+        if model == setup.installedModel { return "Installed. \(memory)\(limits)" }
+        return "Not installed: downloads up to \(Self.size(model.downloadBytes)). \(memory)\(limits)"
     }
 
     private var setupSteps: some View {
@@ -401,8 +423,25 @@ private final class SettingsSectionHeights {
                 toggleRow("Use raw transcription if cleanup is unavailable", "Keep dictating during cleanup outages. Raw transcription is labelled, and cleanup retries on the next dictation. A slow service can still take up to the cleanup deadline.",
                           isOn: $preferences.allowRawTranscription)
                     .disabled(!preferences.cleanupEnabled)
+                if setup.available, setup.models.count > 1 {
+                    Divider()
+                    row("Cleanup model", cleanupModelCaption) {
+                        Picker("Cleanup model", selection: $cleanupModel) {
+                            ForEach(setup.models) { Text($0.name).tag($0.id) }
+                        }.labelsHidden().fixedSize().disabled(setup.busy)
+                        if !setup.busy, selectedCleanupModel != setup.installedModel {
+                            Button(switchingCleanupModel ? "Switch…" : "Install…") { confirmingCleanupInstall = true }
+                        }
+                    }
+                    // A failed first install is reported by the setup steps; a failed switch leaves cleanup running.
+                    if case let .failed(message) = setup.phase, status.setup.cleanup == .ready {
+                        warning("The cleanup model was not changed: \(message)")
+                    }
+                }
             }
-            editorSection("Additional instructions", "Added to the built-in cleanup prompt. Keep it to a short line about your work or terminology.",
+            editorSection("Additional instructions", setup.installedModel?.followsInstructions == false
+                          ? "Not used by \(setup.installedModel?.name ?? "this model"), which follows its own fixed prompt. Add terms to the dictionary instead."
+                          : "Added to the built-in cleanup prompt. Keep it to a short line about your work or terminology.",
                           text: $instructions, height: $instructionsHeight) { EmptyView() }
             if instructionsUnreadable {
                 warning("Saved instructions could not be read. The editor is blank; Save preserves the file until you edit it.")

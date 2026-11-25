@@ -1,5 +1,25 @@
 import Foundation
 
+/// One cleanup model the bundled kit can install, for Settings.
+public struct CleanupModelOption: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let name: String
+    /// The name the service answers to, and how requests to it are framed.
+    public let alias: String
+    public let format: CleanupPromptFormat
+    /// The model's own files. llama.cpp is shared between models.
+    public let modelBytes: Int64
+    /// Everything a fresh install of this model downloads, llama.cpp included.
+    public let downloadBytes: Int64
+    /// Fixed-prompt fine-tunes take the dictionary but ignore the user's additional instructions.
+    public var followsInstructions: Bool { format == .chat }
+
+    public init(id: String, name: String, alias: String, format: CleanupPromptFormat, modelBytes: Int64, downloadBytes: Int64) {
+        self.id = id; self.name = name; self.alias = alias; self.format = format
+        self.modelBytes = modelBytes; self.downloadBytes = downloadBytes
+    }
+}
+
 /// Runs the signed native cleanup helper. It needs only the app and macOS's standard tools;
 /// no interpreter, developer tools or source checkout is used on an installed Mac.
 public struct CleanupSetup: Equatable, Sendable {
@@ -29,7 +49,19 @@ public struct CleanupSetup: Equatable, Sendable {
             && required.allSatisfy { FileManager.default.fileExists(atPath: kit.appendingPathComponent($0).path) } ? kit : nil
     }
 
-    /// Bytes a fresh `prepare` downloads: every pinned model and the llama.cpp release.
+    /// The cleanup models this kit can install: the default first, then the others by name.
+    public static func models(kit: URL) -> [CleanupModelOption] {
+        guard let base = try? CleanupStack.load(kit.appendingPathComponent("Resources/cleanup-stack.json")) else { return [] }
+        let ids = [CleanupStack.defaultModel] + (base.models ?? [:]).sorted { $0.value.name < $1.value.name }.map(\.key)
+        return ids.compactMap { id in
+            guard let stack = try? base.selecting(id) else { return nil }
+            let bytes = stack.files.reduce(0) { $0 + $1.bytes }
+            return .init(id: id, name: stack.name ?? CleanupStack.defaultName, alias: stack.alias, format: stack.promptFormat,
+                         modelBytes: bytes, downloadBytes: bytes + stack.llama_server.release.bytes)
+        }
+    }
+
+    /// Bytes a fresh `prepare` of the default model downloads: its files and the llama.cpp release.
     public static func downloadBytes(kit: URL) -> Int64? {
         struct Lock: Decodable {
             struct Artifact: Decodable { let bytes: Int64 }
@@ -46,6 +78,16 @@ public struct CleanupSetup: Equatable, Sendable {
     /// Whispr Lite's cleanup login item exists; the service may still be starting or stopped.
     public static func isInstalled(agent: URL = CleanupEngineLauncher.agent) -> Bool {
         FileManager.default.fileExists(atPath: agent.path)
+    }
+
+    /// The model Whispr Lite's installed service runs: the one its last install recorded, or
+    /// the default for a service installed before there was a choice. Nil when no service of
+    /// ours is installed or this kit does not know its model.
+    public static func installedModel(kit: URL, agent: URL = CleanupEngineLauncher.agent) -> CleanupModelOption? {
+        guard let options = try? installedOptions(agent: agent), options.count == 4,
+              let id = try? CleanupStack.acceptedModel(in: URL(fileURLWithPath: options[1])) ?? CleanupStack.defaultModel
+        else { return nil }
+        return models(kit: kit).first { $0.id == id }
     }
 
     /// Reinstall an owned native service using its model directory and port.
@@ -79,8 +121,11 @@ public struct CleanupSetup: Equatable, Sendable {
 
     /// Runs one step to completion. Cancelling stops it: `prepare` keeps partial downloads for
     /// the next attempt. The helper never writes into the signed app bundle.
-    public func run(_ step: Step, progress: @escaping @Sendable (CleanupSetupProgress) -> Void) async throws {
-        let options = try Self.installedOptions(agent: agent)
+    /// `model` is a cleanup model id from `models(kit:)`; nil keeps the installed one, or the
+    /// default on a first install.
+    public func run(_ step: Step, model: String? = nil,
+                    progress: @escaping @Sendable (CleanupSetupProgress) -> Void) async throws {
+        let options = try Self.installedOptions(agent: agent) + (model.map { ["--model", $0] } ?? [])
         _ = try await LauncherRun(executable: executable, arguments: [step.rawValue, "--kit", kit.path, "--progress"] + options,
                                   progress: { progress(CleanupSetupProgress(line: $0)) }).run()
     }

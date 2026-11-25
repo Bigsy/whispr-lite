@@ -51,7 +51,8 @@ class CleanupCLITests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary) / 'untouched'
             for arguments in [[], ['install', '--port', '0'], ['prepare', '--rounds', '11'],
-                              ['status', '--typo'], ['prepare', '--directory'], ['run', '--port', '70000']]:
+                              ['status', '--typo'], ['prepare', '--directory'], ['run', '--port', '70000'],
+                              ['run', '--model', 's1-mini'], ['status', '--model', 's1-mini'], ['prepare', '--model']]:
                 result = run(CLEANUP, *arguments, '--directory', str(directory))
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertEqual(result.stdout, '')

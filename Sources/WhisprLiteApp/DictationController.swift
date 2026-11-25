@@ -85,7 +85,7 @@ import WhisprLiteCore
                     : URL(fileURLWithPath: preferences.asrModelDirectory, isDirectory: true),
                 allowDownloads: preferences.allowASRDownloads, model: preferences.asrModel)
         } catch { throw PipelineSetupFailure.backend }
-        let prompt: String
+        var prompt: String
         let cleanup: any TextCleanup
         let httpCleanup: HTTPCleanup?
         do {
@@ -94,8 +94,11 @@ import WhisprLiteCore
             if preferences.backend == .demo || !preferences.cleanupEnabled {
                 cleanup = DemoCleanup(); httpCleanup = nil
             } else {
-                let http = HTTPCleanup(try .init(preferences: preferences, prompt: prompt, dictionary: dictionary))
+                // Requests must match the model the installed service runs, which Settings can switch.
+                let installed = CleanupSetup.kit(resources: Bundle.main.resourceURL).flatMap { CleanupSetup.installedModel(kit: $0) }
+                let http = HTTPCleanup(try .init(preferences: preferences, prompt: prompt, dictionary: dictionary, installed: installed))
                 cleanup = http; httpCleanup = http
+                prompt = http.configuration.effectivePrompt
             }
         } catch { throw PipelineSetupFailure.cleanup }
         var pipeline = BatchPipeline(backend: backend, cleanup: cleanup)

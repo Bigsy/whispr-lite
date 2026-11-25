@@ -37,6 +37,38 @@ private func accuracyCorpus() throws -> AccuracyCorpus {
     try JSONDecoder().decode(AccuracyCorpus.self,
         from: Data(contentsOf: evaluationRoot.appendingPathComponent("Resources/accuracy-corpus-v1.json")))
 }
+/// English questions and instructions that a cleanup model must clean, never answer or obey.
+private func instructionsCorpus() throws -> AccuracyCorpus {
+    try JSONDecoder().decode(AccuracyCorpus.self,
+        from: Data(contentsOf: evaluationRoot.appendingPathComponent("Resources/accuracy-instructions-v1.json")))
+}
+/// The service under evaluation. Defaults to the bundled Gemma chat service.
+private func evaluationConfiguration(_ endpoint: LocalEndpoint, dictionary: String = "") throws -> CleanupConfiguration {
+    var configuration = CleanupConfiguration(endpoint: endpoint, prompt: SettingsStore.defaultPrompt, dictionary: dictionary)
+    guard let format = CleanupPromptFormat(rawValue: evaluationEnvironment["WHISPR_CLEANUP_FORMAT"] ?? "chat") else {
+        throw AppError.unsupported
+    }
+    configuration.format = format
+    configuration.model = evaluationEnvironment["WHISPR_CLEANUP_MODEL"] ?? CleanupConfiguration.defaultModel
+    return configuration
+}
+private func evaluationPromptSHA256() throws -> String {
+    let format = try evaluationConfiguration(LocalEndpoint(Preferences().cleanupEndpoint)).format
+    let prompt = switch format {
+    case .chat: SettingsStore.defaultPrompt
+    case .muesli: HTTPCleanup.muesliInstructions
+    case .s1Mini: HTTPCleanup.s1MiniInstructions
+    }
+    return CleanupFiles.digest(Data(prompt.utf8))
+}
+/// Keeps reports from different services side by side in `.build`.
+private func reportName(_ base: String) throws -> String {
+    guard let suffix = evaluationEnvironment["WHISPR_REPORT_SUFFIX"] else { return base }
+    guard !suffix.isEmpty, suffix.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }) else {
+        throw AppError.unsupported
+    }
+    return "\(base)-\(suffix)"
+}
 private func percentiles(_ times: [Double]) -> [String: Any] {
     ["n": times.count, "p50_ms": ReportStatistics.median(times) ?? 0,
      "p95_ms": ReportStatistics.nearestRank(times, fraction: 0.95) ?? 0]
@@ -86,8 +118,8 @@ private func report(_ fields: [String: Any], name: String) throws {
         evaluationRoot.appendingPathComponent("Resources/cleanup-stack.json")))
     fields["package_resolved_sha256"] = CleanupFiles.digest(try Data(contentsOf:
         evaluationRoot.appendingPathComponent("Package.resolved")))
-    fields["prompt_sha256"] = CleanupFiles.digest(Data(SettingsStore.defaultPrompt.utf8))
-    try JSONReport.write(fields, to: evaluationRoot.appendingPathComponent(".build/\(name).json"))
+    fields["prompt_sha256"] = try evaluationPromptSHA256()
+    try JSONReport.write(fields, to: evaluationRoot.appendingPathComponent(".build/\(try reportName(name)).json"))
 }
 
 @Suite(.serialized) struct AccuracyEvaluationTests {
@@ -103,6 +135,12 @@ private func report(_ fields: [String: Any], name: String) throws {
         #expect(wordErrors("", "one") == 1)
         let realistic = try reviewedCleanupCases()
         #expect(realistic.count == 24 && realistic.allSatisfy { !$0.expected.isEmpty && !$0.review.isEmpty })
+        let instructions = try instructionsCorpus()
+        #expect(instructions.schema == 1 && instructions.version == "instructions-v1" && !instructions.provenance.isEmpty)
+        #expect(instructions.cases.allSatisfy { $0.category == "instructions" && !$0.expected.isEmpty
+            && $0.expected.allSatisfy { !$0.isEmpty } })
+        let ids = (corpus.cases + instructions.cases).map(\.id) + realistic.map(\.id)
+        #expect(Set(ids).count == ids.count)
     }
 
     @Test(.enabled(if: evaluationEnvironment["WHISPR_EVALUATE"] == "1"))
@@ -114,13 +152,17 @@ private func report(_ fields: [String: Any], name: String) throws {
         var fullTimes: [Double] = [], seamTimes: [Double] = [], previousTimes: [Double] = []
         var review: [[String: Any]] = [] // Synthetic inputs/replies only, never the private speech set.
         var oldReusable = 0, reusable = 0, seamCases = 0
-        let fixtures = corpus.cases + (try reviewedCleanupCases()).map {
-            AccuracyCase(id: $0.id, raw: $0.raw, expected: [$0.expected], category: "realistic")
-        }
+        let instructions = try instructionsCorpus()
+        // English-only drops the French and German cases, for English-only models.
+        let englishOnly = evaluationEnvironment["WHISPR_EVALUATION_ENGLISH_ONLY"] == "1"
+        let fixtures = (corpus.cases + instructions.cases).filter { !englishOnly || $0.category != "multilingual" }
+            + (try reviewedCleanupCases()).map {
+                AccuracyCase(id: $0.id, raw: $0.raw, expected: [$0.expected], category: "realistic")
+            }
+        let configuration = try evaluationConfiguration(endpoint)
         for (index, fixture) in fixtures.enumerated() {
             FileHandle.standardError.write(Data("Evaluating synthetic fixture \(index + 1)/\(fixtures.count)\n".utf8))
-            let cleanup = HTTPCleanup(.init(endpoint: endpoint, prompt: SettingsStore.defaultPrompt,
-                                           dictionary: fixture.dictionary ?? ""))
+            let cleanup = HTTPCleanup(try evaluationConfiguration(endpoint, dictionary: fixture.dictionary ?? ""))
             try await cleanup.checkReadiness()
             try await cleanup.preparePrefix()
             let pipeline = BatchPipeline(backend: FakeASRBackend(), cleanup: cleanup)
@@ -169,12 +211,15 @@ private func report(_ fields: [String: Any], name: String) throws {
         try report(["corpus": corpus.version, "rounds": rounds,
                     "corpus_sha256": CleanupFiles.digest(try Data(contentsOf: evaluationRoot.appendingPathComponent("Resources/accuracy-corpus-v1.json"))),
                     "realistic_sha256": CleanupFiles.digest(try Data(contentsOf: evaluationRoot.appendingPathComponent("Resources/cleanup-fixtures.json"))),
-                    "mode": "sequential-synthetic-cleanup", "model": CleanupConfiguration.defaultModel,
+                    "instructions": instructions.version,
+                    "instructions_sha256": CleanupFiles.digest(try Data(contentsOf: evaluationRoot.appendingPathComponent("Resources/accuracy-instructions-v1.json"))),
+                    "english_only": englishOnly, "format": configuration.format.rawValue,
+                    "mode": "sequential-synthetic-cleanup", "model": configuration.model,
                     "full": percentiles(fullTimes), "seams": percentiles(seamTimes), "previous": percentiles(previousTimes),
                     "seam_cases": seamCases, "previous_reusable": oldReusable, "reusable": reusable,
                     "observations": observations], name: "accuracy-cleanup")
         try JSONReport.write(["synthetic_only": true, "cases": review],
-            to: evaluationRoot.appendingPathComponent(".build/accuracy-synthetic-review.json"))
+            to: evaluationRoot.appendingPathComponent(".build/\(try reportName("accuracy-synthetic-review")).json"))
     }
 
     @Test(.enabled(if: evaluationEnvironment["WHISPR_BENCHMARK_SEAMS"] == "1"))
@@ -211,8 +256,8 @@ private func report(_ fields: [String: Any], name: String) throws {
         let cache = evaluationEnvironment["WHISPR_ASR_CACHE_ROOT"].map { URL(fileURLWithPath: $0, isDirectory: true) }
         let backend = ParakeetCoreBackend(cacheRoot: cache, allowDownloads: false, model: model)
         try await backend.prepare()
-        let cleanup = HTTPCleanup(.init(endpoint: try .init(evaluationEnvironment["WHISPR_CLEANUP_ENDPOINT"]
-            ?? Preferences().cleanupEndpoint), prompt: SettingsStore.defaultPrompt))
+        let cleanup = HTTPCleanup(try evaluationConfiguration(try .init(evaluationEnvironment["WHISPR_CLEANUP_ENDPOINT"]
+            ?? Preferences().cleanupEndpoint)))
         try await cleanup.preparePrefix()
         var observations: [[String: Any]] = []
         for (index, fixture) in manifest.cases.enumerated() {

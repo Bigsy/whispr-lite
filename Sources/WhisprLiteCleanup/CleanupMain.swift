@@ -10,7 +10,7 @@ import WhisprLiteCore
     Commands: prepare, verify, install, uninstall, run, status,
               upgrade-check, upgrade-apply, upgrade-rollback
     Options: --directory PATH, --port 1024...65535, --settings-directory PATH,
-             --rounds 1...10, --progress, --kit PATH
+             --rounds 1...10, --progress, --kit PATH, --model ID
     """
     struct Options: Sendable {
         var command: String
@@ -18,6 +18,8 @@ import WhisprLiteCore
         var directory = CleanupService.defaultDirectory
         var settings = CleanupService.defaultDirectory.deletingLastPathComponent()
         var port: Int?
+        /// A cleanup model from the kit, for prepare and install. Other commands use the installed one.
+        var model: String?
         var rounds = 3
         var progress = false
         init(_ arguments: [String]) throws {
@@ -29,7 +31,7 @@ import WhisprLiteCore
                 let option = arguments[index]
                 guard seen.insert(option).inserted else { throw CleanupEngineFailure("Repeated cleanup option: \(option)") }
                 if option == "--progress" { progress = true; index += 1; continue }
-                guard ["--kit", "--directory", "--settings-directory", "--port", "--rounds"].contains(option),
+                guard ["--kit", "--directory", "--settings-directory", "--port", "--rounds", "--model"].contains(option),
                       index + 1 < arguments.count, !arguments[index + 1].isEmpty else {
                     throw CleanupEngineFailure("Invalid cleanup option: \(option)")
                 }
@@ -38,6 +40,9 @@ import WhisprLiteCore
                 case "--kit": kit = Self.path(value)
                 case "--directory": directory = Self.path(value)
                 case "--settings-directory": settings = Self.path(value)
+                case "--model":
+                    guard ["prepare", "verify", "install"].contains(command) else { throw CleanupEngineFailure("--model applies to prepare, verify and install") }
+                    model = value
                 case "--port":
                     guard let number = Int(value), (1024...65535).contains(number) else { throw CleanupEngineFailure("Port must be between 1024 and 65535") }
                     port = number
@@ -71,7 +76,7 @@ import WhisprLiteCore
             ? parent : parent.deletingLastPathComponent().appendingPathComponent("Resources/CleanupSetup"))
         do {
             let service = try CleanupService(kit: kit, executable: executable, directory: options.directory,
-                port: options.port, useAcceptedBuild: options.command != "run") { progress in
+                port: options.port, model: options.model, useAcceptedBuild: options.command != "run") { progress in
                     guard options.progress else { return }
                     let fraction = progress.fraction.map { String(format: "[%.3f] ", $0) } ?? ""
                     Self.error("progress: \(fraction)\(progress.text)")
