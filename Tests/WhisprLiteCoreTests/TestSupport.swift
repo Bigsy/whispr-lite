@@ -86,8 +86,9 @@ actor RefusingCleanup: TextCleanup {
         return pair.stream
     }
     func publish(samples: Int = 1) throws { continuation?.yield(try PCM16k([Float](repeating: 0.1, count: samples))) }
+    func finishChunks() { continuation?.finish(); continuation = nil }
     func end(at boundary: Double?) throws -> CapturedAudio {
-        ends += 1; continuation?.finish(); continuation = nil
+        ends += 1; finishChunks()
         return try .init(pcm: PCM16k([0.1, 0.2]))
     }
     func suspend() {}

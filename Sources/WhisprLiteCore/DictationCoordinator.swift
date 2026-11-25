@@ -160,6 +160,7 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                 guard let self else { return work }
                 // Audio after the last full stop of the previous chunk, transcribed with the next.
                 var carry: [Float] = []
+                var retryingSentence = false
                 do {
                     for try await chunk in chunks {
                         work.report.chunks += 1
@@ -174,11 +175,20 @@ public enum DictationState: String, Codable, Sendable { case idle, recording, pr
                         defer {
                             if self.generation == owner, self.state == .recording { self.startHoldWarmup() }
                         }
+                        guard carry.count + chunk.samples.count <= 2 * EarlyChunkRule.limitSamples else {
+                            work.report.stop = .rawNoSentenceEnd; break
+                        }
                         let audio = carry.isEmpty ? chunk : try PCM16k(carry + chunk.samples)
                         guard let heard = try await pipeline.recognize(audio) else { work.report.stop = .emptyChunk; break }
                         guard let sentence = BatchPipeline.sentencePrefix(of: heard, audio: audio) else {
-                            work.report.stop = .rawNoSentenceEnd; break
+                            work.report.stop = .rawNoSentenceEnd
+                            if retryingSentence { break }
+                            carry = audio.samples
+                            retryingSentence = true
+                            continue
                         }
+                        retryingSentence = false
+                        work.report.stop = .complete
                         if !sentence.rest.isEmpty { work.report.sentenceCuts += 1 }
                         carry = sentence.rest
                         let result = try await pipeline.finish(sentence.text)

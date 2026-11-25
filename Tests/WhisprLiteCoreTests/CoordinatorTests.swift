@@ -183,6 +183,32 @@ import AVFoundation
         #expect(await cleanup.inputs == ["First sentence.", "Second part."])
         #expect(insertion.texts == ["First sentence. Second part."])
     }
+    @Test(arguments: [true, false]) func earlyChunkRetriesOnceWhenItHasNoSentenceEnd(completesSentence: Bool) async throws {
+        let capture = EarlyCapture(), insertion = FakeInsertion(), cleanup = RecordingCleanup()
+        let backend = RunOnBackend(completesSentence: completesSentence)
+        let coordinator = DictationCoordinator(capture: capture, insertion: insertion, media: FakeMedia(),
+            pipeline: .init(backend: backend, cleanup: cleanup))
+        coordinator.ready = true
+        coordinator.press(); try capture.publish(samples: EarlyChunkRule.limitSamples)
+        try await poll { await backend.lengths.count == 1 }
+        #expect(await cleanup.inputs.isEmpty)
+        try capture.publish(samples: EarlyChunkRule.limitSamples)
+        if completesSentence {
+            try await poll { await cleanup.inputs.count == 1 }
+        } else {
+            try await poll { await backend.lengths.count == 2 }
+            try capture.publish(samples: 8_000)
+            capture.finishChunks()
+            await coordinator.settleBackendWork()
+            #expect(await cleanup.inputs.isEmpty)
+        }
+        coordinator.release()
+        try await poll { coordinator.state == .idle }
+        #expect(await backend.lengths == [EarlyChunkRule.limitSamples, 2 * EarlyChunkRule.limitSamples, 2])
+        #expect(await cleanup.inputs == (completesSentence
+            ? ["The first sentence continues here.", "Final words."] : ["The first sentence continues here. Final words."]))
+        #expect(insertion.texts == ["The first sentence continues here. Final words."])
+    }
     @Test func cancellingDuringEarlyCleanupWaitsAndNeverInserts() async throws {
         let capture = EarlyCapture(), insertion = FakeInsertion(), media = FakeMedia()
         let cleanup = RecordingCleanup(delay: .milliseconds(80))
@@ -413,6 +439,26 @@ import AVFoundation
         coordinator.release()
         try await poll { coordinator.state == .idle && insertion.texts.count == 1 }
         #expect(await backend.transcribedWhileWarming == false)
+    }
+}
+
+private actor RunOnBackend: ASRBackend {
+    let completesSentence: Bool
+    private(set) var lengths: [Int] = []
+
+    init(completesSentence: Bool) { self.completesSentence = completesSentence }
+    func prepare() {}
+    func readiness() -> BackendReadiness { .ready }
+    func transcribe(_ audio: PCM16k) -> ASRResult {
+        lengths.append(audio.samples.count)
+        let text: String
+        switch audio.samples.count {
+        case EarlyChunkRule.limitSamples: text = "The first sentence"
+        case 2 * EarlyChunkRule.limitSamples:
+            text = completesSentence ? "The first sentence continues here." : "The first sentence continues here"
+        default: text = "The first sentence continues here. Final words."
+        }
+        return .init(text: text, audioDuration: audio.duration)
     }
 }
 

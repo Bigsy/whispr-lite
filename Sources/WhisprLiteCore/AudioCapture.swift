@@ -300,8 +300,12 @@ final class AudioWorker: @unchecked Sendable {
                             _ = memcpy(destination.baseAddress!.advanced(by: count), floats,
                                        copied * MemoryLayout<Float>.stride)
                         }
-                        // Deliver still advances each count for early-chunk boundaries.
-                        for index in 0..<copied { count += 1; deliver(floats[index]) }
+                        if earlyContinuation == nil {
+                            count += copied
+                        } else {
+                            // Advance to each exact early-chunk boundary within the packet.
+                            for index in 0..<copied { count += 1; deliver(floats[index]) }
+                        }
                     }
                 } else {
                     for index in 0..<produced {
