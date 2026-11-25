@@ -291,8 +291,11 @@ public struct CleanupService: Sendable {
         var argv = arguments.map { strdup($0) } + [nil]
         var env = environment.map { strdup($0) } + [nil]
         defer { for value in argv + env { free(value) } }
-        // The helper handles cancellation during validation. The server needs normal signals.
+        // The helper handles cancellation during validation. The server needs normal signals:
+        // default handlers, and none blocked. This runs on a pool thread that blocks them, and
+        // a blocked mask survives exec, so the server would never see launchd's SIGTERM.
         _ = signal(SIGTERM, SIG_DFL); _ = signal(SIGINT, SIG_DFL)
+        var unblocked = sigset_t(); sigemptyset(&unblocked); pthread_sigmask(SIG_SETMASK, &unblocked, nil)
         argv.withUnsafeMutableBufferPointer { args in
             env.withUnsafeMutableBufferPointer { vars in _ = execve(arguments[0], args.baseAddress!, vars.baseAddress!) }
         }
