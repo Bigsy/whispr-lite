@@ -5,6 +5,35 @@ use the production Swift adapters and contact only a local cleanup service. Run 
 while dictation and other model work are idle. Reports identify the machine; compare
 results on the same machine, runtime, model, prompt and capture mode.
 
+## Bundled llama.cpp b12728: 25 November 2026
+
+The cleanup default now pins official build `b12728`, published 25 November 2026 at commit
+`ea722948146befb23c9529c1ec7f59fb2f34911f`. It is a rolling build after v1.0.0, not a tagged
+version; its executable still reports `1.0.0-dev`. The pin is the block the native helper's
+own `upgrade-check` wrote after verifying the archive size and GitHub SHA-256, the version,
+build and commit, and all 61 runtime file hashes. None of its 42 Mach-O files requires a
+macOS later than 13.3.
+
+On an M4 Pro / 24 GB / macOS 26.7.3, in an isolated folder and ports with default settings
+and no dictionary:
+
+- `upgrade-check` ran a `b12359` Gemma/MTP service beside the `b12728` candidate on the 24
+  realistic fixtures, a warmup plus three rounds. Every output was identical. Median request
+  157.4 ms against 156.9 ms; p90 233.5 ms against 232.7 ms.
+- The English evaluation below (57 cases, 3 rounds) was repeated on `b12728` through the
+  helper's `run` with the production flags. Gemma's 57 outputs were identical to its
+  `b12283` run (p50 77 ms, p95 212 ms). S1-mini's were identical to its `b12283` run apart
+  from the removed `EMPTY` line (p50 54 ms, p95 188 ms).
+
+Not measured: French and German cases, `b12359` against `b12728` on the 57-case set, and
+physical dictation latency. Reports: `.build/accuracy-cleanup-{gemma,s1-mini}-b12728.json`.
+
+The same run found that a server started by the helper never received SIGTERM: the helper
+executed it from a thread with signals blocked, and the mask survives exec. A helper-started
+server was still running 6 seconds after SIGTERM; a directly started one exited within
+0.5 seconds. With the mask cleared before exec the helper-started server also exits within
+0.5 seconds. Installed runners keep the old behaviour until the service is reinstalled.
+
 ## Bundled llama.cpp 1.0.0 — 14 November 2026
 
 The cleanup default pins official build `b12359`, the binary build linked from the
